@@ -267,7 +267,7 @@ jobs:
 
       - name: Install build tools
         shell: pwsh
-        run: choco install winflexbison3 re2c ninja -y --no-progress
+        run: choco install re2c ninja -y --no-progress
 
       - name: Download pinned LLVM, llvm-mingw and Boost
         shell: pwsh
@@ -283,6 +283,8 @@ jobs:
           & 7z.exe x tools/boost.tar.bz2 -otools -y
           tar.exe -xf tools/boost.tar -C tools
           Remove-Item tools/boost.tar
+          curl.exe -fL --retry 3 -o tools/win_flex_bison.zip https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip
+          & 7z.exe x tools/win_flex_bison.zip -otools/win_flex_bison -y
 
       - name: Build Windows target runtime with llvm-mingw
         shell: pwsh
@@ -316,7 +318,7 @@ jobs:
             [IO.File]::WriteAllText($_.FullName, $updated)
           }
           $env:PATH = "$llvm/bin;$env:PATH"
-          $bison = (Get-Command win_bison.exe).Source
+          $bison = (Resolve-Path tools/win_flex_bison/win_bison.exe).Path
           $re2c = (Get-Command re2c.exe).Source
           cmake -S . -B build-windows -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
