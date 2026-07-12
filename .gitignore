@@ -5,11 +5,6 @@
 AGENTS.md
 .hceignore
 
-# Local planning and instruction documents
-*.md
-!Standard.md
-!Test.md
-
 # CMake and build output
 build/
 build-*/
