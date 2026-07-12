@@ -366,9 +366,11 @@ jobs:
           & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-llvm examples/hello.hs -o hello.ll
           if (-not (Test-Path hello.ll)) { throw '--emit-llvm unexpectedly required clang' }
           $aggregateOutput = & build-windows/hsc.exe --c-compat --emit-llvm tests/cases/compat/c_aggregate_by_value.c 2>&1
-          if ($LASTEXITCODE -eq 0 -or "$aggregateOutput" -notmatch 'only supported for x86_64 SysV ELF') {
+          $aggregateExitCode = $LASTEXITCODE
+          if ($aggregateExitCode -eq 0 -or "$aggregateOutput" -notmatch 'only supported for x86_64 SysV ELF') {
             throw 'Windows C struct by-value ABI was not rejected'
           }
+          $global:LASTEXITCODE = 0
 
       - name: Run portable Windows CTest cases
         shell: pwsh
@@ -430,9 +432,11 @@ jobs:
           $savedPath = $env:PATH
           $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
           $output = & "$slim/bin/hsc.exe" examples/hello.hs -o missing.exe 2>&1
-          if ($LASTEXITCODE -eq 0 -or "$output" -notmatch 'no compatible Clang toolchain found') {
+          $missingExitCode = $LASTEXITCODE
+          if ($missingExitCode -eq 0 -or "$output" -notmatch 'no compatible Clang toolchain found') {
             throw 'missing toolchain diagnostic was not reported'
           }
+          $global:LASTEXITCODE = 0
           $env:PATH = $savedPath
 
       - name: Audit DLL dependencies
