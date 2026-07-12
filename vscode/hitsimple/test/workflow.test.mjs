@@ -23,6 +23,9 @@ const {
 const { createWorkflows } = require("../src/workflows");
 const { registerExtension } = require("../src/extension");
 const repoRoot = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+const testCompilerPath = process.env.HSC_PATH
+  ? path.resolve(process.env.HSC_PATH)
+  : path.join(repoRoot, "build/hsc");
 
 function basePlanOptions(overrides = {}) {
   return {
@@ -89,7 +92,7 @@ test("real hsc builds and runs all three configured safety modes", async () => {
       const plan = createBuildPlan({
         sourcePath,
         workspacePath,
-        compilerPath: path.join(repoRoot, "build/hsc"),
+        compilerPath: testCompilerPath,
         mode,
         outputDirectory: path.join(workspacePath, `out-${mode}`),
         additionalArgs: [],

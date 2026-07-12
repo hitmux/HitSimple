@@ -195,6 +195,15 @@ jobs:
         run: |
           package="$(find "$PWD/deb-artifact" -maxdepth 1 -name '*.deb' -print -quit)"
           test -n "$package"
+          for attempt in 1 2 3; do
+            if docker pull "$IMAGE"; then
+              break
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
           docker run --rm \
             -e EXPECTED_ARCH \
             -v "$PWD:/src:ro" \
