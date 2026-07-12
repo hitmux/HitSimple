@@ -634,6 +634,8 @@ private:
     std::vector<std::string> arguments{
         "-V199901L",
         "-W0",
+        "-e",
+        "utf8",
         "-D__HITSIMPLE__=1",
         "-D__HS_VERSION__=\\\"" HITSIMPLE_VERSION "\\\"",
         "-D__HS_VERSION_MAJOR__=" + std::to_string(parts[0]),
