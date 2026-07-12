@@ -274,11 +274,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force tools | Out-Null
           curl.exe -fL --retry 3 -o tools/llvm-sdk.tar.xz https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang%2Bllvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
-          tar.exe -xf tools/llvm-sdk.tar.xz -C tools
+          & 7z.exe x tools/llvm-sdk.tar.xz -otools -y
+          tar.exe -xf tools/llvm-sdk.tar -C tools
+          Remove-Item tools/llvm-sdk.tar
           curl.exe -fL --retry 3 -o tools/llvm-mingw.zip https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
-          Expand-Archive -Path tools/llvm-mingw.zip -DestinationPath tools -Force
+          & 7z.exe x tools/llvm-mingw.zip -otools -y
           curl.exe -fL --retry 3 -o tools/boost.tar.bz2 https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
-          tar.exe -xf tools/boost.tar.bz2 -C tools
+          & 7z.exe x tools/boost.tar.bz2 -otools -y
+          tar.exe -xf tools/boost.tar -C tools
+          Remove-Item tools/boost.tar
 
       - name: Build Windows target runtime with llvm-mingw
         shell: pwsh
