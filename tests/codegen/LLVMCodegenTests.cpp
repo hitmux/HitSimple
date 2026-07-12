@@ -758,6 +758,7 @@ HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
                            "    new z[8] %f= f_sqrt(4.0)\n"
                            "    new p[4] %f= f_pow(x, 2.0)\n"
                            "    new s[4] %f= f_sin(x)\n"
+                           "    new t[4] %f= f_tan(x)\n"
                            "    new c[8] %f= f_ceil(z)\n"
                            "    return 0\n"
                            "}\n");
@@ -770,6 +771,8 @@ HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
   HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.pow.f32") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.sin.f32") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call float @tanf(float") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call double @llvm.ceil.f64") !=
                  std::string::npos);

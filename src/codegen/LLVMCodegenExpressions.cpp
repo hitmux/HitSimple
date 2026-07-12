@@ -83,9 +83,6 @@ unaryFloatMathIntrinsic(stdlib::BuiltinId builtin) {
   if (builtin == stdlib::BuiltinId::FCos) {
     return llvm::Intrinsic::cos;
   }
-  if (builtin == stdlib::BuiltinId::FTan) {
-    return llvm::Intrinsic::tan;
-  }
   if (builtin == stdlib::BuiltinId::FLog) {
     return llvm::Intrinsic::log;
   }
@@ -1713,6 +1710,28 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
   }
 
   if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
+    if (call->builtin == stdlib::BuiltinId::FTan) {
+      auto *operand = emitFloatValue(*call->arguments[0], call->byteLength);
+      if (!operand) {
+        return nullptr;
+      }
+      if (call->byteLength == 2) {
+        auto *f32Ty = builder_.getFloatTy();
+        auto *extended = builder_.CreateFPExt(operand, f32Ty, "f16.tan.fpext");
+        auto callee = declareCFunction("tanf", f32Ty, {f32Ty});
+        auto *result =
+            builder_.CreateCall(callee, {extended}, "f16.tan.f32");
+        return builder_.CreateFPTrunc(result, floatType, "f16.tan.fptrunc");
+      }
+      std::string_view symbol = "tan";
+      if (call->byteLength == 4) {
+        symbol = "tanf";
+      } else if (call->byteLength == 16) {
+        symbol = "tanf128";
+      }
+      auto callee = declareCFunction(symbol, floatType, {floatType});
+      return builder_.CreateCall(callee, {operand}, call->callee + ".ret");
+    }
     if (const auto intrinsicId = unaryFloatMathIntrinsic(call->builtin)) {
       auto *operand = emitFloatValue(*call->arguments[0], call->byteLength);
       if (!operand) {

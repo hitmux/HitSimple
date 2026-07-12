@@ -15,7 +15,15 @@
  */
 
 /* Define target operating-system.  */
+#if     defined (__linux__)
+#define SYSTEM              SYS_LINUX
+#elif   defined (__FreeBSD__)
 #define SYSTEM              SYS_FREEBSD
+#elif   defined (__APPLE__)
+#define SYSTEM              SYS_MAC
+#else
+#define SYSTEM              SYS_UNKNOWN
+#endif
 
 /* Define target compiler.          */
 #ifndef COMPILER
@@ -349,6 +357,8 @@
 #if     defined (__x86_64__) || defined (__amd64__) || defined (_M_AMD64)    \
             || defined (_AMD64_) || defined (_X64_)
 #define CPU                 "x86_64"
+#elif   defined (__aarch64__) || defined (_M_ARM64)
+#define CPU                 "aarch64"
 #elif   defined (__ppc64__) || defined (__powerpc64__)
 #define CPU                 "ppc64"
 #elif   defined (__ppc__) || defined (__powerpc__)
@@ -605,4 +615,3 @@
 #if     KMMALLOC && _MEM_DEBUG
 #include        "xalloc.h"
 #endif
-

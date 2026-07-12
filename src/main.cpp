@@ -7,6 +7,7 @@
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/preprocessor/Preprocessor.h"
 #include "hitsimple/sema/Sema.h"
+#include "hitsimple/support/ResourcePaths.h"
 
 #include <algorithm>
 #include <bit>
@@ -740,8 +741,9 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   for (const auto& tempPath : tempPaths) {
     command += " " + shellQuote(tempPath.string());
   }
-  command += " -x c " + shellQuote(HITSIMPLE_RUNTIME_SOURCE) + " -lm -o " +
-             shellQuote(executablePath);
+  command += " -x c " +
+             shellQuote(hitsimple::support::runtimeSourcePath().string()) +
+             " -lm -o " + shellQuote(executablePath);
   const int status = std::system(command.c_str());
   for (const auto& tempPath : tempPaths) {
     std::filesystem::remove(tempPath);

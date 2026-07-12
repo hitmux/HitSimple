@@ -124,10 +124,11 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
     }
   }
 
-  LLVMInitializeX86TargetInfo();
-  LLVMInitializeX86Target();
-  LLVMInitializeX86TargetMC();
-  LLVMInitializeX86AsmPrinter();
+  if (llvm::InitializeNativeTarget() ||
+      llvm::InitializeNativeTargetAsmPrinter()) {
+    addDiagnostic("cannot initialize LLVM native target");
+    return EmitResult{"", std::move(diagnostics_)};
+  }
   std::string targetError;
   const auto *target = llvm::TargetRegistry::lookupTarget(targetTriple,
                                                            targetError);

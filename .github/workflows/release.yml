@@ -1,0 +1,258 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to validate without publishing
+        required: true
+        default: "0.1.0"
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            architecture: x86_64
+            host_machine: x86_64
+            predefined_macro: __x86_64__
+            testing: "ON"
+          - runner: ubuntu-22.04-arm
+            architecture: aarch64
+            host_machine: aarch64
+            predefined_macro: __aarch64__
+            testing: "ON"
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$REQUESTED_VERSION"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies
+        run: |
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | \
+            sudo tee /etc/apt/keyrings/apt.llvm.org.asc >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" | \
+            sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y bison clang-18 file llvm-18-dev ninja-build re2c
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=${{ matrix.testing }} \
+            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+
+      - name: Build
+        run: cmake --build build-release --parallel
+
+      - name: Verify compiler identity
+        run: |
+          test "$(uname -m)" = "${{ matrix.host_machine }}"
+          ./build-release/hsc --version | grep -Fx "hsc $HITSIMPLE_VERSION"
+          ./build-release/hsc --target-info
+
+      - name: Run x86_64 regression suite
+        if: matrix.architecture == 'x86_64'
+        run: ctest --test-dir build-release --output-on-failure --parallel 4
+
+      - name: Run aarch64 front-end unit suite
+        if: matrix.architecture == 'aarch64'
+        run: |
+          ./build-release/hsc_unit_tests \
+            SourceLocation_ Diagnostic_ CCompat_ Lexer_ Parser_ \
+            Preprocessor_ Sema_ ResourcePaths_
+
+      - name: Verify native preprocessor macro
+        shell: bash
+        run: |
+          printf '$ifndef %s\n$error "wrong native architecture macro"\n$endif\nfunc main() { return 0 }\n' \
+            "${{ matrix.predefined_macro }}" > "$RUNNER_TEMP/native-architecture.hs"
+          ./build-release/hsc -E "$RUNNER_TEMP/native-architecture.hs" >/dev/null
+
+      - name: Install and test relocatable package
+        shell: bash
+        run: |
+          package_name="hitsimple-${HITSIMPLE_VERSION}-linux-${{ matrix.architecture }}"
+          package_root="$PWD/dist/$package_name"
+          cmake --install build-release --prefix "$package_root" --strip
+
+          file "$package_root/bin/hsc"
+          test -f "$package_root/share/doc/HitSimple/mcpp-LICENSE.txt"
+          test -f "$package_root/share/doc/HitSimple/llvm-copyright.txt"
+          test -f "$package_root/share/doc/HitSimple/Apache-2.0.txt"
+          "$package_root/bin/hsc" --version | grep -Fx "hsc $HITSIMPLE_VERSION"
+
+          smoke_root="$RUNNER_TEMP/hitsimple-package-smoke"
+          mkdir -p "$smoke_root"
+          cp examples/hello.hs "$smoke_root/hello.hs"
+          (
+            cd "$smoke_root"
+            "$package_root/bin/hsc" hello.hs -o hello
+            ./hello | grep -Fx 42
+          )
+
+          tar -C "$PWD/dist" -czf "$PWD/dist/${package_name}.tar.gz" "$package_name"
+          rm -rf "$package_root"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hitsimple-linux-${{ matrix.architecture }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  extension:
+    name: VS Code extension
+    needs: linux
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$REQUESTED_VERSION"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-linux-x86_64
+          path: compiler-asset
+
+      - name: Prepare packaged compiler for extension tests
+        shell: bash
+        run: |
+          tar -xzf "compiler-asset/hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
+            -C compiler-asset
+          mkdir -p build
+          ln -s "$PWD/compiler-asset/hitsimple-${HITSIMPLE_VERSION}-linux-x86_64/bin/hsc" \
+            build/hsc
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode/hitsimple/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: vscode/hitsimple
+        run: npm ci
+
+      - name: Test extension
+        working-directory: vscode/hitsimple
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          npm test
+          xvfb-run -a npm run test:extension
+          npm run verify:vsix
+
+      - name: Package VSIX
+        working-directory: vscode/hitsimple
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          test "$version" = "$HITSIMPLE_VERSION"
+          mkdir -p dist
+          npm run package:vsix
+          test -f "dist/hitsimple-vscode-${version}.vsix"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hitsimple-vscode
+          path: vscode/hitsimple/dist/*.vsix
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    needs:
+      - linux
+      - extension
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create checksums and release notes
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum ./*.tar.gz ./*.vsix > SHA256SUMS
+
+          cat > "$RUNNER_TEMP/release-notes.txt" <<EOF
+          HitSimple ${GITHUB_REF_NAME#v} 是首个 Beta Release。
+
+          发布附件：
+
+          - Linux x86_64 编译器包
+          - Linux aarch64 编译器包
+          - VS Code 扩展 VSIX
+          - SHA-256 校验文件
+
+          Linux 包面向 glibc 2.35 或更新环境（例如 Ubuntu 22.04+）。解压后可直接从 \`bin/hsc\` 启动；编译并链接可执行文件时仍需系统提供名为 \`clang\` 的 Clang 18 或更新版本。两个 Linux 包分别在 GitHub-hosted x86_64 与 ARM64 runner 上原生构建和验证。
+
+          当前仍是实验性 Beta。x86_64 包运行完整回归；aarch64 包运行 284 项前端单测、原生 target/preprocessor 检查和端到端编译运行 smoke。C compatibility 的 struct 传值 ABI 只支持 x86_64 SysV ELF，aarch64 版本会明确拒绝该范围。
+
+          安装 VS Code 扩展：
+
+          \`\`\`bash
+          code --install-extension hitsimple-vscode-${GITHUB_REF_NAME#v}.vsix --force
+          \`\`\`
+          EOF
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "HitSimple $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.txt" \
+            --prerelease \
+            --latest=false
+
+      - name: Verify published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" -eq 4

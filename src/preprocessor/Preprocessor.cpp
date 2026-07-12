@@ -1,5 +1,7 @@
 #include "hitsimple/preprocessor/Preprocessor.h"
 
+#include "hitsimple/support/ResourcePaths.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -14,14 +16,6 @@
 #include <string_view>
 #include <unordered_map>
 #include <unistd.h>
-
-#ifndef HITSIMPLE_MCPP_EXECUTABLE
-#define HITSIMPLE_MCPP_EXECUTABLE "hsc_mcpp"
-#endif
-
-#ifndef HITSIMPLE_PROJECT_SOURCE_DIR
-#define HITSIMPLE_PROJECT_SOURCE_DIR "."
-#endif
 
 #ifndef HITSIMPLE_VERSION
 #define HITSIMPLE_VERSION "0.1.0"
@@ -593,8 +587,7 @@ private:
                       "required grouped standard header instead");
         return;
       }
-      const auto standardLibraryRoot =
-          std::filesystem::path(HITSIMPLE_PROJECT_SOURCE_DIR) / "stdlib";
+      const auto standardLibraryRoot = support::standardLibraryRoot();
       originalPath = (standardLibraryRoot / target).lexically_normal();
       generatedPath = (tempRoot / "include" / target).lexically_normal();
       if (std::filesystem::exists(standardLibraryRoot) &&
@@ -642,16 +635,15 @@ private:
     const auto errPath = tempRoot / "mcpp.err";
     const auto parts = versionParts();
 
-    std::string command = "LC_ALL=C " + shellQuote(HITSIMPLE_MCPP_EXECUTABLE) +
-                          " -V199901L -W0" +
-                          " -D__HITSIMPLE__=1" +
-                          " -D__HS_VERSION__=\\\"" HITSIMPLE_VERSION "\\\"" +
-                          " -D__HS_VERSION_MAJOR__=" +
-                          std::to_string(parts[0]) +
-                          " -D__HS_VERSION_MINOR__=" +
-                          std::to_string(parts[1]) +
-                          " -D__HS_VERSION_PATCH__=" +
-                          std::to_string(parts[2]);
+    std::string command =
+        "LC_ALL=C " +
+        shellQuote(support::preprocessorExecutablePath().string()) +
+        " -V199901L -W0" +
+        " -D__HITSIMPLE__=1" +
+        " -D__HS_VERSION__=\\\"" HITSIMPLE_VERSION "\\\"" +
+        " -D__HS_VERSION_MAJOR__=" + std::to_string(parts[0]) +
+        " -D__HS_VERSION_MINOR__=" + std::to_string(parts[1]) +
+        " -D__HS_VERSION_PATCH__=" + std::to_string(parts[2]);
     for (const auto &includePath : prepared.includePaths) {
       command += " -I " + shellQuote(includePath.string());
     }

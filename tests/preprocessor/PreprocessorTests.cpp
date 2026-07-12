@@ -323,6 +323,29 @@ HS_TEST(Preprocessor_ProcessesSystemIncludePath) {
   HS_EXPECT_TRUE(result.source.find("1") != std::string::npos);
 }
 
+HS_TEST(Preprocessor_DefinesHostOperatingSystemAndArchitectureMacros) {
+  std::string source =
+      "$ifndef __linux__\n"
+      "$error \"missing Linux preprocessor macro\"\n"
+      "$endif\n";
+#if defined(__x86_64__)
+  source +=
+      "$ifndef __x86_64__\n"
+      "$error \"missing x86_64 preprocessor macro\"\n"
+      "$endif\n";
+#elif defined(__aarch64__)
+  source +=
+      "$ifndef __aarch64__\n"
+      "$error \"missing aarch64 preprocessor macro\"\n"
+      "$endif\n";
+#endif
+  source += "func main() { return 0 }\n";
+
+  const auto result =
+      hitsimple::preprocessor::preprocessSource(source, "test.hs");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+}
+
 HS_TEST(Preprocessor_RejectsRemovedCoreStandardHeader) {
   const auto result = hitsimple::preprocessor::preprocessSource(
       "$include <core.hsh>\n", "test.hs");

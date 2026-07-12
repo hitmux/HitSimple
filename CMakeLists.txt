@@ -5,6 +5,8 @@ project(HitSimple
   LANGUAGES C CXX
 )
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -21,9 +23,7 @@ llvm_map_components_to_libnames(
   TargetParser
   MC
   AsmPrinter
-  X86Info
-  X86Desc
-  X86CodeGen
+  native
 )
 
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
@@ -109,6 +109,7 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
   src/stdlib/StandardLibrary.cpp
+  src/support/ResourcePaths.cpp
 )
 
 target_include_directories(hitsimple_frontend
@@ -131,6 +132,7 @@ target_compile_definitions(hitsimple_frontend
     HITSIMPLE_VERSION="${PROJECT_VERSION}"
     HITSIMPLE_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     HITSIMPLE_MCPP_EXECUTABLE="$<TARGET_FILE:hsc_mcpp>"
+    HITSIMPLE_RUNTIME_SOURCE="${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c"
 )
 
 target_compile_options(hitsimple_frontend
@@ -154,7 +156,6 @@ target_compile_definitions(hsc
   PRIVATE
     HITSIMPLE_VERSION="${PROJECT_VERSION}"
     HITSIMPLE_LLVM_VERSION="${LLVM_PACKAGE_VERSION}"
-    HITSIMPLE_RUNTIME_SOURCE="${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c"
 )
 
 target_compile_options(hsc
@@ -172,6 +173,43 @@ target_link_libraries(hsc
 
 add_dependencies(hsc hsc_mcpp)
 
+install(TARGETS hsc
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(TARGETS hsc_mcpp
+  RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/hitsimple
+)
+install(DIRECTORY stdlib/
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/stdlib
+  FILES_MATCHING PATTERN "*.hsh"
+)
+install(FILES runtime/hitsimple_runtime.c
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/runtime
+)
+install(FILES README.md USAGE.md Standard.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}
+)
+install(FILES third_party/mcpp/LICENSE
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}
+  RENAME mcpp-LICENSE.txt
+)
+
+set(LLVM_DISTRIBUTION_COPYRIGHT
+  "/usr/share/doc/llvm-${LLVM_VERSION_MAJOR}/copyright"
+)
+if(EXISTS "${LLVM_DISTRIBUTION_COPYRIGHT}")
+  install(FILES "${LLVM_DISTRIBUTION_COPYRIGHT}"
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+    RENAME llvm-copyright.txt
+  )
+endif()
+if(EXISTS "/usr/share/common-licenses/Apache-2.0")
+  install(FILES "/usr/share/common-licenses/Apache-2.0"
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+    RENAME Apache-2.0.txt
+  )
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)
@@ -188,6 +226,7 @@ if(BUILD_TESTING)
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
     tests/sema/SemaTryCatchTests.cpp
+    tests/support/ResourcePathsTests.cpp
     tests/support/TestRunner.cpp
   )
 

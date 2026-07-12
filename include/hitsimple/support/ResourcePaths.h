@@ -1,0 +1,11 @@
+#pragma once
+
+#include <filesystem>
+
+namespace hitsimple::support {
+
+std::filesystem::path standardLibraryRoot();
+std::filesystem::path runtimeSourcePath();
+std::filesystem::path preprocessorExecutablePath();
+
+} // namespace hitsimple::support
