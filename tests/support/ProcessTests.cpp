@@ -25,9 +25,12 @@ HS_TEST(Process_RunProcessUsesArgvAndUnicodeRedirectPath) {
       *executable, {"No matching test filter with spaces"}, output);
   HS_EXPECT_TRUE(result.launched);
   HS_EXPECT_EQ(result.exitCode, 0);
-  std::ifstream input(output, std::ios::binary);
-  const std::string text((std::istreambuf_iterator<char>(input)),
-                         std::istreambuf_iterator<char>());
+  std::string text;
+  {
+    std::ifstream input(output, std::ios::binary);
+    text.assign(std::istreambuf_iterator<char>(input),
+                std::istreambuf_iterator<char>());
+  }
   std::filesystem::remove(output);
   HS_EXPECT_TRUE(text.find("0 tests, 0 failures") != std::string::npos);
 }
