@@ -31,12 +31,14 @@ int Registry::runAll(std::ostream& out,
       continue;
     }
     ++selected;
+    out << "[RUN] " << test.name << '\n' << std::flush;
     try {
       test.run();
-      out << "[PASS] " << test.name << '\n';
+      out << "[PASS] " << test.name << '\n' << std::flush;
     } catch (const Failure& failure) {
       ++failures;
-      out << "[FAIL] " << test.name << ": " << failure.message() << '\n';
+      out << "[FAIL] " << test.name << ": " << failure.message() << '\n'
+          << std::flush;
     }
   }
 

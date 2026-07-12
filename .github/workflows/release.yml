@@ -348,7 +348,10 @@ jobs:
         shell: pwsh
         run: |
           & build-windows/hsc_unit_tests.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Windows unit tests failed' }
+          $unitExitCode = $LASTEXITCODE
+          if ($unitExitCode -ne 0) {
+            throw "Windows unit tests failed with exit code $unitExitCode"
+          }
           $mingwClang = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
           & build-windows/hsc.exe --version | Select-String -SimpleMatch "hsc $env:HITSIMPLE_VERSION"
           & build-windows/hsc.exe --target-info | Tee-Object -FilePath target-info.txt
