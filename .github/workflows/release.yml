@@ -24,11 +24,13 @@ jobs:
           - runner: ubuntu-22.04
             architecture: x86_64
             host_machine: x86_64
+            file_pattern: x86-64
             predefined_macro: __x86_64__
             testing: "ON"
           - runner: ubuntu-22.04-arm
             architecture: aarch64
             host_machine: aarch64
+            file_pattern: ARM aarch64
             predefined_macro: __aarch64__
             testing: "ON"
     runs-on: ${{ matrix.runner }}
@@ -102,7 +104,7 @@ jobs:
           package_root="$PWD/dist/$package_name"
           cmake --install build-release --prefix "$package_root" --strip
 
-          file "$package_root/bin/hsc"
+          file "$package_root/bin/hsc" | grep -F "${{ matrix.file_pattern }}"
           test -f "$package_root/share/doc/HitSimple/mcpp-LICENSE.txt"
           test -f "$package_root/share/doc/HitSimple/llvm-copyright.txt"
           test -f "$package_root/share/doc/HitSimple/Apache-2.0.txt"
@@ -111,10 +113,13 @@ jobs:
           smoke_root="$RUNNER_TEMP/hitsimple-package-smoke"
           mkdir -p "$smoke_root"
           cp examples/hello.hs "$smoke_root/hello.hs"
+          cp tests/cases/run/f16_f128_fallback.hs "$smoke_root/f128.hs"
           (
             cd "$smoke_root"
             "$package_root/bin/hsc" hello.hs -o hello
             ./hello | grep -Fx 42
+            "$package_root/bin/hsc" f128.hs -o f128
+            ./f128
           )
 
           tar -C "$PWD/dist" -czf "$PWD/dist/${package_name}.tar.gz" "$package_name"
@@ -196,30 +201,73 @@ jobs:
           path: vscode/hitsimple/dist/*.vsix
           if-no-files-found: error
 
-  release:
-    name: Publish GitHub Release
-    if: github.event_name == 'push'
-    permissions:
-      contents: write
+  assemble:
+    name: Assemble release assets
     needs:
       - linux
       - extension
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-          merge-multiple: true
-
-      - name: Create checksums and release notes
+      - name: Resolve version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          cd release-assets
-          sha256sum ./*.tar.gz ./*.vsix > SHA256SUMS
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$REQUESTED_VERSION"
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
 
-          cat > "$RUNNER_TEMP/release-notes.txt" <<EOF
-          HitSimple ${GITHUB_REF_NAME#v} 是首个 Beta Release。
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-linux-x86_64
+          path: release-bundle/assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-linux-aarch64
+          path: release-bundle/assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-vscode
+          path: release-bundle/assets
+
+      - name: Create and verify release bundle
+        shell: bash
+        run: |
+          cd release-bundle/assets
+          printf '%s\n' \
+            "hitsimple-${HITSIMPLE_VERSION}-linux-aarch64.tar.gz" \
+            "hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
+            "hitsimple-vscode-${HITSIMPLE_VERSION}.vsix" \
+            | sort > "$RUNNER_TEMP/expected-assets"
+          find . -maxdepth 1 -type f -printf '%f\n' \
+            | sort > "$RUNNER_TEMP/actual-assets"
+          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
+
+          sha256sum \
+            "hitsimple-${HITSIMPLE_VERSION}-linux-aarch64.tar.gz" \
+            "hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
+            "hitsimple-vscode-${HITSIMPLE_VERSION}.vsix" \
+            > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+          printf '%s\n' SHA256SUMS \
+            "hitsimple-${HITSIMPLE_VERSION}-linux-aarch64.tar.gz" \
+            "hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
+            "hitsimple-vscode-${HITSIMPLE_VERSION}.vsix" \
+            | sort > "$RUNNER_TEMP/expected-assets"
+          find . -maxdepth 1 -type f -printf '%f\n' \
+            | sort > "$RUNNER_TEMP/actual-assets"
+          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
+
+          cat > ../release-notes.txt <<EOF
+          HitSimple ${HITSIMPLE_VERSION} 是首个 Beta Release。
 
           发布附件：
 
@@ -228,31 +276,99 @@ jobs:
           - VS Code 扩展 VSIX
           - SHA-256 校验文件
 
-          Linux 包面向 glibc 2.35 或更新环境（例如 Ubuntu 22.04+）。解压后可直接从 \`bin/hsc\` 启动；编译并链接可执行文件时仍需系统提供名为 \`clang\` 的 Clang 18 或更新版本。两个 Linux 包分别在 GitHub-hosted x86_64 与 ARM64 runner 上原生构建和验证。
+          Linux 包面向 glibc 2.35 或更新环境（例如 Ubuntu 22.04+）。解压后可直接从 \`bin/hsc\` 启动；编译并链接可执行文件时仍需系统提供名为 \`clang\` 的 Clang 18。两个 Linux 包分别在 GitHub-hosted x86_64 与 ARM64 runner 上原生构建和验证。
 
           当前仍是实验性 Beta。x86_64 包运行完整回归；aarch64 包运行 284 项前端单测、原生 target/preprocessor 检查和端到端编译运行 smoke。C compatibility 的 struct 传值 ABI 只支持 x86_64 SysV ELF，aarch64 版本会明确拒绝该范围。
 
           安装 VS Code 扩展：
 
           \`\`\`bash
-          code --install-extension hitsimple-vscode-${GITHUB_REF_NAME#v}.vsix --force
+          code --install-extension hitsimple-vscode-${HITSIMPLE_VERSION}.vsix --force
           \`\`\`
           EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hitsimple-release-bundle
+          path: release-bundle
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    needs: assemble
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-release-bundle
+          path: release-bundle
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+            gh release delete "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" --yes
+          fi
+
+          gh release create "$GITHUB_REF_NAME" release-bundle/assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "HitSimple $GITHUB_REF_NAME" \
+            --notes-file release-bundle/release-notes.txt \
+            --draft \
+            --latest=false
+
+      - name: Verify draft assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          test "$(gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+
+          printf '%s\n' SHA256SUMS \
+            "hitsimple-${GITHUB_REF_NAME#v}-linux-aarch64.tar.gz" \
+            "hitsimple-${GITHUB_REF_NAME#v}-linux-x86_64.tar.gz" \
+            "hitsimple-vscode-${GITHUB_REF_NAME#v}.vsix" \
+            | sort > "$RUNNER_TEMP/expected-assets"
+          gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name' | sort > "$RUNNER_TEMP/actual-assets"
+          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
+
+          mkdir -p "$RUNNER_TEMP/downloaded-release"
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/downloaded-release"
+          cd "$RUNNER_TEMP/downloaded-release"
+          sha256sum -c SHA256SUMS
 
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" release-assets/* \
+          gh release edit "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "HitSimple $GITHUB_REF_NAME" \
-            --notes-file "$RUNNER_TEMP/release-notes.txt" \
+            --draft=false \
             --prerelease \
             --latest=false
 
-      - name: Verify published assets
+      - name: Verify published release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')" -eq 4
+          test "$(gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+          test "$(gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --json isPrerelease \
+            --jq .isPrerelease)" = true

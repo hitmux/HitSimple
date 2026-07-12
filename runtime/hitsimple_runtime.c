@@ -8,6 +8,22 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(__clang__) && defined(__GLIBC__) && defined(__x86_64__) && \
+    defined(__SIZEOF_FLOAT128__) && defined(__HAVE_FLOAT128) && \
+    !__HAVE_FLOAT128
+/* glibc 2.35 treats Clang's GCC compatibility version as too old to expose
+   its binary128 typedef and conversion declarations on x86_64. */
+typedef __float128 HsFloat128;
+extern __float128 strtof128(const char *restrict, char **restrict);
+extern int strfromf128(char *restrict, size_t, const char *restrict,
+                       __float128);
+#else
+typedef _Float128 HsFloat128;
+#endif
+
+_Static_assert(sizeof(HsFloat128) == 16,
+               "HitSimple f128 requires IEEE 754 binary128");
+
 enum { HS_MAX_OBJECTS = 1024, HS_RUNTIME_ERROR = 120 };
 
 typedef enum {
@@ -514,13 +530,13 @@ static uint16_t hs_f32_to_f16(float value) {
   return (uint16_t)(sign | result);
 }
 
-_Float128 hs_f128_literal(const char *text) {
+HsFloat128 hs_f128_literal(const char *text) {
   if (text == NULL) {
     hs_fail("null f128 literal");
   }
   char *end = NULL;
   errno = 0;
-  const _Float128 value = strtof128(text, &end);
+  const HsFloat128 value = strtof128(text, &end);
   if (end == text || *end != '\0' || errno == ERANGE) {
     hs_fail("invalid f128 literal");
   }
@@ -675,7 +691,7 @@ int32_t hs_format_output(FILE *file, const char *format,
         memcpy(&value, argument->data, sizeof(value));
         length = snprintf(buffer, sizeof(buffer), "%.17g", value);
       } else {
-        _Float128 value;
+        HsFloat128 value;
         memcpy(&value, argument->data, sizeof(value));
         length = strfromf128(buffer, sizeof(buffer), "%g", value);
       }
@@ -1030,7 +1046,7 @@ int32_t hs_scan_input(FILE *file, const char *format,
         }
         memcpy(target->data, &value, sizeof(value));
       } else {
-        const _Float128 value = strtof128(token, &end);
+        const HsFloat128 value = strtof128(token, &end);
         if (end == token || *end != '\0' || errno == ERANGE) {
           return converted;
         }
