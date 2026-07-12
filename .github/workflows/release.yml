@@ -466,6 +466,7 @@ jobs:
           npm test
           xvfb-run -a npm run test:extension
           npm run verify:vsix
+          mkdir -p dist
           npm run package:vsix
           test -f "dist/hitsimple-vscode-${HITSIMPLE_VERSION}.vsix"
 
