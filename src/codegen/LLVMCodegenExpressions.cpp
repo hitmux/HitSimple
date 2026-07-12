@@ -409,9 +409,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                       comparison->op + "'");
         return nullptr;
       }
-      auto callee = declareCFunction(symbol, builder_.getInt8Ty(),
-                                     {left->getType(), right->getType()});
-      result = builder_.CreateCall(callee, {left, right}, "f128.cmp");
+      result = emitF128ScalarCall(symbol, builder_.getInt8Ty(), {left, right},
+                                  {true, true}, "f128.cmp");
     } else if (op == "==") {
       result = builder_.CreateFCmpOEQ(left, right, "fcmptmp");
     } else if (op == "!=") {
@@ -748,12 +747,10 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     llvm::Value *converted = nullptr;
     if (conversion->floatByteLength == 16) {
       auto *runtimeType = builder_.getInt64Ty();
-      auto callee = declareCFunction(
+      converted = emitF128ScalarCall(
           conversion->isUnsigned ? "hs_f128_to_u64" : "hs_f128_to_i64",
-          runtimeType, {floatValue->getType()});
-      converted = builder_.CreateCall(callee, {floatValue},
-                                      conversion->isUnsigned ? "touinttmp"
-                                                             : "tointtmp");
+          runtimeType, {floatValue}, {true},
+          conversion->isUnsigned ? "touinttmp" : "tointtmp");
       if (conversionType->getBitWidth() < 64U) {
         converted = builder_.CreateTrunc(converted, conversionType,
                                          "f128.toint.trunc");
@@ -1515,10 +1512,11 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
       }
       llvm::Value *chooseLeft = nullptr;
       if (call.byteLength == 16) {
-        auto callee = declareCFunction(
-            builtin == stdlib::BuiltinId::Min ? "hs_f128_lt" : "hs_f128_gt",
-            builder_.getInt8Ty(), {left->getType(), right->getType()});
-        chooseLeft = builder_.CreateCall(callee, {left, right}, "f128.minmax");
+        chooseLeft = emitF128ScalarCall(
+            builtin == stdlib::BuiltinId::Min ? "hs_f128_lt"
+                                               : "hs_f128_gt",
+            builder_.getInt8Ty(), {left, right}, {true, true},
+            "f128.minmax");
         chooseLeft = builder_.CreateICmpNE(
             chooseLeft, builder_.getInt8(0), "f128.minmax.bool");
       } else {
@@ -1646,9 +1644,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
     if (byteLength == 16) {
       auto *literal = builder_.CreateGlobalStringPtr(text, "f128.literal");
-      auto callee = declareCFunction("hs_f128_literal", floatType,
-                                     {builder_.getPtrTy()});
-      return builder_.CreateCall(callee, {literal}, "f128.literal.value");
+      return emitF128ResultCall("hs_f128_literal", {literal}, {false},
+                                "f128.literal.value");
     }
     char *end = nullptr;
     const double value = std::strtod(text.c_str(), &end);
@@ -1712,9 +1709,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         addDiagnostic("unsupported float operator '" + binary->op + "'");
         return nullptr;
       }
-      auto callee = declareCFunction(symbol, floatType,
-                                     {floatType, floatType});
-      return builder_.CreateCall(callee, {left, right}, "f128.binary");
+      return emitF128ResultCall(symbol, {left, right}, {true, true},
+                                "f128.binary");
     }
     if (op == "+") {
       return builder_.CreateFAdd(left, right, "faddtmp");
@@ -1766,11 +1762,10 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       } else if (sourceType->getBitWidth() > 64U) {
         argument = builder_.CreateTrunc(integerValue, builder_.getInt64Ty());
       }
-      auto callee = declareCFunction(
+      return emitF128ResultCall(
           conversion->sourceUnsigned ? "hs_f128_from_u64"
                                      : "hs_f128_from_i64",
-          floatType, {builder_.getInt64Ty()});
-      return builder_.CreateCall(callee, {argument}, "to.f128");
+          {argument}, {false}, "to.f128");
     }
     return conversion->sourceUnsigned
                ? builder_.CreateUIToFP(integerValue, floatType, "toufloattmp")
@@ -1797,6 +1792,10 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       } else if (call->byteLength == 16) {
         symbol = "hs_f128_tan";
       }
+      if (call->byteLength == 16) {
+        return emitF128ResultCall(symbol, {operand}, {true},
+                                  call->callee + ".ret");
+      }
       auto callee = declareCFunction(symbol, floatType, {floatType});
       return builder_.CreateCall(callee, {operand}, call->callee + ".ret");
     }
@@ -1820,8 +1819,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
           addDiagnostic("missing f128 runtime symbol for '" + call->callee + "'");
           return nullptr;
         }
-        auto callee = declareCFunction(*symbol, floatType, {floatType});
-        return builder_.CreateCall(callee, {operand}, call->callee + ".ret");
+        return emitF128ResultCall(*symbol, {operand}, {true},
+                                  call->callee + ".ret");
       }
       auto *intrinsic = llvm::Intrinsic::getDeclaration(
           module_.get(), *intrinsicId, {floatType});
@@ -1846,9 +1845,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         return builder_.CreateFPTrunc(result, floatType, "f16.pow.fptrunc");
       }
       if (call->byteLength == 16) {
-        auto callee = declareCFunction("hs_f128_pow", floatType,
-                                       {floatType, floatType});
-        return builder_.CreateCall(callee, {base, exponent}, "f_pow.ret");
+        return emitF128ResultCall("hs_f128_pow", {base, exponent},
+                                  {true, true}, "f_pow.ret");
       }
       auto *intrinsic = llvm::Intrinsic::getDeclaration(
           module_.get(), llvm::Intrinsic::pow, {floatType});
@@ -1906,8 +1904,7 @@ llvm::Value *LlvmEmitter::convertFloatValue(llvm::Value *value,
       addDiagnostic("unsupported conversion to f128");
       return nullptr;
     }
-    auto callee = declareCFunction(symbol, targetType, {value->getType()});
-    return builder_.CreateCall(callee, {value}, "to.f128");
+    return emitF128ResultCall(symbol, {value}, {false}, "to.f128");
   }
   if (sourceByteLength == 16) {
     llvm::Type *runtimeType = targetByteLength == 8
@@ -1915,8 +1912,8 @@ llvm::Value *LlvmEmitter::convertFloatValue(llvm::Value *value,
                                   : static_cast<llvm::Type*>(builder_.getFloatTy());
     const auto symbol = targetByteLength == 8 ? "hs_f128_to_f64"
                                               : "hs_f128_to_f32";
-    auto callee = declareCFunction(symbol, runtimeType, {value->getType()});
-    auto *converted = builder_.CreateCall(callee, {value}, "from.f128");
+    auto *converted = emitF128ScalarCall(symbol, runtimeType, {value}, {true},
+                                         "from.f128");
     if (targetByteLength == 2) {
       return builder_.CreateFPTrunc(converted, targetType, "f128.tof16");
     }

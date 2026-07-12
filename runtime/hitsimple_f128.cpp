@@ -340,120 +340,226 @@ Bits binary(Bits left, Bits right, Function function) {
   return encode(function(decode(left), decode(right)));
 }
 
+Bits loadBits(const void* source) {
+  Bits value = quietNaN();
+  if (source != nullptr) {
+    std::memcpy(&value, source, sizeof(value));
+  }
+  return value;
+}
+
+void storeBits(void* destination, Bits value) {
+  if (destination != nullptr) {
+    std::memcpy(destination, &value, sizeof(value));
+  }
+}
+
 } // namespace
 
 extern "C" {
 
-Bits hs_f128_literal(const char* text) {
-  if (text == nullptr) {
-    return kExponentMask | (Bits{1} << 111U);
-  }
-  return parseDecimalBits(text).value_or(quietNaN());
+void hs_f128_literal(void* result, const char* text) {
+  storeBits(result, text == nullptr
+                        ? kExponentMask | (Bits{1} << 111U)
+                        : parseDecimalBits(text).value_or(quietNaN()));
 }
 
-Bits hs_f128_add(Bits left, Bits right) {
+void hs_f128_add(void* result, const void* leftBits, const void* rightBits) {
+  const Bits left = loadBits(leftBits);
+  const Bits right = loadBits(rightBits);
   if (isZero(left) && isZero(right)) {
-    return signedZero((left & kSignMask) != 0 && (right & kSignMask) != 0);
+    storeBits(result,
+              signedZero((left & kSignMask) != 0 &&
+                         (right & kSignMask) != 0));
+    return;
   }
-  if (isZero(left) && !isNaN(right)) return right;
-  if (isZero(right) && !isNaN(left)) return left;
-  return binary(left, right, [](const Quad& a, const Quad& b) { return a + b; });
+  if (isZero(left) && !isNaN(right)) {
+    storeBits(result, right);
+    return;
+  }
+  if (isZero(right) && !isNaN(left)) {
+    storeBits(result, left);
+    return;
+  }
+  storeBits(result, binary(left, right, [](const Quad& a, const Quad& b) {
+              return a + b;
+            }));
 }
-Bits hs_f128_sub(Bits left, Bits right) {
+void hs_f128_sub(void* result, const void* leftBits, const void* rightBits) {
+  const Bits left = loadBits(leftBits);
+  const Bits right = loadBits(rightBits);
   if (isZero(left) && isZero(right)) {
-    return signedZero((left & kSignMask) != 0 && (right & kSignMask) == 0);
+    storeBits(result,
+              signedZero((left & kSignMask) != 0 &&
+                         (right & kSignMask) == 0));
+    return;
   }
-  if (isZero(left) && !isNaN(right)) return negate(right);
-  if (isZero(right) && !isNaN(left)) return left;
-  return binary(left, right, [](const Quad& a, const Quad& b) { return a - b; });
+  if (isZero(left) && !isNaN(right)) {
+    storeBits(result, negate(right));
+    return;
+  }
+  if (isZero(right) && !isNaN(left)) {
+    storeBits(result, left);
+    return;
+  }
+  storeBits(result, binary(left, right, [](const Quad& a, const Quad& b) {
+              return a - b;
+            }));
 }
-Bits hs_f128_mul(Bits left, Bits right) {
+void hs_f128_mul(void* result, const void* leftBits, const void* rightBits) {
+  const Bits left = loadBits(leftBits);
+  const Bits right = loadBits(rightBits);
   if ((isZero(left) && isInfinity(right)) ||
       (isInfinity(left) && isZero(right))) {
-    return quietNaN();
+    storeBits(result, quietNaN());
+    return;
   }
   if (isZero(left) || isZero(right)) {
-    return signedZero(((left ^ right) & kSignMask) != 0);
+    storeBits(result, signedZero(((left ^ right) & kSignMask) != 0));
+    return;
   }
-  return binary(left, right, [](const Quad& a, const Quad& b) { return a * b; });
+  storeBits(result, binary(left, right, [](const Quad& a, const Quad& b) {
+              return a * b;
+            }));
 }
-Bits hs_f128_div(Bits left, Bits right) {
+void hs_f128_div(void* result, const void* leftBits, const void* rightBits) {
+  const Bits left = loadBits(leftBits);
+  const Bits right = loadBits(rightBits);
   if ((isZero(left) && isZero(right)) ||
       (isInfinity(left) && isInfinity(right))) {
-    return quietNaN();
+    storeBits(result, quietNaN());
+    return;
   }
   if (isZero(left) || isInfinity(right)) {
-    return signedZero(((left ^ right) & kSignMask) != 0);
+    storeBits(result, signedZero(((left ^ right) & kSignMask) != 0));
+    return;
   }
-  return binary(left, right, [](const Quad& a, const Quad& b) { return a / b; });
+  storeBits(result, binary(left, right, [](const Quad& a, const Quad& b) {
+              return a / b;
+            }));
 }
 
-std::uint8_t hs_f128_eq(Bits left, Bits right) { return decode(left) == decode(right); }
-std::uint8_t hs_f128_ne(Bits left, Bits right) { return decode(left) != decode(right); }
-std::uint8_t hs_f128_lt(Bits left, Bits right) { return decode(left) < decode(right); }
-std::uint8_t hs_f128_le(Bits left, Bits right) { return decode(left) <= decode(right); }
-std::uint8_t hs_f128_gt(Bits left, Bits right) { return decode(left) > decode(right); }
-std::uint8_t hs_f128_ge(Bits left, Bits right) { return decode(left) >= decode(right); }
+std::uint8_t hs_f128_eq(const void* left, const void* right) {
+  return decode(loadBits(left)) == decode(loadBits(right));
+}
+std::uint8_t hs_f128_ne(const void* left, const void* right) {
+  return decode(loadBits(left)) != decode(loadBits(right));
+}
+std::uint8_t hs_f128_lt(const void* left, const void* right) {
+  return decode(loadBits(left)) < decode(loadBits(right));
+}
+std::uint8_t hs_f128_le(const void* left, const void* right) {
+  return decode(loadBits(left)) <= decode(loadBits(right));
+}
+std::uint8_t hs_f128_gt(const void* left, const void* right) {
+  return decode(loadBits(left)) > decode(loadBits(right));
+}
+std::uint8_t hs_f128_ge(const void* left, const void* right) {
+  return decode(loadBits(left)) >= decode(loadBits(right));
+}
 
-Bits hs_f128_from_i64(std::int64_t value) { return encode(Quad(value)); }
-Bits hs_f128_from_u64(std::uint64_t value) { return encode(Quad(value)); }
-Bits hs_f128_from_f32(float value) {
-  return value == 0 && std::signbit(value) ? kSignMask : encode(Quad(value));
+void hs_f128_from_i64(void* result, std::int64_t value) {
+  storeBits(result, encode(Quad(value)));
 }
-Bits hs_f128_from_f64(double value) {
-  return value == 0 && std::signbit(value) ? kSignMask : encode(Quad(value));
+void hs_f128_from_u64(void* result, std::uint64_t value) {
+  storeBits(result, encode(Quad(value)));
 }
-std::int64_t hs_f128_to_i64(Bits value) { return decode(value).convert_to<std::int64_t>(); }
-std::uint64_t hs_f128_to_u64(Bits value) { return decode(value).convert_to<std::uint64_t>(); }
-float hs_f128_to_f32(Bits value) {
+void hs_f128_from_f32(void* result, float value) {
+  storeBits(result, value == 0 && std::signbit(value) ? kSignMask
+                                                      : encode(Quad(value)));
+}
+void hs_f128_from_f64(void* result, double value) {
+  storeBits(result, value == 0 && std::signbit(value) ? kSignMask
+                                                      : encode(Quad(value)));
+}
+std::int64_t hs_f128_to_i64(const void* bits) {
+  return decode(loadBits(bits)).convert_to<std::int64_t>();
+}
+std::uint64_t hs_f128_to_u64(const void* bits) {
+  return decode(loadBits(bits)).convert_to<std::uint64_t>();
+}
+float hs_f128_to_f32(const void* bits) {
+  const Bits value = loadBits(bits);
   if (isZero(value)) return (value & kSignMask) != 0 ? -0.0F : 0.0F;
   return decode(value).convert_to<float>();
 }
-double hs_f128_to_f64(Bits value) {
+double hs_f128_to_f64(const void* bits) {
+  const Bits value = loadBits(bits);
   if (isZero(value)) return (value & kSignMask) != 0 ? -0.0 : 0.0;
   return decode(value).convert_to<double>();
 }
 
-Bits hs_f128_abs(Bits value) {
-  return value & ~kSignMask;
+void hs_f128_abs(void* result, const void* bits) {
+  storeBits(result, loadBits(bits) & ~kSignMask);
 }
-Bits hs_f128_sqrt(Bits value) {
-  if (isZero(value)) return value;
-  return unary(value, [](const Quad& a) { return boost::multiprecision::sqrt(a); });
+void hs_f128_sqrt(void* result, const void* bits) {
+  const Bits value = loadBits(bits);
+  storeBits(result, isZero(value)
+                        ? value
+                        : unary(value, [](const Quad& a) {
+                            return boost::multiprecision::sqrt(a);
+                          }));
 }
-Bits hs_f128_pow(Bits left, Bits right) {
-  return binary(left, right, [](const Quad& a, const Quad& b) {
-    return boost::multiprecision::pow(a, b);
-  });
+void hs_f128_pow(void* result, const void* left, const void* right) {
+  storeBits(result, binary(loadBits(left), loadBits(right),
+                           [](const Quad& a, const Quad& b) {
+                             return boost::multiprecision::pow(a, b);
+                           }));
 }
-Bits hs_f128_sin(Bits value) {
-  if (isZero(value)) return value;
-  return unary(value, [](const Quad& a) { return boost::multiprecision::sin(a); });
+void hs_f128_sin(void* result, const void* bits) {
+  const Bits value = loadBits(bits);
+  storeBits(result, isZero(value)
+                        ? value
+                        : unary(value, [](const Quad& a) {
+                            return boost::multiprecision::sin(a);
+                          }));
 }
-Bits hs_f128_cos(Bits value) {
-  return unary(value, [](const Quad& a) { return boost::multiprecision::cos(a); });
+void hs_f128_cos(void* result, const void* bits) {
+  storeBits(result, unary(loadBits(bits), [](const Quad& a) {
+              return boost::multiprecision::cos(a);
+            }));
 }
-Bits hs_f128_tan(Bits value) {
-  if (isZero(value)) return value;
-  return unary(value, [](const Quad& a) { return boost::multiprecision::tan(a); });
+void hs_f128_tan(void* result, const void* bits) {
+  const Bits value = loadBits(bits);
+  storeBits(result, isZero(value)
+                        ? value
+                        : unary(value, [](const Quad& a) {
+                            return boost::multiprecision::tan(a);
+                          }));
 }
-Bits hs_f128_log(Bits value) {
-  return unary(value, [](const Quad& a) { return boost::multiprecision::log(a); });
+void hs_f128_log(void* result, const void* bits) {
+  storeBits(result, unary(loadBits(bits), [](const Quad& a) {
+              return boost::multiprecision::log(a);
+            }));
 }
-Bits hs_f128_exp(Bits value) {
-  return unary(value, [](const Quad& a) { return boost::multiprecision::exp(a); });
+void hs_f128_exp(void* result, const void* bits) {
+  storeBits(result, unary(loadBits(bits), [](const Quad& a) {
+              return boost::multiprecision::exp(a);
+            }));
 }
-Bits hs_f128_floor(Bits value) {
-  if (isZero(value)) return value;
-  return unary(value, [](const Quad& a) { return boost::multiprecision::floor(a); });
+void hs_f128_floor(void* result, const void* bits) {
+  const Bits value = loadBits(bits);
+  storeBits(result, isZero(value)
+                        ? value
+                        : unary(value, [](const Quad& a) {
+                            return boost::multiprecision::floor(a);
+                          }));
 }
-Bits hs_f128_ceil(Bits value) {
-  if (isZero(value)) return value;
-  return unary(value, [](const Quad& a) { return boost::multiprecision::ceil(a); });
+void hs_f128_ceil(void* result, const void* bits) {
+  const Bits value = loadBits(bits);
+  storeBits(result, isZero(value)
+                        ? value
+                        : unary(value, [](const Quad& a) {
+                            return boost::multiprecision::ceil(a);
+                          }));
 }
-Bits hs_f128_round(Bits value) {
-  if (isZero(value)) return value;
-  return unary(value, [](const Quad& a) { return boost::multiprecision::round(a); });
+void hs_f128_round(void* result, const void* bits) {
+  const Bits value = loadBits(bits);
+  storeBits(result, isZero(value)
+                        ? value
+                        : unary(value, [](const Quad& a) {
+                            return boost::multiprecision::round(a);
+                          }));
 }
 
 int hs_f128_format(const void* bits, char* buffer, std::size_t capacity) {

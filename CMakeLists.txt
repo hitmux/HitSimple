@@ -98,6 +98,7 @@ add_library(hitsimple_frontend STATIC
   src/codegen/LLVMCodegenCAbi.cpp
   src/codegen/LLVMCodegenControlFlow.cpp
   src/codegen/LLVMCodegenExpressions.cpp
+  src/codegen/LLVMCodegenF128.cpp
   src/codegen/LLVMCodegenFunctions.cpp
   src/codegen/LLVMCodegenRuntime.cpp
   src/codegen/LLVMCodegenStatements.cpp

@@ -819,17 +819,19 @@ HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"x86_64-w64-windows-gnu\"") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i128 @hs_f128_literal(ptr)") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i128 @hs_f128_from_i64") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_from_i64(ptr") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i128 @hs_f128_add") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("declare void @hs_f128_add(ptr, ptr, ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i128 @hs_f128_sqrt") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_sqrt(ptr") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i8 @hs_f128_lt") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("declare i8 @hs_f128_lt(ptr, ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call double @hs_f128_to_f64") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("declare double @hs_f128_to_f64(ptr)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("declare i128 @hs_f128_") ==
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("fadd fp128") == std::string::npos);
 }
