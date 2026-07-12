@@ -1,12 +1,13 @@
 #include "hitsimple/preprocessor/Preprocessor.h"
 
+#include "hitsimple/support/Process.h"
+#include "hitsimple/support/Path.h"
 #include "hitsimple/support/ResourcePaths.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cctype>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -15,7 +16,6 @@
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
-#include <unistd.h>
 
 #ifndef HITSIMPLE_VERSION
 #define HITSIMPLE_VERSION "0.1.0"
@@ -31,7 +31,7 @@ struct TempDirectory {
     const auto seed =
         std::chrono::steady_clock::now().time_since_epoch().count();
     path = std::filesystem::temp_directory_path() /
-           ("hitsimple-mcpp-" + std::to_string(static_cast<long long>(getpid())) +
+           ("hitsimple-mcpp-" + std::to_string(support::currentProcessId()) +
             "-" + std::to_string(seed));
     std::filesystem::create_directories(path);
   }
@@ -51,19 +51,6 @@ struct PreparedInput {
       directiveKeywords;
   PreprocessResult result;
 };
-
-std::string shellQuote(std::string_view value) {
-  std::string quoted = "'";
-  for (const char ch : value) {
-    if (ch == '\'') {
-      quoted += "'\\''";
-    } else {
-      quoted += ch;
-    }
-  }
-  quoted += "'";
-  return quoted;
-}
 
 std::string trim(std::string_view text) {
   std::size_t begin = 0;
@@ -127,7 +114,7 @@ std::filesystem::path mirrorPathFor(const std::filesystem::path &root,
 
 std::filesystem::path sourcePathFor(const std::filesystem::path &root,
                                     const std::string &fileName) {
-  const std::filesystem::path path(fileName);
+  const auto path = support::pathFromUtf8(fileName);
   if (path.is_absolute()) {
     return mirrorPathFor(root, path);
   }
@@ -138,9 +125,9 @@ void addFileMapping(PreparedInput &prepared,
                     const std::filesystem::path &generated,
                     const std::string &original,
                     const std::string &spelling = {}) {
-  prepared.fileMap[generated.lexically_normal().string()] = original;
-  prepared.fileMap[std::filesystem::absolute(generated).lexically_normal().string()] =
-      original;
+  prepared.fileMap[support::pathToUtf8(generated.lexically_normal())] = original;
+  prepared.fileMap[support::pathToUtf8(
+      std::filesystem::absolute(generated).lexically_normal())] = original;
   if (!spelling.empty()) {
     prepared.fileMap[spelling] = original;
   }
@@ -152,7 +139,8 @@ std::string mappedFileName(const PreparedInput &prepared, std::string fileName) 
     return exact->second;
   }
   const auto normalized =
-      std::filesystem::path(fileName).lexically_normal().string();
+      support::pathToUtf8(
+          support::pathFromUtf8(fileName).lexically_normal());
   const auto found = prepared.fileMap.find(normalized);
   if (found != prepared.fileMap.end()) {
     return found->second;
@@ -498,7 +486,8 @@ public:
   PreprocessResult processFile(const std::string &path) {
     TempDirectory temp;
     PreparedInput prepared;
-    const auto originalPath = std::filesystem::absolute(path).lexically_normal();
+    const auto originalPath =
+        std::filesystem::absolute(support::pathFromUtf8(path)).lexically_normal();
     const auto content = readFile(originalPath);
     if (!content) {
       addDiagnostic(prepared.result, diagnostic::Severity::Error,
@@ -522,7 +511,7 @@ public:
     addFileMapping(prepared, generatedPath, fileName);
     prepared.inputPath =
         prepareSource(prepared, temp.path, source, fileName, generatedPath,
-                      std::filesystem::path(fileName).parent_path());
+                      support::pathFromUtf8(fileName).parent_path());
     if (hasError(prepared.result)) {
       return std::move(prepared.result);
     }
@@ -536,9 +525,10 @@ private:
                                     const std::filesystem::path &originalPath,
                                     const std::filesystem::path &baseDir) {
     const auto generatedPath = mirrorPathFor(tempRoot, originalPath);
-    addFileMapping(prepared, generatedPath, originalPath.string(),
-                   originalPath.filename().string());
-    return prepareSource(prepared, tempRoot, source, originalPath.string(),
+    const auto originalName = support::pathToUtf8(originalPath);
+    addFileMapping(prepared, generatedPath, originalName,
+                   support::pathToUtf8(originalPath.filename()));
+    return prepareSource(prepared, tempRoot, source, originalName,
                          generatedPath, baseDir);
   }
 
@@ -588,8 +578,10 @@ private:
         return;
       }
       const auto standardLibraryRoot = support::standardLibraryRoot();
-      originalPath = (standardLibraryRoot / target).lexically_normal();
-      generatedPath = (tempRoot / "include" / target).lexically_normal();
+      originalPath =
+          (standardLibraryRoot / support::pathFromUtf8(target)).lexically_normal();
+      generatedPath =
+          (tempRoot / "include" / support::pathFromUtf8(target)).lexically_normal();
       if (std::filesystem::exists(standardLibraryRoot) &&
           std::find(prepared.includePaths.begin(), prepared.includePaths.end(),
                     tempRoot / "include") == prepared.includePaths.end()) {
@@ -602,7 +594,8 @@ private:
             prepared.result.standardHeaders.end()) {
           prepared.result.standardHeaders.push_back(*header);
         }
-        addFileMapping(prepared, generatedPath, originalPath.string(), target);
+        addFileMapping(prepared, generatedPath,
+                       support::pathToUtf8(originalPath), target);
         // Standard headers are semantic import declarations. Their source
         // remains the public interface, while this marker prevents ordinary
         // extern parsing from bypassing the registry's view contracts.
@@ -612,20 +605,23 @@ private:
         return;
       }
     } else {
-      originalPath = (baseDir / target).lexically_normal();
+      originalPath =
+          (baseDir / support::pathFromUtf8(target)).lexically_normal();
       generatedPath = mirrorPathFor(tempRoot, originalPath);
     }
 
-    if (prepared.fileMap.find(generatedPath.string()) != prepared.fileMap.end()) {
+    if (prepared.fileMap.find(support::pathToUtf8(generatedPath)) !=
+        prepared.fileMap.end()) {
       return;
     }
-    addFileMapping(prepared, generatedPath, originalPath.string(), target);
+    const auto originalName = support::pathToUtf8(originalPath);
+    addFileMapping(prepared, generatedPath, originalName, target);
 
     const auto content = readFile(originalPath);
     if (!content) {
       return;
     }
-    prepareSource(prepared, tempRoot, *content, originalPath.string(),
+    prepareSource(prepared, tempRoot, *content, originalName,
                   generatedPath, originalPath.parent_path());
   }
 
@@ -635,27 +631,34 @@ private:
     const auto errPath = tempRoot / "mcpp.err";
     const auto parts = versionParts();
 
-    std::string command =
-        "LC_ALL=C " +
-        shellQuote(support::preprocessorExecutablePath().string()) +
-        " -V199901L -W0" +
-        " -D__HITSIMPLE__=1" +
-        " -D__HS_VERSION__=\\\"" HITSIMPLE_VERSION "\\\"" +
-        " -D__HS_VERSION_MAJOR__=" + std::to_string(parts[0]) +
-        " -D__HS_VERSION_MINOR__=" + std::to_string(parts[1]) +
-        " -D__HS_VERSION_PATCH__=" + std::to_string(parts[2]);
+    std::vector<std::string> arguments{
+        "-V199901L",
+        "-W0",
+        "-D__HITSIMPLE__=1",
+        "-D__HS_VERSION__=\\\"" HITSIMPLE_VERSION "\\\"",
+        "-D__HS_VERSION_MAJOR__=" + std::to_string(parts[0]),
+        "-D__HS_VERSION_MINOR__=" + std::to_string(parts[1]),
+        "-D__HS_VERSION_PATCH__=" + std::to_string(parts[2]),
+    };
     for (const auto &includePath : prepared.includePaths) {
-      command += " -I " + shellQuote(includePath.string());
+      arguments.push_back("-I");
+      arguments.push_back(support::pathToUtf8(includePath));
     }
-    command += " " + shellQuote(prepared.inputPath.string()) + " -o " +
-               shellQuote(outPath.string()) + " 2> " + shellQuote(errPath.string());
+    arguments.push_back(support::pathToUtf8(prepared.inputPath));
+    arguments.push_back("-o");
+    arguments.push_back(support::pathToUtf8(outPath));
 
-    const int status = std::system(command.c_str());
+    const auto process = support::runProcess(
+        support::preprocessorExecutablePath(), arguments, std::nullopt,
+        errPath);
     const auto output = readFile(outPath).value_or("");
     const auto errors = readFile(errPath).value_or("");
     parseMcppOutput(prepared, output);
     parseMcppDiagnostics(prepared, errors);
-    if (status != 0 && prepared.result.diagnostics.empty()) {
+    if (!process.launched && prepared.result.diagnostics.empty()) {
+      addDiagnostic(prepared.result, diagnostic::Severity::Error,
+                    "cannot start mcpp preprocessor: " + process.error);
+    } else if (process.exitCode != 0 && prepared.result.diagnostics.empty()) {
       addDiagnostic(prepared.result, diagnostic::Severity::Error,
                     "mcpp preprocessing failed");
     }
@@ -745,12 +748,25 @@ private:
           line.find("errors in preprocessor") != std::string::npos) {
         continue;
       }
-      const auto firstColon = line.find(':');
-      if (firstColon == std::string::npos) {
-        continue;
+      std::size_t firstColon = std::string::npos;
+      std::size_t secondColon = std::string::npos;
+      std::size_t candidate = line.find(':');
+      while (candidate != std::string::npos) {
+        const auto next = line.find(':', candidate + 1);
+        if (next == std::string::npos) {
+          break;
+        }
+        const auto lineNumber = std::string_view(line).substr(
+            candidate + 1, next - candidate - 1);
+        if (!lineNumber.empty() &&
+            std::all_of(lineNumber.begin(), lineNumber.end(), isDigit)) {
+          firstColon = candidate;
+          secondColon = next;
+          break;
+        }
+        candidate = next;
       }
-      const auto secondColon = line.find(':', firstColon + 1);
-      if (secondColon == std::string::npos) {
+      if (firstColon == std::string::npos) {
         continue;
       }
       const auto thirdColon = line.find(':', secondColon + 1);

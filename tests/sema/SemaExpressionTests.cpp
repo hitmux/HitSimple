@@ -116,6 +116,21 @@ HS_TEST(Sema_LowersStageEFloatExpressionsAndSizeof) {
                  std::string::npos);
 }
 
+HS_TEST(Sema_UsesFloatTemplateForOrdinaryComparisons) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new left as f128 = 1.0\n"
+                              "    new right as f128 = 2.0\n"
+                              "    new less[1] %b= left < right\n"
+                              "    return less\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("FloatCompareExpr op=< floatBytes=16") !=
+                 std::string::npos);
+}
+
 HS_TEST(Sema_UsesTemporaryFloatViewInFloatOperators) {
   auto result = analyzeSource("func main() {\n"
                               "    new bits as u32 = 0x3f800000\n"

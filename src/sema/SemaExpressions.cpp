@@ -19,8 +19,12 @@ bool isFloatBinaryOperator(std::string_view op) {
 }
 
 bool isFloatComparisonOperator(std::string_view op) {
-  return op.ends_with("==") || op.ends_with("!=") || op.ends_with("<=") ||
-         op.ends_with(">=") || op.ends_with("<") || op.ends_with(">");
+  const bool comparison = op.ends_with("==") || op.ends_with("!=") ||
+                          op.ends_with("<=") || op.ends_with(">=") ||
+                          (op.ends_with("<") && !op.ends_with("<<")) ||
+                          (op.ends_with(">") && !op.ends_with(">>"));
+  return comparison &&
+         (!op.starts_with('%') || op.find('f') != std::string_view::npos);
 }
 
 std::optional<std::size_t> floatStandardByteLength(std::size_t byteLength) {
@@ -968,6 +972,48 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
                         ? "user template binary operator requires a matching impl op"
                         : "user template binary operator requires both operands to use templates");
       return nullptr;
+    }
+  }
+
+  if (isFloatComparisonOperator(expression.op) &&
+      !expression.op.starts_with('%')) {
+    auto leftProbe = analyze(*expression.left);
+    auto rightProbe = analyze(*expression.right);
+    if (!leftProbe || !rightProbe) {
+      return nullptr;
+    }
+    const auto hasFloatInterpretation = [this](const ast::Expr& operand) {
+      if (dynamic_cast<const ast::FloatLiteral*>(&operand) != nullptr) {
+        return true;
+      }
+      const auto templateName = operatorTemplateName(operand);
+      return templateName && isFloatTemplate(*templateName);
+    };
+    const bool leftFloating = hasFloatInterpretation(*expression.left);
+    const bool rightFloating = hasFloatInterpretation(*expression.right);
+    if (leftFloating || rightFloating) {
+      if (!leftFloating || !rightFloating) {
+        addDiagnostic("both operands of float comparison '" + expression.op +
+                      "' must be floating expressions");
+        return nullptr;
+      }
+      const auto leftLength = floatExpressionByteLength(*leftProbe).value_or(8);
+      const auto rightLength =
+          floatExpressionByteLength(*rightProbe).value_or(8);
+      const auto inferred =
+          floatStandardByteLength(std::max(leftLength, rightLength));
+      if (!inferred) {
+        addDiagnostic("float comparison '" + expression.op +
+                      "' cannot infer a supported byte length");
+        return nullptr;
+      }
+      auto left = analyzeFloatOperand(*expression.left, *inferred);
+      auto right = analyzeFloatOperand(*expression.right, *inferred);
+      if (!left || !right) {
+        return nullptr;
+      }
+      return std::make_unique<hir::FloatCompareExpr>(
+          std::move(left), expression.op, std::move(right), *inferred);
     }
   }
 

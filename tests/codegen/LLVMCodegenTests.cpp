@@ -792,8 +792,42 @@ HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
   HS_EXPECT_TRUE(result.llvmIr.find("fptrunc float") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @hs_f128_literal(ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @sinf128(fp128)") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @hs_f128_sin(fp128)") !=
                  std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
+  hitsimple::codegen::CodegenOptions options;
+  options.targetTriple = "x86_64-w64-windows-gnu";
+  auto result = emitSource(
+      "func main() {\n"
+      "    new left as f128 = 1.5\n"
+      "    new integer[8] = 2\n"
+      "    new right as f128 = to_f128(integer)\n"
+      "    new sum as f128 = left %f+ right\n"
+      "    new root as f128 = f_sqrt(sum)\n"
+      "    new smaller[1] %b= left < right\n"
+      "    new narrowed as f64 = to_f64(root)\n"
+      "    return 0\n"
+      "}\n",
+      options);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"x86_64-w64-windows-gnu\"") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("declare i128 @hs_f128_literal(ptr)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i128 @hs_f128_from_i64") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i128 @hs_f128_add") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i128 @hs_f128_sqrt") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i8 @hs_f128_lt") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call double @hs_f128_to_f64") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("fadd fp128") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageFStringAndBoolStores) {

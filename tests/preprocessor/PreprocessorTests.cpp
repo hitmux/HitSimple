@@ -2,6 +2,7 @@
 
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/preprocessor/Preprocessor.h"
+#include "hitsimple/support/Path.h"
 
 #include <filesystem>
 #include <fstream>
@@ -262,6 +263,33 @@ HS_TEST(Preprocessor_ProcessesQuotedRelativeIncludeFiles) {
   HS_EXPECT_TRUE(result.source.find("40 + 2") != std::string::npos);
   HS_EXPECT_TRUE(!result.lineOrigins.empty());
   HS_EXPECT_TRUE(result.lineOrigins[0].file.find("main.hs") !=
+                 std::string::npos);
+}
+
+HS_TEST(Preprocessor_ProcessesUnicodeInputAndIncludePaths) {
+  const auto root = std::filesystem::temp_directory_path() /
+                    hitsimple::support::pathFromUtf8(
+                        "HitSimple 预处理 空格路径");
+  const auto includeDirectory =
+      root / hitsimple::support::pathFromUtf8("中文目录");
+  const auto mainPath = root / hitsimple::support::pathFromUtf8("入口.hs");
+  const auto includePath =
+      includeDirectory / hitsimple::support::pathFromUtf8("数值.hsi");
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(includeDirectory);
+  std::ofstream(mainPath) << "$include \"中文目录/数值.hsi\"\n"
+                            "new x[4] = VALUE\n";
+  std::ofstream(includePath) << "$define VALUE 42\n";
+
+  const auto result = hitsimple::preprocessor::preprocessFile(
+      hitsimple::support::pathToUtf8(mainPath));
+  std::filesystem::remove_all(root);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.source.find("new x[4]") != std::string::npos);
+  HS_EXPECT_TRUE(result.source.find("42") != std::string::npos);
+  HS_EXPECT_TRUE(!result.lineOrigins.empty());
+  HS_EXPECT_TRUE(result.lineOrigins[0].file.find("入口.hs") !=
                  std::string::npos);
 }
 

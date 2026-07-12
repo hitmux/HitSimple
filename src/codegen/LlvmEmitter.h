@@ -133,6 +133,11 @@ private:
                                 std::string_view name);
   llvm::Value *emitFloatValue(const hir::Expr &expression,
                               std::size_t byteLength);
+  llvm::Value *convertFloatValue(llvm::Value *value,
+                                 std::size_t sourceByteLength,
+                                 std::size_t targetByteLength);
+  bool usesSoftwareF128() const;
+  bool isF128ValueType(llvm::Type *type) const;
   ViewValue emitViewValue(const hir::Expr &expression);
   ViewValue emitUserTemplateOpCall(
       std::string_view callee,
