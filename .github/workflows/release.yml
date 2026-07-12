@@ -302,6 +302,19 @@ jobs:
           $llvm = (Resolve-Path tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc).Path
           $boost = (Resolve-Path tools/boost_1_85_0).Path
           $runtime = (Resolve-Path build-runtime/libhitsimple_runtime.a).Path
+          $dia = Join-Path $env:VSINSTALLDIR 'DIA SDK/lib/amd64/diaguids.lib'
+          if (-not (Test-Path $dia)) { throw "missing DIA SDK library: $dia" }
+          $oldDia = 'C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/DIA SDK/lib/amd64/diaguids.lib'
+          $newDia = $dia.Replace('\', '/')
+          $cmakeFiles = @(Get-ChildItem "$llvm/lib/cmake" -Filter '*.cmake' -Recurse | Where-Object {
+            [IO.File]::ReadAllText($_.FullName).Contains($oldDia)
+          })
+          if ($cmakeFiles.Count -eq 0) { throw 'LLVM CMake exports did not contain the expected LLVM 18 DIA SDK path' }
+          $cmakeFiles | ForEach-Object {
+            $content = [IO.File]::ReadAllText($_.FullName)
+            $updated = $content.Replace($oldDia, $newDia)
+            [IO.File]::WriteAllText($_.FullName, $updated)
+          }
           $env:PATH = "$llvm/bin;$env:PATH"
           $bison = (Get-Command win_bison.exe).Source
           $re2c = (Get-Command re2c.exe).Source
