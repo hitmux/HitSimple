@@ -414,7 +414,15 @@ jobs:
           if (-not (Test-Path a.exe)) { throw 'Windows default output a.exe was not created' }
           & .\a.exe | Select-String -SimpleMatch '42'
           & bin/hsc.exe (Join-Path $sourceRoot '四精度.hs') -o f128.exe
+          $f128CompileExitCode = $LASTEXITCODE
+          if ($f128CompileExitCode -ne 0) {
+            throw "Full package f128 compilation failed with exit code $f128CompileExitCode"
+          }
           & ./f128.exe
+          $f128RunExitCode = $LASTEXITCODE
+          if ($f128RunExitCode -ne 0) {
+            throw "Full package f128 smoke failed with exit code $f128RunExitCode"
+          }
           Pop-Location
           $env:PATH = $savedPath
 
