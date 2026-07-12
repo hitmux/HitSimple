@@ -673,6 +673,9 @@ private:
     std::string currentFile;
     std::size_t currentLine = 1;
     while (std::getline(input, line)) {
+      if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+      }
       std::size_t markerLine = 0;
       std::string markerFile;
       if (parseLineMarker(line, markerLine, markerFile)) {
