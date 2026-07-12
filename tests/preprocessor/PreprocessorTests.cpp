@@ -352,6 +352,18 @@ HS_TEST(Preprocessor_ProcessesSystemIncludePath) {
 }
 
 HS_TEST(Preprocessor_DefinesHostOperatingSystemAndArchitectureMacros) {
+#if defined(_WIN32)
+  std::string source =
+      "$ifndef _WIN32\n"
+      "$error \"missing Windows preprocessor macro\"\n"
+      "$endif\n";
+#if defined(_WIN64)
+  source +=
+      "$ifndef _WIN64\n"
+      "$error \"missing Windows x64 preprocessor macro\"\n"
+      "$endif\n";
+#endif
+#else
   std::string source =
       "$ifndef __linux__\n"
       "$error \"missing Linux preprocessor macro\"\n"
@@ -366,6 +378,7 @@ HS_TEST(Preprocessor_DefinesHostOperatingSystemAndArchitectureMacros) {
       "$ifndef __aarch64__\n"
       "$error \"missing aarch64 preprocessor macro\"\n"
       "$endif\n";
+#endif
 #endif
   source += "func main() { return 0 }\n";
 

@@ -10,6 +10,14 @@ on:
         description: Version to validate without publishing
         required: true
         default: "0.2.0"
+      scope:
+        description: Validation jobs to run
+        required: true
+        type: choice
+        options:
+          - all
+          - windows
+        default: all
 
 permissions:
   contents: read
@@ -17,6 +25,7 @@ permissions:
 jobs:
   linux:
     name: Linux ${{ matrix.architecture }}
+    if: github.event_name == 'push' || inputs.scope != 'windows'
     strategy:
       fail-fast: false
       matrix:
@@ -165,6 +174,7 @@ jobs:
 
   deb_compatibility:
     name: DEB ${{ matrix.image }} ${{ matrix.architecture }}
+    if: github.event_name == 'push' || inputs.scope != 'windows'
     needs: linux
     strategy:
       fail-fast: false
@@ -454,6 +464,7 @@ jobs:
 
   extension:
     name: VS Code extension Linux
+    if: github.event_name == 'push' || inputs.scope != 'windows'
     needs: linux
     runs-on: ubuntu-24.04
 
@@ -500,6 +511,7 @@ jobs:
   windows_extension:
     name: VS Code extension Windows
     needs: [windows, extension]
+    if: always() && needs.windows.result == 'success' && (inputs.scope == 'windows' || needs.extension.result == 'success')
     runs-on: windows-2022
 
     steps:
@@ -509,6 +521,7 @@ jobs:
           name: hitsimple-windows-x86_64
           path: compiler-asset
       - uses: actions/download-artifact@v4
+        if: inputs.scope != 'windows'
         with:
           name: hitsimple-vscode
           path: vsix-asset
@@ -520,6 +533,8 @@ jobs:
 
       - name: Test extension with Windows release compiler
         shell: pwsh
+        env:
+          VALIDATION_SCOPE: ${{ inputs.scope }}
         run: |
           $version = (Get-Content vscode/hitsimple/package.json | ConvertFrom-Json).version
           Expand-Archive "compiler-asset/hitsimple-$version-windows-x86_64-full.zip" -DestinationPath compiler -Force
@@ -529,11 +544,17 @@ jobs:
           npm test
           npm run test:extension
           npm run verify:vsix
+          New-Item -ItemType Directory -Force dist | Out-Null
+          npm run package:vsix
+          if (-not (Test-Path "dist/hitsimple-vscode-$version.vsix")) { throw 'missing Windows-built VSIX' }
           Pop-Location
-          if (-not (Test-Path "vsix-asset/hitsimple-vscode-$version.vsix")) { throw 'missing VSIX' }
+          if ($env:VALIDATION_SCOPE -ne 'windows' -and -not (Test-Path "vsix-asset/hitsimple-vscode-$version.vsix")) {
+            throw 'missing release VSIX'
+          }
 
   assemble:
     name: Assemble release assets
+    if: github.event_name == 'push' || inputs.scope != 'windows'
     needs: [linux, deb_compatibility, windows, extension, windows_extension]
     runs-on: ubuntu-24.04
 
