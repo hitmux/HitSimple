@@ -358,11 +358,11 @@ jobs:
           Select-String -Path target-info.txt -SimpleMatch 'target.triple: x86_64-w64-windows-gnu'
           Select-String -Path target-info.txt -SimpleMatch 'f128.backend: boost.cpp_bin_float.113-bit-software-binary128'
           & build-windows/hsc.exe --clang $mingwClang --unchecked examples/hello.hs -o hello-unchecked.exe
-          & hello-unchecked.exe | Select-String -SimpleMatch '42'
+          & ./hello-unchecked.exe | Select-String -SimpleMatch '42'
           & build-windows/hsc.exe --clang $mingwClang --static-checked examples/hello.hs -o hello-static.exe
-          & hello-static.exe | Select-String -SimpleMatch '42'
+          & ./hello-static.exe | Select-String -SimpleMatch '42'
           & build-windows/hsc.exe --clang $mingwClang --checked examples/hello.hs -o hello-checked.exe
-          & hello-checked.exe | Select-String -SimpleMatch '42'
+          & ./hello-checked.exe | Select-String -SimpleMatch '42'
           & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-llvm examples/hello.hs -o hello.ll
           if (-not (Test-Path hello.ll)) { throw '--emit-llvm unexpectedly required clang' }
           $aggregateOutput = & build-windows/hsc.exe --c-compat --emit-llvm tests/cases/compat/c_aggregate_by_value.c 2>&1
@@ -412,7 +412,7 @@ jobs:
           if (-not (Test-Path a.exe)) { throw 'Windows default output a.exe was not created' }
           & .\a.exe | Select-String -SimpleMatch '42'
           & bin/hsc.exe (Join-Path $sourceRoot '四精度.hs') -o f128.exe
-          & f128.exe
+          & ./f128.exe
           Pop-Location
           $env:PATH = $savedPath
 
@@ -422,10 +422,10 @@ jobs:
           $slim = (Resolve-Path "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-slim").Path
           $clang = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
           & "$slim/bin/hsc.exe" --clang $clang examples/hello.hs -o slim-explicit.exe
-          & slim-explicit.exe | Select-String -SimpleMatch '42'
+          & ./slim-explicit.exe | Select-String -SimpleMatch '42'
           $env:HITSIMPLE_CLANG = $clang
           & "$slim/bin/hsc.exe" examples/hello.hs -o slim-env.exe
-          & slim-env.exe | Select-String -SimpleMatch '42'
+          & ./slim-env.exe | Select-String -SimpleMatch '42'
           Remove-Item Env:HITSIMPLE_CLANG
           $savedPath = $env:PATH
           $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
