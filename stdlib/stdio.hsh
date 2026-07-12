@@ -1,0 +1,25 @@
+$ifndef HITSIMPLE_STDIO_HSH
+$define HITSIMPLE_STDIO_HSH 1
+
+// printf, scanf, fprintf, and fscanf have format-controlled varargs or
+// left-context contracts and are imported by this header's semantic marker.
+extern get() -> i32
+extern put(value as u64) -> i32
+extern print(value as addr) -> i32
+extern printf(format as cstr) -> i32
+extern scanf(format as cstr) -> i32
+extern fopen(name as cstr, mode as cstr) -> handle
+extern fclose(file as handle) -> i32
+extern fget(file as handle) -> i32
+extern fput(file as handle, value as u64) -> i32
+extern fread(dst as addr, size as u64, count as u64, file as handle) -> u64
+extern fwrite(src as addr, size as u64, count as u64, file as handle) -> u64
+extern fflush(file as handle) -> i32
+extern fseek(file as handle, offset as i64, whence as i32) -> i32
+extern ftell(file as handle) -> i64
+extern feof(file as handle) -> bool
+extern ferror(file as handle) -> i32
+extern fprintf(file as handle, format as cstr) -> i32
+extern fscanf(file as handle, format as cstr) -> i32
+
+$endif

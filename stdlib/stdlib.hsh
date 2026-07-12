@@ -1,0 +1,35 @@
+$ifndef HITSIMPLE_STDLIB_HSH
+$define HITSIMPLE_STDLIB_HSH 1
+
+// Memory, byte conversion, integer math, random numbers, and process control.
+extern length(value as addr) -> u64
+extern alloc(size as u64) -> addr
+extern calloc(count as u64, size as u64) -> addr
+extern realloc(ptr as addr, size as u64) -> addr
+extern free(ptr as addr) -> ()
+extern resize_bytes(value as addr, length as u64) -> addr
+extern byte_swap(value as u64) -> u64
+
+extern to_f16(value as u64) -> f16
+extern to_f32(value as u64) -> f32
+extern to_f64(value as u64) -> f64
+extern to_f128(value as u64) -> f128
+extern to_i8(value as u64) -> i8
+extern to_i16(value as u64) -> i16
+extern to_i32(value as u64) -> i32
+extern to_i64(value as u64) -> i64
+extern to_u8(value as u64) -> u8
+extern to_u16(value as u64) -> u16
+extern to_u32(value as u64) -> u32
+extern to_u64(value as u64) -> u64
+
+extern abs(value as i64) -> i64
+extern min(left as i64, right as i64) -> i64
+extern max(left as i64, right as i64) -> i64
+
+extern srand(seed as u32) -> ()
+extern rand() -> u32
+extern exit(code as i32) -> ()
+extern abort() -> ()
+
+$endif

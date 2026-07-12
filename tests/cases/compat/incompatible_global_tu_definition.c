@@ -1,0 +1,1 @@
+double shared_global;

@@ -1,0 +1,250 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "HitSimple",
+  "scopeName": "source.hitsimple",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#preprocessor"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#chars"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#builtins"
+    },
+    {
+      "include": "#typed-operators"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#labels"
+    },
+    {
+      "include": "#identifiers"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.hitsimple",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.hitsimple",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.hitsimple",
+          "begin": "^\\s*(\\$)\\s*(include|define|undef|if|ifdef|ifndef|elif|else|endif|error|warning|pragma)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.preprocessor.hitsimple"
+            },
+            "2": {
+              "name": "keyword.control.directive.hitsimple"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#chars"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "name": "constant.language.predefined-macro.hitsimple",
+              "match": "\\b__(?:FILE|LINE|DATE|TIME|HITSIMPLE|HS_VERSION|HS_VERSION_MAJOR|HS_VERSION_MINOR|HS_VERSION_PATCH)__\\b"
+            },
+            {
+              "include": "#typed-operators"
+            },
+            {
+              "include": "#operators"
+            }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.hitsimple",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.hitsimple",
+              "match": "\\\\(?:[ntr\\\\'\"0]|x[0-9A-Fa-f]{2}|[0-7]{1,3}|u[0-9A-Fa-f]{4})"
+            },
+            {
+              "name": "invalid.illegal.escape.hitsimple",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "chars": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.hitsimple",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.hitsimple",
+              "match": "\\\\(?:[ntr\\\\'\"0]|x[0-9A-Fa-f]{2}|[0-7]{1,3}|u[0-9A-Fa-f]{4})"
+            },
+            {
+              "name": "invalid.illegal.escape.hitsimple",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.hitsimple",
+          "match": "(?x)\\b(?:[0-9](?:_?[0-9])*\\.(?:[0-9](?:_?[0-9])*)?|\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?\\b|\\b[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.hitsimple",
+          "match": "\\b0[bB][01](?:_?[01])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.hexadecimal.hitsimple",
+          "match": "\\b0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.octal.hitsimple",
+          "match": "\\b0[0-7](?:_?[0-7])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.decimal.hitsimple",
+          "match": "\\b(?:0|[1-9](?:_?[0-9])*)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.hitsimple",
+          "match": "\\b(?:return|if|else|for|while|continue|break|goto|try|catch|throw|switch|case|default|do)\\b"
+        },
+        {
+          "name": "storage.type.hitsimple",
+          "match": "\\b(?:func|new|static|extern|struct|typedef|enum|union|const|volatile)\\b"
+        },
+        {
+          "name": "keyword.other.hitsimple",
+          "match": "\\b(?:set|none|sizeof)\\b"
+        },
+        {
+          "name": "constant.language.boolean.hitsimple",
+          "match": "\\b(?:true|false)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.hitsimple",
+          "match": "\\b(?:length|alloc|calloc|realloc|free|resize_bytes|byte_swap|to_f16|to_f32|to_f64|to_f128|to_i8|to_i16|to_i32|to_i64|to_u8|to_u16|to_u32|to_u64|abs|min|max|srand|rand|exit|abort|memset|memcpy|memmove|memcmp|strlen|strcmp|strcpy|strncpy|strcat|strchr|get|put|print|printf|scanf|fopen|fclose|fget|fput|fread|fwrite|fprintf|fscanf|fflush|fseek|ftell|feof|ferror|f_abs|f_sqrt|f_pow|f_sin|f_cos|f_tan|f_log|f_exp|f_floor|f_ceil|f_round|is_digit|is_alpha|is_alnum|is_space|to_upper|to_lower|time_ms|clock_ms|assert|panic)\\b(?=\\s*\\()"
+        }
+      ]
+    },
+    "typed-operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.typed.hitsimple",
+          "match": "%[dfsb]="
+        },
+        {
+          "name": "keyword.operator.arithmetic.typed.hitsimple",
+          "match": "%(?:\\d+d|(?:2|4|8|16)f|d|f)(?:\\*\\*|<<|>>|[+\\-*/%&|^])"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.hitsimple",
+          "match": "&=|="
+        },
+        {
+          "name": "keyword.operator.logical.hitsimple",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.comparison.hitsimple",
+          "match": "<=|>=|==|!="
+        },
+        {
+          "name": "keyword.operator.bitwise.hitsimple",
+          "match": "<<|>>|&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.arithmetic.hitsimple",
+          "match": "\\+\\+|--|\\*\\*|[+\\-*/%]"
+        },
+        {
+          "name": "keyword.operator.other.hitsimple",
+          "match": "->|\\?|\\.|:"
+        },
+        {
+          "name": "punctuation.separator.hitsimple",
+          "match": "[,;]"
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "name": "entity.name.label.hitsimple",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*:)"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.function.hitsimple",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+        },
+        {
+          "name": "variable.other.hitsimple",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+$define TU_PRIVATE_VALUE 42

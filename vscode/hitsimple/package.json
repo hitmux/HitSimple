@@ -1,0 +1,67 @@
+{
+  "name": "hitsimple-vscode",
+  "displayName": "HitSimple",
+  "description": "HitSimple language support for VSCode: syntax highlighting, snippets, bracket rules, and hsc problem matching.",
+  "version": "0.1.0",
+  "publisher": "hitmux",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "hitsimple",
+        "aliases": [
+          "HitSimple",
+          "hitsimple",
+          "hs"
+        ],
+        "extensions": [
+          ".hs",
+          ".hsh",
+          ".hsi"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "hitsimple",
+        "scopeName": "source.hitsimple",
+        "path": "./syntaxes/hitsimple.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "hitsimple",
+        "path": "./snippets/hitsimple.json"
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "hsc",
+        "label": "HitSimple compiler diagnostics",
+        "owner": "hitsimple",
+        "source": "hsc",
+        "applyTo": "closedDocuments",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "^hsc: (.+):(\\d+):(\\d+): (?:cli|lexer|parser|sema|hir|codegen|runtime): (error|warning|note): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        }
+      }
+    ]
+  }
+}

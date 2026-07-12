@@ -1,0 +1,17 @@
+$ifndef HITSIMPLE_MATH_HSH
+$define HITSIMPLE_MATH_HSH 1
+
+// f16/f32/f64/f128 math signatures are expanded by the registry.
+extern f_abs(value as f64) -> f64
+extern f_sqrt(value as f64) -> f64
+extern f_pow(left as f64, right as f64) -> f64
+extern f_sin(value as f64) -> f64
+extern f_cos(value as f64) -> f64
+extern f_tan(value as f64) -> f64
+extern f_log(value as f64) -> f64
+extern f_exp(value as f64) -> f64
+extern f_floor(value as f64) -> f64
+extern f_ceil(value as f64) -> f64
+extern f_round(value as f64) -> f64
+
+$endif
