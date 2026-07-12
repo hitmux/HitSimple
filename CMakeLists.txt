@@ -189,6 +189,8 @@ add_executable(hsc
 if(WIN32)
   target_sources(hsc_mcpp PRIVATE cmake/windows-utf8.manifest)
   target_sources(hsc PRIVATE cmake/windows-utf8.manifest)
+  target_compile_definitions(hitsimple_frontend PUBLIC NOMINMAX)
+  target_compile_definitions(hsc PRIVATE NOMINMAX)
 endif()
 
 target_include_directories(hsc
