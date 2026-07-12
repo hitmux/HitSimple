@@ -27,7 +27,7 @@ jobs:
             host_machine: x86_64
             file_pattern: x86-64
             predefined_macro: __x86_64__
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-22.04-arm
             architecture: aarch64
             deb_architecture: arm64
             host_machine: aarch64
