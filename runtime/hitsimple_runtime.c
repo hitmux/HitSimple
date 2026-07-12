@@ -10,6 +10,9 @@
 #include <time.h>
 
 #if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
 extern int hs_f128_format(const void *bits, char *buffer, size_t capacity);
 extern int hs_f128_parse(const char *text, void *bits);
 #elif defined(__clang__) && defined(__GLIBC__) && defined(__x86_64__) && \
@@ -1127,19 +1130,32 @@ int32_t hs_scan_input(FILE *file, const char *format,
 }
 
 uint64_t hs_time_ms(void) {
+#if defined(_WIN32)
+  FILETIME fileTime;
+  ULARGE_INTEGER ticks;
+  GetSystemTimeAsFileTime(&fileTime);
+  ticks.LowPart = fileTime.dwLowDateTime;
+  ticks.HighPart = fileTime.dwHighDateTime;
+  return (ticks.QuadPart - UINT64_C(116444736000000000)) / UINT64_C(10000);
+#else
   struct timespec ts;
   if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
     return 0;
   }
   return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+#endif
 }
 
 uint64_t hs_clock_ms(void) {
+#if defined(_WIN32)
+  return (uint64_t)GetTickCount64();
+#else
   struct timespec ts;
   if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
     return 0;
   }
   return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+#endif
 }
 
 void hs_panic(int32_t code) {

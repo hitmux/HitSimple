@@ -779,13 +779,17 @@ HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
 }
 
 HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
-  auto result = emitSource("func main() {\n"
-                           "    new half as f16 = 1.5\n"
-                           "    new halfResult as f16 = f_sqrt(half)\n"
-                           "    new quad as f128 = 1.234567890123456789012345678901234\n"
-                           "    new quadResult as f128 = f_sin(quad)\n"
-                           "    return 0\n"
-                           "}\n");
+  hitsimple::codegen::CodegenOptions options;
+  options.targetTriple = "x86_64-unknown-linux-gnu";
+  auto result = emitSource(
+      "func main() {\n"
+      "    new half as f16 = 1.5\n"
+      "    new halfResult as f16 = f_sqrt(half)\n"
+      "    new quad as f128 = 1.234567890123456789012345678901234\n"
+      "    new quadResult as f128 = f_sin(quad)\n"
+      "    return 0\n"
+      "}\n",
+      options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("fpext half") != std::string::npos);
