@@ -1,9 +1,14 @@
 #include "SemaTestSupport.h"
 
+#include "hitsimple/ast/AST.h"
 #include "hitsimple/hir/HIR.h"
 
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
+using hitsimple::testing::sema::allStandardHeaders;
 using hitsimple::testing::sema::analyzeSource;
 using hitsimple::testing::sema::minimalProgram;
 
@@ -1064,4 +1069,96 @@ HS_TEST(Sema_RejectsHandleFreeAndTemplateRebinding) {
   HS_EXPECT_EQ(formatting.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(formatting.diagnostics[0].find("handle formatting") !=
                  std::string::npos);
+}
+
+HS_TEST(Sema_AttachesIdentifierSourceRangeToDiagnostic) {
+  auto result = analyzeSource("func main() {\n"
+                              "    return missing\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  const auto &diagnostic = result.diagnostics[0];
+  HS_EXPECT_TRUE(diagnostic.find("undeclared variable 'missing'") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(diagnostic.range.has_value());
+  HS_EXPECT_EQ(diagnostic.range->begin.file, std::string("test.hs"));
+  HS_EXPECT_EQ(diagnostic.range->begin.line, 2U);
+  HS_EXPECT_EQ(diagnostic.range->begin.column, 12U);
+}
+
+HS_TEST(Sema_PreservesIncludedSourceOriginInDiagnostic) {
+  std::vector<hitsimple::diagnostic::SourceLocation> lineOrigins = {
+      {"main.hs", 1, 1}, {"included.hsi", 42, 1}, {"main.hs", 2, 1}};
+  auto parseResult = hitsimple::parser::parseSource(
+      "func main() {\n"
+      "    return missing\n"
+      "}\n",
+      "main.hs", std::move(lineOrigins));
+  HS_EXPECT_TRUE(parseResult.unit != nullptr);
+  HS_EXPECT_TRUE(parseResult.error.empty());
+
+  auto result = hitsimple::sema::analyze(
+      *parseResult.unit,
+      hitsimple::sema::AnalyzeOptions{true, allStandardHeaders()});
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.file,
+               std::string("included.hsi"));
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 42U);
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.column, 12U);
+}
+
+HS_TEST(Sema_RestoresParentRangeAfterNestedExpressionAnalysis) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new result[4] = \"bad\" + 1\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].find("left operand of '+'") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 2U);
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.column, 21U);
+}
+
+HS_TEST(Sema_AttachesTopLevelRangeToDuplicateDiagnostic) {
+  auto result = analyzeSource("new shared[4]\n"
+                              "new shared[8]\n"
+                              "func main() {\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 2U);
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.column, 1U);
+}
+
+HS_TEST(Sema_LeavesDiagnosticUnlocatedForAstWithoutSourceRange) {
+  std::vector<std::unique_ptr<hitsimple::ast::Expr>> returnValues;
+  returnValues.push_back(
+      std::make_unique<hitsimple::ast::IdentifierExpr>("missing"));
+  std::vector<std::unique_ptr<hitsimple::ast::Stmt>> statements;
+  statements.push_back(
+      std::make_unique<hitsimple::ast::ReturnStmt>(std::move(returnValues)));
+  auto body =
+      std::make_unique<hitsimple::ast::BlockStmt>(std::move(statements));
+  std::vector<std::unique_ptr<hitsimple::ast::TopLevelDecl>> declarations;
+  declarations.push_back(std::make_unique<hitsimple::ast::FunctionDecl>(
+      "main", std::vector<hitsimple::ast::Param>{},
+      std::vector<hitsimple::ast::ReturnItem>{}, std::move(body)));
+  hitsimple::ast::TranslationUnit unit(std::move(declarations));
+
+  auto result = hitsimple::sema::analyze(
+      unit, hitsimple::sema::AnalyzeOptions{true, allStandardHeaders()});
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].find("undeclared variable 'missing'") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!result.diagnostics[0].range.has_value());
 }

@@ -11,6 +11,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace hitsimple::sema {
@@ -152,6 +153,25 @@ public:
                         const AnalyzeOptions &options);
 
 private:
+  class CurrentRangeGuard final {
+  public:
+    CurrentRangeGuard(Analyzer &analyzer, const ast::Node &node)
+        : analyzer_(analyzer), previous_(std::move(analyzer.currentRange_)) {
+      analyzer_.currentRange_ = node.range;
+    }
+
+    ~CurrentRangeGuard() {
+      analyzer_.currentRange_ = std::move(previous_);
+    }
+
+    CurrentRangeGuard(const CurrentRangeGuard &) = delete;
+    CurrentRangeGuard &operator=(const CurrentRangeGuard &) = delete;
+
+  private:
+    Analyzer &analyzer_;
+    std::optional<diagnostic::SourceRange> previous_;
+  };
+
   std::unique_ptr<hir::Function> analyze(const ast::FunctionDecl &function);
   std::unique_ptr<hir::Block> analyze(const ast::BlockStmt &block);
   std::unique_ptr<hir::Stmt> analyze(const ast::Stmt &statement);
@@ -294,6 +314,7 @@ private:
   void addDiagnostic(std::string diagnostic);
 
   AnalyzeResult result_;
+  std::optional<diagnostic::SourceRange> currentRange_;
   std::vector<std::unordered_map<std::string, Symbol>> scopes_;
   std::unordered_map<std::string, std::size_t> bindingCounts_;
   std::unordered_map<std::string, FunctionSignature> functions_;

@@ -6,6 +6,7 @@ namespace hitsimple::sema {
 
 AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
                                 const AnalyzeOptions &options) {
+  currentRange_.reset();
   std::vector<std::unique_ptr<hir::Function>> functions;
   std::vector<hir::ExternFunction> externFunctions;
   scopes_.clear();
@@ -46,6 +47,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
   }
 
   for (const auto *globalNew : unit.globalNews) {
+    CurrentRangeGuard rangeGuard(*this, *globalNew);
     if (!registerTopLevelName(globalNew->name)) {
       continue;
     }
@@ -95,6 +97,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength);
   }
   for (const auto *externVariable : unit.externVariables) {
+    CurrentRangeGuard rangeGuard(*this, *externVariable);
     if (!registerTopLevelName(externVariable->name)) {
       continue;
     }
@@ -169,6 +172,7 @@ std::unique_ptr<hir::Block>
 Analyzer::lowerGlobalInitializers(const ast::TranslationUnit &unit) {
   std::vector<std::unique_ptr<hir::Stmt>> statements;
   for (const auto *globalNew : unit.globalNews) {
+    CurrentRangeGuard rangeGuard(*this, *globalNew);
     if (!globalNew->initializer) {
       continue;
     }
@@ -192,6 +196,7 @@ Analyzer::lowerGlobalInitializers(const ast::TranslationUnit &unit) {
 
 std::unique_ptr<hir::Function>
 Analyzer::analyze(const ast::FunctionDecl &function) {
+  CurrentRangeGuard rangeGuard(*this, function);
   while (scopes_.size() > 1U) {
     endScope();
   }
@@ -267,6 +272,7 @@ bool Analyzer::lowerImplOpBodies(
       addDiagnostic("internal error: invalid impl op metadata");
       return false;
     }
+    CurrentRangeGuard rangeGuard(*this, *op->body);
 
     while (scopes_.size() > 1U) {
       endScope();
@@ -352,6 +358,7 @@ bool Analyzer::lowerImplMethodBodies(
       addDiagnostic("internal error: invalid impl method metadata");
       return false;
     }
+    CurrentRangeGuard rangeGuard(*this, *method);
 
     while (scopes_.size() > 1U) {
       endScope();
@@ -424,6 +431,7 @@ bool Analyzer::lowerImplMethodBodies(
 }
 
 std::unique_ptr<hir::Block> Analyzer::analyze(const ast::BlockStmt &block) {
+  CurrentRangeGuard rangeGuard(*this, block);
   beginScope();
   ++blockDepth_;
   std::vector<std::unique_ptr<hir::Stmt>> statements;

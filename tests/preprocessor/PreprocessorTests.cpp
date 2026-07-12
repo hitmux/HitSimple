@@ -7,7 +7,6 @@
 #include <fstream>
 #include <string>
 #include <utility>
-#include <vector>
 
 HS_TEST(Preprocessor_ExpandsObjectFunctionAndVariadicMacros) {
   const auto result = hitsimple::preprocessor::preprocessSource(
@@ -80,13 +79,35 @@ HS_TEST(Preprocessor_TracksOutputLineOrigins) {
 }
 
 HS_TEST(Preprocessor_SourceMapFeedsParserDiagnostics) {
-  std::vector<hitsimple::diagnostic::SourceLocation> lineOrigins{
-      hitsimple::diagnostic::SourceLocation{"included.hsi", 7, 1}};
-  const auto result = hitsimple::parser::parseSource(
-      "func main(\n", "generated.hs", std::move(lineOrigins));
+  const auto root = std::filesystem::temp_directory_path() /
+                    "hitsimple-preprocessor-parser-diagnostic";
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root);
+  std::ofstream(root / "main.hs") << "$include \"broken.hsi\"\n";
+  std::ofstream(root / "broken.hsi") << "func main(]\n";
+
+  auto preprocessed =
+      hitsimple::preprocessor::preprocessFile((root / "main.hs").string());
+  HS_EXPECT_TRUE(preprocessed.diagnostics.empty());
+  auto result = hitsimple::parser::parseSource(
+      preprocessed.source, (root / "main.hs").string(),
+      std::move(preprocessed.lineOrigins));
+  std::filesystem::remove_all(root);
 
   HS_EXPECT_TRUE(!result.unit);
-  HS_EXPECT_TRUE(result.error.find("included.hsi:7:") == 0);
+  HS_EXPECT_TRUE(result.error.find("broken.hsi:1:11:") != std::string::npos);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+
+  const auto& diagnostic = result.diagnostics[0];
+  HS_EXPECT_EQ(diagnostic.stage, hitsimple::diagnostic::Stage::Parser);
+  HS_EXPECT_EQ(diagnostic.severity, hitsimple::diagnostic::Severity::Error);
+  HS_EXPECT_TRUE(diagnostic.range.has_value());
+  HS_EXPECT_EQ(diagnostic.range->begin.file, (root / "broken.hsi").string());
+  HS_EXPECT_EQ(diagnostic.range->begin.line, 1U);
+  HS_EXPECT_EQ(diagnostic.range->begin.column, 11U);
+  HS_EXPECT_EQ(diagnostic.format(),
+               (root / "broken.hsi").string() +
+                   ":1:11: parser: error: " + diagnostic.message);
 }
 
 HS_TEST(Preprocessor_ExpandsNestedFunctionMacroArguments) {

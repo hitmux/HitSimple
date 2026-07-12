@@ -1,6 +1,9 @@
 #pragma once
 
+#include "hitsimple/diagnostic/SourceLocation.h"
+
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -12,6 +15,8 @@ class Dumper;
 
 struct Node {
   virtual ~Node() = default;
+
+  std::optional<diagnostic::SourceRange> range;
 };
 
 struct Expr : Node {

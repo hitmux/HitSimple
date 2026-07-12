@@ -1,10 +1,26 @@
 {
   "name": "hitsimple-vscode",
   "displayName": "HitSimple",
-  "description": "HitSimple language support for VSCode: syntax highlighting, snippets, bracket rules, and hsc problem matching.",
+  "description": "HitSimple language support for VS Code: syntax highlighting, snippets, diagnostics, and safe Build/Run commands.",
   "version": "0.1.0",
   "publisher": "hitmux",
   "license": "UNLICENSED",
+  "main": "./src/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "scripts": {
+    "test": "node --test test/extension.test.mjs test/workflow.test.mjs",
+    "test:extension": "node test/run-extension-host.mjs",
+    "verify:vsix": "vsce ls --tree",
+    "package:vsix": "vsce package --out dist/hitsimple-vscode-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^3.0.0",
+    "@vscode/vsce": "^3.9.2",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.2.0"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -12,7 +28,76 @@
     "Programming Languages",
     "Snippets"
   ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Syntax highlighting remains available, but Build and Run execute the configured compiler.",
+      "restrictedConfigurations": [
+        "hitsimple.compilerPath",
+        "hitsimple.mode",
+        "hitsimple.outputDirectory",
+        "hitsimple.additionalArgs"
+      ]
+    }
+  },
   "contributes": {
+    "commands": [
+      {
+        "command": "hitsimple.buildCurrentFile",
+        "title": "Build Current File",
+        "category": "HitSimple",
+        "enablement": "editorLangId == hitsimple && processExecutionSupported && isWorkspaceTrusted && !virtualWorkspace"
+      },
+      {
+        "command": "hitsimple.runCurrentFile",
+        "title": "Run Current File",
+        "category": "HitSimple",
+        "enablement": "editorLangId == hitsimple && processExecutionSupported && isWorkspaceTrusted && !virtualWorkspace"
+      }
+    ],
+    "configuration": {
+      "title": "HitSimple",
+      "properties": {
+        "hitsimple.compilerPath": {
+          "type": "string",
+          "default": "hsc",
+          "scope": "machine-overridable",
+          "description": "Path or executable name for the HitSimple compiler. Executable names are resolved from the Extension Host PATH."
+        },
+        "hitsimple.mode": {
+          "type": "string",
+          "enum": [
+            "unchecked",
+            "static-checked",
+            "checked"
+          ],
+          "enumDescriptions": [
+            "Disable safety checks.",
+            "Enable static safety diagnostics without runtime checks.",
+            "Enable static and runtime safety checks."
+          ],
+          "default": "unchecked",
+          "scope": "resource",
+          "description": "Safety mode passed to hsc."
+        },
+        "hitsimple.outputDirectory": {
+          "type": "string",
+          "default": ".hitsimple/build",
+          "scope": "resource",
+          "description": "Build output directory. Relative paths are resolved from the current file's workspace folder and may not escape it."
+        },
+        "hitsimple.additionalArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "Additional hsc arguments passed as individual argv entries without shell parsing."
+        }
+      }
+    },
     "languages": [
       {
         "id": "hitsimple",
@@ -48,11 +133,8 @@
         "label": "HitSimple compiler diagnostics",
         "owner": "hitsimple",
         "source": "hsc",
-        "applyTo": "closedDocuments",
-        "fileLocation": [
-          "relative",
-          "${workspaceFolder}"
-        ],
+        "applyTo": "allDocuments",
+        "fileLocation": "autoDetect",
         "pattern": {
           "regexp": "^hsc: (.+):(\\d+):(\\d+): (?:cli|lexer|parser|sema|hir|codegen|runtime): (error|warning|note): (.*)$",
           "file": 1,

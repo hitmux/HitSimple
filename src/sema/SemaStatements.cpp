@@ -76,6 +76,7 @@ bool unsignedIntegerFits(const ast::IntegerLiteral &integer,
 } // namespace
 
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::Stmt &statement) {
+  CurrentRangeGuard rangeGuard(*this, statement);
   if (const auto *decl = dynamic_cast<const ast::NewDecl *>(&statement)) {
     return analyze(*decl);
   }

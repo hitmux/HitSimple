@@ -260,8 +260,7 @@ parseInput(const std::string& inputPath, bool cCompatibilityMode) {
 
   auto parseResult = hitsimple::parser::parseSource(
       preprocessed.source, inputPath, std::move(preprocessed.lineOrigins));
-  if (!parseResult.unit) {
-    std::cerr << "hsc: " << parseResult.error << '\n';
+  if (printDiagnostics(parseResult.diagnostics) || !parseResult.unit) {
     return std::nullopt;
   }
 
@@ -583,12 +582,13 @@ int dumpTokens(const std::string& inputPath) {
       return EXIT_SUCCESS;
     }
     if (token.kind == hitsimple::lexer::TokenKind::Invalid) {
-      std::cerr << "hsc: invalid token at " << inputPath << ':'
-                << token.range.begin.line << ':' << token.range.begin.column;
+      auto diagnostic = hitsimple::diagnostic::Diagnostic::error(
+          hitsimple::diagnostic::Stage::Lexer, "invalid token");
+      diagnostic.range = token.range;
       if (!token.lexeme.empty()) {
-        std::cerr << " `" << escapeLexeme(token.lexeme) << '`';
+        diagnostic.message += " `" + escapeLexeme(token.lexeme) + '`';
       }
-      std::cerr << '\n';
+      std::cerr << "hsc: " << diagnostic << '\n';
       return EXIT_FAILURE;
     }
   }
@@ -694,11 +694,19 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   }
 
   if (mainCount == 0) {
-    std::cerr << "hsc: program must define a main function\n";
+    std::cerr << "hsc: "
+              << hitsimple::diagnostic::Diagnostic::error(
+                     hitsimple::diagnostic::Stage::Sema,
+                     "program must define a main function")
+              << '\n';
     return EXIT_FAILURE;
   }
   if (mainCount > 1) {
-    std::cerr << "hsc: program must define only one main function\n";
+    std::cerr << "hsc: "
+              << hitsimple::diagnostic::Diagnostic::error(
+                     hitsimple::diagnostic::Stage::Sema,
+                     "program must define only one main function")
+              << '\n';
     return EXIT_FAILURE;
   }
   if (!validateCCompatibilityExternalAbi(units)) {

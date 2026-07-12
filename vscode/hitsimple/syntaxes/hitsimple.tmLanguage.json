@@ -19,6 +19,9 @@
       "include": "#numbers"
     },
     {
+      "include": "#declarations"
+    },
+    {
       "include": "#keywords"
     },
     {
@@ -134,23 +137,60 @@
       "patterns": [
         {
           "name": "constant.numeric.float.hitsimple",
-          "match": "(?x)\\b(?:[0-9](?:_?[0-9])*\\.(?:[0-9](?:_?[0-9])*)?|\\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?\\b|\\b[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)\\b"
+          "match": "(?x)(?:\\b(?:0|[1-9](?:_?[0-9])*)\\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?|(?<![0-9_.])\\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?|\\b(?:0|[1-9](?:_?[0-9])*)[eE][+-]?[0-9](?:_?[0-9])*)(?![A-Za-z0-9_.])"
         },
         {
           "name": "constant.numeric.integer.binary.hitsimple",
-          "match": "\\b0[bB][01](?:_?[01])*\\b"
+          "match": "\\b0[bB][01](?:_?[01])*(?![A-Za-z0-9_.])"
         },
         {
           "name": "constant.numeric.integer.hexadecimal.hitsimple",
-          "match": "\\b0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*\\b"
+          "match": "\\b0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*(?![A-Za-z0-9_.])"
         },
         {
           "name": "constant.numeric.integer.octal.hitsimple",
-          "match": "\\b0[0-7](?:_?[0-7])*\\b"
+          "match": "\\b0[oO][0-7](?:_?[0-7])*(?![A-Za-z0-9_.])"
         },
         {
           "name": "constant.numeric.integer.decimal.hitsimple",
-          "match": "\\b(?:0|[1-9](?:_?[0-9])*)\\b"
+          "match": "\\b(?:0|[1-9](?:_?[0-9])*)(?![A-Za-z0-9_.])"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(struct)(\\s+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.type.hitsimple"
+            },
+            "3": {
+              "name": "entity.name.type.struct.hitsimple"
+            }
+          }
+        },
+        {
+          "match": "\\b(template)(\\s+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.template.hitsimple"
+            },
+            "3": {
+              "name": "entity.name.type.template.hitsimple"
+            }
+          }
+        },
+        {
+          "match": "\\b(impl)(\\s+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.impl.hitsimple"
+            },
+            "3": {
+              "name": "entity.name.type.impl.hitsimple"
+            }
+          }
         }
       ]
     },
@@ -163,6 +203,30 @@
         {
           "name": "storage.type.hitsimple",
           "match": "\\b(?:func|new|static|extern|struct|typedef|enum|union|const|volatile)\\b"
+        },
+        {
+          "name": "keyword.declaration.template.hitsimple",
+          "match": "\\btemplate\\b"
+        },
+        {
+          "name": "keyword.declaration.impl.hitsimple",
+          "match": "\\bimpl\\b"
+        },
+        {
+          "name": "keyword.declaration.operator.hitsimple",
+          "match": "\\bop\\b"
+        },
+        {
+          "name": "keyword.operator.interpretation.hitsimple",
+          "match": "\\bas\\b"
+        },
+        {
+          "name": "variable.language.self.hitsimple",
+          "match": "\\bself\\b"
+        },
+        {
+          "name": "storage.modifier.mut.hitsimple",
+          "match": "\\bmut\\b"
         },
         {
           "name": "keyword.other.hitsimple",
@@ -186,11 +250,42 @@
       "patterns": [
         {
           "name": "keyword.operator.assignment.typed.hitsimple",
-          "match": "%[dfsb]="
+          "match": "%(?:[0-9]*(?:d(?:=|(?:\\*\\*|<<|>>|[+\\-*/%&|^])=)|f(?:=|(?:\\*\\*|[+\\-*/])=))|[sb]=)"
         },
         {
           "name": "keyword.operator.arithmetic.typed.hitsimple",
-          "match": "%(?:\\d+d|(?:2|4|8|16)f|d|f)(?:\\*\\*|<<|>>|[+\\-*/%&|^])"
+          "match": "(%[0-9]*[df]\\*\\*)",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.arithmetic.power.typed.hitsimple"
+            }
+          }
+        },
+        {
+          "name": "keyword.operator.bitwise.shift.typed.hitsimple",
+          "match": "%[0-9]*d(?:<<|>>)"
+        },
+        {
+          "name": "keyword.operator.bitwise.typed.hitsimple",
+          "match": "%[0-9]*d[&|^]"
+        },
+        {
+          "name": "keyword.operator.arithmetic.typed.hitsimple",
+          "match": "(%[0-9]*[df][+\\-])",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.arithmetic.additive.typed.hitsimple"
+            }
+          }
+        },
+        {
+          "name": "keyword.operator.arithmetic.typed.hitsimple",
+          "match": "(%[0-9]*(?:d[*/%]|f[*/]))",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.arithmetic.multiplicative.typed.hitsimple"
+            }
+          }
         }
       ]
     },

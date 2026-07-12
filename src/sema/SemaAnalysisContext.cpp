@@ -330,6 +330,7 @@ bool Analyzer::collectFunctionSignatures(
 
   std::size_t mainCount = 0;
   for (const auto *externFunction : unit.externFunctions) {
+    CurrentRangeGuard rangeGuard(*this, *externFunction);
     FunctionSignature signature;
     signature.name = externFunction->name;
     signature.isExtern = true;
@@ -415,6 +416,7 @@ bool Analyzer::collectFunctionSignatures(
   }
 
   for (const auto *function : unit.functions) {
+    CurrentRangeGuard rangeGuard(*this, *function);
     ++mainCount;
     if (function->name != "main") {
       --mainCount;
@@ -591,8 +593,12 @@ bool Analyzer::registerTopLevelName(std::string_view name) {
 }
 
 void Analyzer::addDiagnostic(std::string diagnostic) {
-  result_.diagnostics.push_back(diagnostic::Diagnostic::error(
-      diagnostic::Stage::Sema, std::move(diagnostic)));
+  auto entry = diagnostic::Diagnostic::error(
+      diagnostic::Stage::Sema, std::move(diagnostic));
+  if (currentRange_ && diagnostic::hasRange(*currentRange_)) {
+    entry.range = *currentRange_;
+  }
+  result_.diagnostics.push_back(std::move(entry));
 }
 
 void Analyzer::beginScope() { scopes_.emplace_back(); }
@@ -670,6 +676,7 @@ std::string Analyzer::makeBindingName(std::string_view name) {
 bool Analyzer::collectStructLayouts(const ast::TranslationUnit &unit,
                                     std::vector<hir::StructLayout> &layouts) {
   for (const auto *decl : unit.structs) {
+    CurrentRangeGuard rangeGuard(*this, *decl);
     if (isReservedIdentifier(decl->name)) {
       addDiagnostic("reserved identifier '" + decl->name +
                     "' cannot be used as a struct name");
@@ -739,6 +746,7 @@ bool Analyzer::collectViewTemplates(
     const ast::TranslationUnit &unit,
     std::vector<hir::ViewTemplate> &viewTemplates) {
   for (const auto *decl : unit.templates) {
+    CurrentRangeGuard rangeGuard(*this, *decl);
     if (isReservedIdentifier(decl->name)) {
       addDiagnostic("reserved identifier '" + decl->name +
                     "' cannot be used as a template name");
@@ -811,6 +819,7 @@ bool Analyzer::collectImplOps(
     const ast::TranslationUnit &unit, std::vector<hir::ImplOpBinding> &implOps) {
   std::unordered_set<std::string> opKeys;
   for (const auto *decl : unit.impls) {
+    CurrentRangeGuard rangeGuard(*this, *decl);
     if (templates_.find(decl->name) == templates_.end()) {
       addDiagnostic("impl target is not a user template: '" + decl->name + "'");
       continue;
@@ -939,6 +948,7 @@ bool Analyzer::collectImplOps(
 
 bool Analyzer::collectImplMethods(const ast::TranslationUnit &unit) {
   for (const auto *decl : unit.impls) {
+    CurrentRangeGuard implRangeGuard(*this, *decl);
     if (templates_.find(decl->name) == templates_.end()) {
       continue;
     }
@@ -948,6 +958,7 @@ bool Analyzer::collectImplMethods(const ast::TranslationUnit &unit) {
         addDiagnostic("internal error: null impl method declaration");
         continue;
       }
+      CurrentRangeGuard methodRangeGuard(*this, *method);
       if (method->params.empty()) {
         addDiagnostic("impl method '" + method->name + "' for template '" +
                       decl->name + "' must have at least one parameter");

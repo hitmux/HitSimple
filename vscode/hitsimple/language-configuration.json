@@ -23,15 +23,27 @@
   "autoClosingPairs": [
     {
       "open": "{",
-      "close": "}"
+      "close": "}",
+      "notIn": [
+        "string",
+        "comment"
+      ]
     },
     {
       "open": "[",
-      "close": "]"
+      "close": "]",
+      "notIn": [
+        "string",
+        "comment"
+      ]
     },
     {
       "open": "(",
-      "close": ")"
+      "close": ")",
+      "notIn": [
+        "string",
+        "comment"
+      ]
     },
     {
       "open": "\"",
@@ -77,6 +89,10 @@
       "start": "^\\s*\\$\\s*(?:if|ifdef|ifndef)\\b",
       "end": "^\\s*\\$\\s*endif\\b"
     }
+  },
+  "indentationRules": {
+    "increaseIndentPattern": "^.*\\{[^}]*$|^\\s*\\$\\s*(?:if|ifdef|ifndef|elif|else)\\b.*$",
+    "decreaseIndentPattern": "^\\s*\\}|^\\s*\\$\\s*(?:elif|else|endif)\\b.*$"
   },
   "wordPattern": "(-?\\d*\\.\\d\\w*)|([^`~!@#%^&*()+=[{\\]}\\\\|;:'\",.<>/?\\s]+)"
 }

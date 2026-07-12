@@ -5,6 +5,8 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -694,6 +696,19 @@ HS_TEST(Parser_ReportsSyntaxErrorLocation) {
 
   HS_EXPECT_TRUE(result.unit == nullptr);
   HS_EXPECT_TRUE(result.error.find("broken.hs:2:11") != std::string::npos);
+  HS_EXPECT_TRUE(result.error.find("parser: error") == std::string::npos);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+
+  const auto& diagnostic = result.diagnostics[0];
+  HS_EXPECT_EQ(diagnostic.stage, hitsimple::diagnostic::Stage::Parser);
+  HS_EXPECT_EQ(diagnostic.severity, hitsimple::diagnostic::Severity::Error);
+  HS_EXPECT_TRUE(diagnostic.range.has_value());
+  HS_EXPECT_EQ(diagnostic.range->begin.file, std::string("broken.hs"));
+  HS_EXPECT_EQ(diagnostic.range->begin.line, 2U);
+  HS_EXPECT_EQ(diagnostic.range->begin.column, 11U);
+  HS_EXPECT_EQ(diagnostic.format(),
+               std::string("broken.hs:2:11: parser: error: ") +
+                   diagnostic.message);
 }
 
 HS_TEST(Parser_ParsesMultiReturnStatementValues) {
@@ -768,4 +783,55 @@ HS_TEST(Parser_RejectsMissingFunctionBody) {
 
   HS_EXPECT_TRUE(result.unit == nullptr);
   HS_EXPECT_TRUE(result.error.find("broken.hs:") == 0);
+}
+
+HS_TEST(Parser_AttachesSourceRangesToNativeAstNodes) {
+  auto result = hitsimple::parser::parseSource("func main() {\n"
+                                               "    return missing\n"
+                                               "}\n",
+                                               "test.hs");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.error.empty());
+  HS_EXPECT_TRUE(result.unit->range.has_value());
+
+  const auto *function = result.unit->functions[0];
+  HS_EXPECT_TRUE(function->range.has_value());
+  HS_EXPECT_EQ(function->range->begin.file, std::string("test.hs"));
+  HS_EXPECT_EQ(function->range->begin.line, 1U);
+  HS_EXPECT_EQ(function->range->begin.column, 1U);
+  HS_EXPECT_TRUE(function->body->range.has_value());
+  HS_EXPECT_EQ(function->body->range->begin.line, 1U);
+  HS_EXPECT_EQ(function->body->range->begin.column, 13U);
+
+  const auto *returned = dynamic_cast<const hitsimple::ast::ReturnStmt *>(
+      function->body->statements[0].get());
+  HS_EXPECT_TRUE(returned != nullptr);
+  HS_EXPECT_TRUE(returned->range.has_value());
+  HS_EXPECT_EQ(returned->range->begin.line, 2U);
+  HS_EXPECT_EQ(returned->range->begin.column, 5U);
+  HS_EXPECT_TRUE(returned->values[0]->range.has_value());
+  HS_EXPECT_EQ(returned->values[0]->range->begin.line, 2U);
+  HS_EXPECT_EQ(returned->values[0]->range->begin.column, 12U);
+}
+
+HS_TEST(Parser_PreservesPreprocessorLineOriginInAstRange) {
+  std::vector<hitsimple::diagnostic::SourceLocation> lineOrigins = {
+      {"main.hs", 1, 1}, {"included.hsi", 42, 1}, {"main.hs", 2, 1}};
+  auto result = hitsimple::parser::parseSource("func main() {\n"
+                                               "    return missing\n"
+                                               "}\n",
+                                               "main.hs",
+                                               std::move(lineOrigins));
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.error.empty());
+  const auto *returned = dynamic_cast<const hitsimple::ast::ReturnStmt *>(
+      result.unit->functions[0]->body->statements[0].get());
+  HS_EXPECT_TRUE(returned != nullptr);
+  HS_EXPECT_TRUE(returned->values[0]->range.has_value());
+  HS_EXPECT_EQ(returned->values[0]->range->begin.file,
+               std::string("included.hsi"));
+  HS_EXPECT_EQ(returned->values[0]->range->begin.line, 42U);
+  HS_EXPECT_EQ(returned->values[0]->range->begin.column, 12U);
 }

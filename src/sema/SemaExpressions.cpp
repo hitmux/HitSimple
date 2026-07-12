@@ -189,6 +189,7 @@ std::optional<std::size_t> integerLiteralArgument(const ast::CallExpr &call,
 } // namespace
 
 std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
+  CurrentRangeGuard rangeGuard(*this, expression);
   if (const auto *identifier =
           dynamic_cast<const ast::IdentifierExpr *>(&expression)) {
     const auto *symbol = lookup(identifier->name);
@@ -1307,6 +1308,7 @@ Analyzer::analyze(const ast::IntegerCastExpr &expression) {
 std::unique_ptr<hir::Expr>
 Analyzer::analyzeFloatOperand(const ast::Expr &expression,
                               std::size_t byteLength) {
+  CurrentRangeGuard rangeGuard(*this, expression);
   if (const auto *floating =
           dynamic_cast<const ast::FloatLiteral *>(&expression)) {
     return std::make_unique<hir::FloatLiteral>(floating->value, byteLength);

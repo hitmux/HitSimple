@@ -38,6 +38,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# VS Code extension development output
+vscode/hitsimple/node_modules/
+vscode/hitsimple/.vscode-test/
+vscode/hitsimple/dist/
+
 # Logs and temporary files
 *.log
 *.tmp

@@ -3,6 +3,7 @@
 
   #include <cctype>
   #include <map>
+  #include <optional>
   #include <sstream>
   #include <string_view>
   #include <utility>
@@ -226,17 +227,33 @@
         return;
       }
 
+      auto parserDiagnostic = diagnostic::Diagnostic::error(
+          diagnostic::Stage::Parser, message);
+      parserDiagnostic.range = diagnostic::SourceRange{
+          sourceLocation(location.begin), sourceLocation(location.end)};
+
       std::ostringstream out;
-      const auto* fileName = location.begin.filename;
-      out << (fileName != nullptr ? *fileName : fileName_) << ':'
-          << location.begin.line << ':'
-          << location.begin.column << ": " << message;
+      out << parserDiagnostic.range->begin.file << ':'
+          << parserDiagnostic.range->begin.line << ':'
+          << parserDiagnostic.range->begin.column << ": " << message;
       error_ = out.str();
+      diagnostic_ = std::move(parserDiagnostic);
     }
 
     const std::string& error() const { return error_; }
 
+    std::optional<diagnostic::Diagnostic> takeDiagnostic() {
+      return std::move(diagnostic_);
+    }
+
   private:
+    diagnostic::SourceLocation sourceLocation(const position& position) const {
+      return diagnostic::SourceLocation{
+          position.filename != nullptr ? *position.filename : fileName_,
+          static_cast<std::size_t>(position.line),
+          static_cast<std::size_t>(position.column)};
+    }
+
     const std::string& fileName(const std::string& fileName) {
       if (fileName.empty()) {
         return fileName_;
@@ -298,27 +315,37 @@
     std::map<std::string, std::string> locationFiles_;
     std::unique_ptr<ast::TranslationUnit> unit_;
     std::string error_;
+    std::optional<diagnostic::Diagnostic> diagnostic_;
   };
 
   static BisonParser::symbol_type yylex(ParseContext& parseContext) {
     return parseContext.nextToken();
   }
 
-  ParseResult parseSource(std::string_view source, std::string fileName) {
-    ParseContext context(source, std::move(fileName));
-    BisonParser parser(context);
-    const int status = parser.parse();
-
+  static ParseResult finishParse(ParseContext& context, int status) {
     ParseResult result;
     if (status == 0) {
       result.unit = context.takeUnit();
-    } else {
-      result.error = context.error();
-      if (result.error.empty()) {
-        result.error = "parse failed";
+      if (result.unit) {
+        return result;
       }
     }
+
+    result.error = context.error();
+    if (auto parserDiagnostic = context.takeDiagnostic()) {
+      result.diagnostics.push_back(std::move(*parserDiagnostic));
+    } else {
+      result.error = "parse failed";
+      result.diagnostics.push_back(diagnostic::Diagnostic::error(
+          diagnostic::Stage::Parser, "parse failed"));
+    }
     return result;
+  }
+
+  ParseResult parseSource(std::string_view source, std::string fileName) {
+    ParseContext context(source, std::move(fileName));
+    BisonParser parser(context);
+    return finishParse(context, parser.parse());
   }
 
   ParseResult parseSource(
@@ -327,18 +354,7 @@
       std::vector<diagnostic::SourceLocation> lineOrigins) {
     ParseContext context(source, std::move(fileName), std::move(lineOrigins));
     BisonParser parser(context);
-    const int status = parser.parse();
-
-    ParseResult result;
-    if (status == 0) {
-      result.unit = context.takeUnit();
-    } else {
-      result.error = context.error();
-      if (result.error.empty()) {
-        result.error = "parse failed";
-      }
-    }
-    return result;
+    return finishParse(context, parser.parse());
   }
 
   } // namespace hitsimple::parser

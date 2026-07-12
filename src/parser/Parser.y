@@ -34,6 +34,48 @@
 
   namespace {
 
+  hitsimple::diagnostic::SourceLocation sourceLocation(
+      const hitsimple::parser::position &position) {
+    return hitsimple::diagnostic::SourceLocation{
+        position.filename != nullptr ? *position.filename : std::string{},
+        static_cast<std::size_t>(position.line),
+        static_cast<std::size_t>(position.column)};
+  }
+
+  hitsimple::diagnostic::SourceRange sourceRange(
+      const hitsimple::parser::BisonParser::location_type &begin,
+      const hitsimple::parser::BisonParser::location_type &end) {
+    return hitsimple::diagnostic::SourceRange{
+        sourceLocation(begin.begin), sourceLocation(end.end)};
+  }
+
+  template <typename NodeT>
+  std::unique_ptr<NodeT> withSourceRange(
+      std::unique_ptr<NodeT> node,
+      const hitsimple::parser::BisonParser::location_type &location) {
+    if (node) {
+      auto range = sourceRange(location, location);
+      if (hitsimple::diagnostic::hasRange(range)) {
+        node->range = std::move(range);
+      }
+    }
+    return node;
+  }
+
+  template <typename NodeT>
+  std::unique_ptr<NodeT> withSourceRange(
+      std::unique_ptr<NodeT> node,
+      const hitsimple::parser::BisonParser::location_type &begin,
+      const hitsimple::parser::BisonParser::location_type &end) {
+    if (node) {
+      auto range = sourceRange(begin, end);
+      if (hitsimple::diagnostic::hasRange(range)) {
+        node->range = std::move(range);
+      }
+    }
+    return node;
+  }
+
   std::unique_ptr<hitsimple::ast::Expr>
   normalizePostfixDerefIncrement(std::unique_ptr<hitsimple::ast::Expr> expression) {
     auto *deref = dynamic_cast<hitsimple::ast::DerefExpr *>(expression.get());
@@ -50,14 +92,19 @@
 
     auto derefExpression = std::unique_ptr<hitsimple::ast::DerefExpr>(
         static_cast<hitsimple::ast::DerefExpr *>(expression.release()));
+    const auto normalizedRange = derefExpression->range;
     auto incrementExpression = std::unique_ptr<hitsimple::ast::UnaryExpr>(
         static_cast<hitsimple::ast::UnaryExpr *>(
             derefExpression->address.release()));
-    return std::make_unique<hitsimple::ast::UnaryExpr>(
+    auto normalizedDeref = std::make_unique<hitsimple::ast::DerefExpr>(
+        std::move(derefExpression->length),
+        std::move(incrementExpression->operand));
+    normalizedDeref->range = derefExpression->range;
+    auto normalized = std::make_unique<hitsimple::ast::UnaryExpr>(
         std::move(incrementExpression->op),
-        std::make_unique<hitsimple::ast::DerefExpr>(
-            std::move(derefExpression->length),
-            std::move(incrementExpression->operand)));
+        std::move(normalizedDeref));
+    normalized->range = normalizedRange;
+    return normalized;
   }
 
   } // namespace
@@ -188,7 +235,9 @@ program:
 translation_unit:
   top_level_items
     {
-      $$ = std::make_unique<hitsimple::ast::TranslationUnit>(std::move($1));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::TranslationUnit>(std::move($1)),
+          @$);
     }
 ;
 
@@ -230,31 +279,39 @@ global_new_decl:
   NEW decl_item
     {
       auto item = std::move($2);
-      $$ = std::make_unique<hitsimple::ast::GlobalNewDecl>(
-          std::move(item.name), std::move(item.length),
-          std::move(item.templateName), std::move(item.assignmentOp),
-          std::move(item.initializer));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::GlobalNewDecl>(
+              std::move(item.name), std::move(item.length),
+              std::move(item.templateName), std::move(item.assignmentOp),
+              std::move(item.initializer)),
+          @$);
     }
 ;
 
 extern_decl:
   EXTERN IDENTIFIER optional_length_spec optional_as_template
     {
-      $$ = std::make_unique<hitsimple::ast::ExternVarDecl>(
-          std::move($2), std::move($3), std::move($4));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ExternVarDecl>(
+              std::move($2), std::move($3), std::move($4)),
+          @$);
     }
 | EXTERN IDENTIFIER LPAREN optional_param_list RPAREN return_sig
     {
-      $$ = std::make_unique<hitsimple::ast::ExternFunctionDecl>(
-          std::move($2), std::move($4), std::move($6));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ExternFunctionDecl>(
+              std::move($2), std::move($4), std::move($6)),
+          @$);
     }
 ;
 
 struct_decl:
   STRUCT IDENTIFIER LBRACE struct_member_list RBRACE
     {
-      $$ = std::make_unique<hitsimple::ast::StructDecl>(
-          std::move($2), std::move($4));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::StructDecl>(
+              std::move($2), std::move($4)),
+          @$);
     }
 ;
 
@@ -278,8 +335,10 @@ struct_member:
 template_decl:
   TEMPLATE IDENTIFIER LBRACE template_member_list RBRACE
     {
-      $$ = std::make_unique<hitsimple::ast::TemplateDecl>(
-          std::move($2), std::move($4));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::TemplateDecl>(
+              std::move($2), std::move($4)),
+          @$);
     }
 ;
 
@@ -306,8 +365,10 @@ template_member:
 impl_decl:
   IMPL IDENTIFIER LBRACE impl_item_list RBRACE
     {
-      $$ = std::make_unique<hitsimple::ast::ImplDecl>(
-          std::move($2), std::move($4.ops), std::move($4.methods));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ImplDecl>(
+              std::move($2), std::move($4.ops), std::move($4.methods)),
+          @$);
     }
 ;
 
@@ -413,16 +474,20 @@ template_param_name:
 function:
   FUNC IDENTIFIER LPAREN optional_param_list RPAREN optional_return_sig block
     {
-      $$ = std::make_unique<hitsimple::ast::FunctionDecl>(
-          std::move($2), std::move($4), std::move($6), std::move($7));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::FunctionDecl>(
+              std::move($2), std::move($4), std::move($6), std::move($7)),
+          @$);
     }
 ;
 
 impl_method:
   FUNC IDENTIFIER LPAREN optional_impl_method_param_list RPAREN optional_return_sig block
     {
-      $$ = std::make_unique<hitsimple::ast::FunctionDecl>(
-          std::move($2), std::move($4), std::move($6), std::move($7));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::FunctionDecl>(
+              std::move($2), std::move($4), std::move($6), std::move($7)),
+          @$);
     }
 ;
 
@@ -558,7 +623,10 @@ return_item:
 
 block:
   LBRACE statement_list RBRACE
-    { $$ = std::make_unique<hitsimple::ast::BlockStmt>(std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BlockStmt>(std::move($2)), @$);
+    }
 ;
 
 statement_list:
@@ -607,13 +675,17 @@ statement:
 var_decl:
   decl_storage decl_list
     {
-      $$ = std::make_unique<hitsimple::ast::VarDeclStmt>(
-          std::move($1), std::move($2));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::VarDeclStmt>(
+              std::move($1), std::move($2)),
+          @$);
     }
 | decl_storage LBRACE optional_newlines batch_decl_list optional_newlines RBRACE
     {
-      $$ = std::make_unique<hitsimple::ast::VarDeclStmt>(
-          std::move($1), std::move($4));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::VarDeclStmt>(
+              std::move($1), std::move($4)),
+          @$);
     }
 ;
 
@@ -706,15 +778,18 @@ assignment_operator:
 assign_stmt:
   assignment_stmt_expr
     {
-      $$ = std::make_unique<hitsimple::ast::AssignStmt>(std::move($1));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::AssignStmt>(std::move($1)), @$);
     }
 ;
 
 assignment_stmt_expr:
   assignment_target_list EQUAL assignment_value_list
     {
-      $$ = std::make_unique<hitsimple::ast::AssignmentExpr>(
-          std::move($1), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::AssignmentExpr>(
+              std::move($1), std::move($3)),
+          @$);
     }
 ;
 
@@ -727,11 +802,15 @@ expr_stmt:
         auto assignmentExpr =
             std::unique_ptr<hitsimple::ast::AssignmentExpr>(
                 static_cast<hitsimple::ast::AssignmentExpr*>($1.release()));
-        $$ = std::make_unique<hitsimple::ast::AssignStmt>(
-            std::move(assignmentExpr));
+        $$ = withSourceRange(
+            std::make_unique<hitsimple::ast::AssignStmt>(
+                std::move(assignmentExpr)),
+            @$);
       } else {
-        $$ = std::make_unique<hitsimple::ast::ExprStmt>(
-            normalizePostfixDerefIncrement(std::move($1)));
+        $$ = withSourceRange(
+            std::make_unique<hitsimple::ast::ExprStmt>(
+                normalizePostfixDerefIncrement(std::move($1))),
+            @$);
       }
     }
 ;
@@ -739,13 +818,21 @@ expr_stmt:
 return_stmt:
   RETURN
     {
-      $$ = std::make_unique<hitsimple::ast::ReturnStmt>(
-          std::vector<std::unique_ptr<hitsimple::ast::Expr>>());
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ReturnStmt>(
+              std::vector<std::unique_ptr<hitsimple::ast::Expr>>()),
+          @$);
     }
 | RETURN return_value_list
-    { $$ = std::make_unique<hitsimple::ast::ReturnStmt>(std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ReturnStmt>(std::move($2)), @$);
+    }
 | RETURN LPAREN return_parenthesized_multi RPAREN
-    { $$ = std::make_unique<hitsimple::ast::ReturnStmt>(std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ReturnStmt>(std::move($3)), @$);
+    }
 ;
 
 return_value_list:
@@ -775,30 +862,50 @@ return_parenthesized_multi:
 
 if_stmt:
   IF LPAREN expression RPAREN block
-    { $$ = std::make_unique<hitsimple::ast::IfStmt>(std::move($3), std::move($5), nullptr); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IfStmt>(
+              std::move($3), std::move($5), nullptr),
+          @$);
+    }
 | IF LPAREN expression RPAREN block ELSE block
-    { $$ = std::make_unique<hitsimple::ast::IfStmt>(std::move($3), std::move($5), std::move($7)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IfStmt>(
+              std::move($3), std::move($5), std::move($7)),
+          @$);
+    }
 | IF LPAREN expression RPAREN block ELSE if_stmt
     {
       std::vector<std::unique_ptr<hitsimple::ast::Stmt>> statements;
       statements.push_back(std::move($7));
-      auto elseBlock =
-          std::make_unique<hitsimple::ast::BlockStmt>(std::move(statements));
-      $$ = std::make_unique<hitsimple::ast::IfStmt>(
-          std::move($3), std::move($5), std::move(elseBlock));
+      auto elseBlock = withSourceRange(
+          std::make_unique<hitsimple::ast::BlockStmt>(std::move(statements)),
+          @7);
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IfStmt>(
+              std::move($3), std::move($5), std::move(elseBlock)),
+          @$);
     }
 ;
 
 while_stmt:
   WHILE LPAREN expression RPAREN block
-    { $$ = std::make_unique<hitsimple::ast::WhileStmt>(std::move($3), std::move($5)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::WhileStmt>(
+              std::move($3), std::move($5)),
+          @$);
+    }
 ;
 
 for_stmt:
   FOR LPAREN optional_for_init SEMICOLON optional_for_condition SEMICOLON optional_for_post RPAREN block
     {
-      $$ = std::make_unique<hitsimple::ast::ForStmt>(
-          std::move($3), std::move($5), std::move($7), std::move($9));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ForStmt>(
+              std::move($3), std::move($5), std::move($7), std::move($9)),
+          @$);
     }
 ;
 
@@ -841,43 +948,62 @@ for_post_list:
 
 break_stmt:
   BREAK
-    { $$ = std::make_unique<hitsimple::ast::BreakStmt>(); }
+    {
+      $$ = withSourceRange(std::make_unique<hitsimple::ast::BreakStmt>(), @$);
+    }
 ;
 
 continue_stmt:
   CONTINUE
-    { $$ = std::make_unique<hitsimple::ast::ContinueStmt>(); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ContinueStmt>(), @$);
+    }
 ;
 
 goto_stmt:
   GOTO IDENTIFIER
-    { $$ = std::make_unique<hitsimple::ast::GotoStmt>(std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::GotoStmt>(std::move($2)), @$);
+    }
 ;
 
 label_stmt:
   IDENTIFIER COLON statement
     {
-      $$ = std::make_unique<hitsimple::ast::LabelStmt>(
-          std::move($1), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::LabelStmt>(
+              std::move($1), std::move($3)),
+          @$);
     }
 | IDENTIFIER COLON
     {
-      $$ = std::make_unique<hitsimple::ast::LabelStmt>(
-          std::move($1), std::make_unique<hitsimple::ast::EmptyStmt>());
+      auto empty = withSourceRange(
+          std::make_unique<hitsimple::ast::EmptyStmt>(), @2);
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::LabelStmt>(
+              std::move($1), std::move(empty)),
+          @$);
     }
 ;
 
 throw_stmt:
   THROW expression
-    { $$ = std::make_unique<hitsimple::ast::ThrowStmt>(std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ThrowStmt>(std::move($2)), @$);
+    }
 ;
 
 try_catch_stmt:
   TRY block CATCH LPAREN catch_param RPAREN block
     {
-      $$ = std::make_unique<hitsimple::ast::TryCatchStmt>(
-          std::move($2), std::move($5.name), std::move($5.length),
-          std::move($5.templateName), std::move($7));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::TryCatchStmt>(
+              std::move($2), std::move($5.name), std::move($5.length),
+              std::move($5.templateName), std::move($7)),
+          @$);
     }
 ;
 
@@ -892,23 +1018,33 @@ catch_param:
 set_stmt:
   SET set_target TEMPLATE_MARK template_name
     {
-      $$ = std::make_unique<hitsimple::ast::SetStmt>(
-          std::move($2), std::move($4));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::SetStmt>(
+              std::move($2), std::move($4)),
+          @$);
     }
 | SET set_target AS template_name
     {
-      $$ = std::make_unique<hitsimple::ast::SetStmt>(
-          std::move($2), std::move($4));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::SetStmt>(
+              std::move($2), std::move($4)),
+          @$);
     }
 ;
 
 set_target:
   IDENTIFIER
-    { $$ = std::make_unique<hitsimple::ast::IdentifierExpr>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IdentifierExpr>(std::move($1)),
+          @$);
+    }
 | set_target DOT IDENTIFIER
     {
-      $$ = std::make_unique<hitsimple::ast::MemberExpr>(
-          std::move($1), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::MemberExpr>(
+              std::move($1), std::move($3)),
+          @$);
     }
 ;
 
@@ -922,15 +1058,21 @@ assignment_expr:
     { $$ = std::move($1); }
 | postfix_expr assignment_operator assignment_expr
     {
-      $$ = std::make_unique<hitsimple::ast::AssignmentExpr>(
-          std::move($1), std::move($2), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::AssignmentExpr>(
+              std::move($1), std::move($2), std::move($3)),
+          @$);
     }
 | LBRACKET INTEGER RBRACKET STAR unary_expr assignment_operator assignment_expr
     {
-      $$ = std::make_unique<hitsimple::ast::AssignmentExpr>(
-          std::make_unique<hitsimple::ast::DerefExpr>(std::move($2),
-                                                      std::move($5)),
-          std::move($6), std::move($7));
+      auto target = withSourceRange(
+          std::make_unique<hitsimple::ast::DerefExpr>(
+              std::move($2), std::move($5)),
+          @1, @5);
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::AssignmentExpr>(
+              std::move(target), std::move($6), std::move($7)),
+          @$);
     }
 ;
 
@@ -942,8 +1084,10 @@ assignment_target:
 | LBRACKET INTEGER RBRACKET STAR unary_expr
     {
       $$ = hitsimple::ast::AssignmentTarget(
-          std::make_unique<hitsimple::ast::DerefExpr>(std::move($2),
-                                                      std::move($5)),
+          withSourceRange(
+              std::make_unique<hitsimple::ast::DerefExpr>(
+                  std::move($2), std::move($5)),
+              @1, @5),
           "=");
     }
 | LPAREN postfix_expr assignment_operator RPAREN
@@ -953,8 +1097,10 @@ assignment_target:
 | LPAREN LBRACKET INTEGER RBRACKET STAR unary_expr assignment_operator RPAREN
     {
       $$ = hitsimple::ast::AssignmentTarget(
-          std::make_unique<hitsimple::ast::DerefExpr>(std::move($3),
-                                                      std::move($6)),
+          withSourceRange(
+              std::make_unique<hitsimple::ast::DerefExpr>(
+                  std::move($3), std::move($6)),
+              @2, @6),
           std::move($7));
     }
 ;
@@ -989,8 +1135,10 @@ conditional_expr:
     { $$ = std::move($1); }
 | logical_or_expr QUESTION expression COLON conditional_expr
     {
-      $$ = std::make_unique<hitsimple::ast::TernaryExpr>(
-          std::move($1), std::move($3), std::move($5));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::TernaryExpr>(
+              std::move($1), std::move($3), std::move($5)),
+          @$);
     }
 ;
 
@@ -998,124 +1146,276 @@ logical_or_expr:
   logical_and_expr
     { $$ = std::move($1); }
 | logical_or_expr PIPE_PIPE logical_and_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "||", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "||", std::move($3)),
+          @$);
+    }
 ;
 
 logical_and_expr:
   bitwise_or_expr
     { $$ = std::move($1); }
 | logical_and_expr AMPERSAND_AMPERSAND bitwise_or_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "&&", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "&&", std::move($3)),
+          @$);
+    }
 ;
 
 bitwise_or_expr:
   bitwise_xor_expr
     { $$ = std::move($1); }
 | bitwise_or_expr PIPE bitwise_xor_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "|", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "|", std::move($3)),
+          @$);
+    }
 | bitwise_or_expr TYPED_BITWISE_OPERATOR bitwise_xor_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), std::move($2), std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), std::move($2), std::move($3)),
+          @$);
+    }
 ;
 
 bitwise_xor_expr:
   bitwise_and_expr
     { $$ = std::move($1); }
 | bitwise_xor_expr CARET bitwise_and_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "^", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "^", std::move($3)),
+          @$);
+    }
 ;
 
 bitwise_and_expr:
   equality_expr
     { $$ = std::move($1); }
 | bitwise_and_expr AMPERSAND equality_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "&", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "&", std::move($3)),
+          @$);
+    }
 ;
 
 equality_expr:
   relational_expr
     { $$ = std::move($1); }
 | equality_expr EQUAL_EQUAL relational_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "==", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "==", std::move($3)),
+          @$);
+    }
 | equality_expr BANG_EQUAL relational_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "!=", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "!=", std::move($3)),
+          @$);
+    }
 ;
 
 relational_expr:
   shift_expr
     { $$ = std::move($1); }
 | relational_expr LESS shift_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "<", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "<", std::move($3)),
+          @$);
+    }
 | relational_expr GREATER shift_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), ">", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), ">", std::move($3)),
+          @$);
+    }
 | relational_expr LESS_EQUAL shift_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "<=", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "<=", std::move($3)),
+          @$);
+    }
 | relational_expr GREATER_EQUAL shift_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), ">=", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), ">=", std::move($3)),
+          @$);
+    }
 ;
 
 shift_expr:
   additive_expr
     { $$ = std::move($1); }
 | shift_expr SHIFT_LEFT additive_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "<<", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "<<", std::move($3)),
+          @$);
+    }
 | shift_expr SHIFT_RIGHT additive_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), ">>", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), ">>", std::move($3)),
+          @$);
+    }
 | shift_expr TYPED_SHIFT_OPERATOR additive_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), std::move($2), std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), std::move($2), std::move($3)),
+          @$);
+    }
 ;
 
 additive_expr:
   multiplicative_expr
     { $$ = std::move($1); }
 | additive_expr TYPED_ADDITIVE_OPERATOR multiplicative_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), std::move($2), std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), std::move($2), std::move($3)),
+          @$);
+    }
 | additive_expr PLUS multiplicative_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "+", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "+", std::move($3)),
+          @$);
+    }
 | additive_expr MINUS multiplicative_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "-", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "-", std::move($3)),
+          @$);
+    }
 ;
 
 multiplicative_expr:
   power_expr
     { $$ = std::move($1); }
 | multiplicative_expr TYPED_MULTIPLICATIVE_OPERATOR power_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), std::move($2), std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), std::move($2), std::move($3)),
+          @$);
+    }
 | multiplicative_expr STAR power_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "*", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "*", std::move($3)),
+          @$);
+    }
 | multiplicative_expr SLASH power_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "/", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "/", std::move($3)),
+          @$);
+    }
 | multiplicative_expr PERCENT power_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "%", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "%", std::move($3)),
+          @$);
+    }
 ;
 
 power_expr:
   unary_expr
     { $$ = std::move($1); }
 | unary_expr POWER power_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), "**", std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), "**", std::move($3)),
+          @$);
+    }
 | unary_expr TYPED_POWER_OPERATOR power_expr
-    { $$ = std::make_unique<hitsimple::ast::BinaryExpr>(std::move($1), std::move($2), std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BinaryExpr>(
+              std::move($1), std::move($2), std::move($3)),
+          @$);
+    }
 ;
 
 unary_expr:
   postfix_expr
     { $$ = std::move($1); }
 | BANG unary_expr
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("!", std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>("!", std::move($2)),
+          @$);
+    }
 | TILDE unary_expr
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("~", std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>("~", std::move($2)),
+          @$);
+    }
 | MINUS unary_expr
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("-", std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>("-", std::move($2)),
+          @$);
+    }
 | AMPERSAND unary_expr
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("&", std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>("&", std::move($2)),
+          @$);
+    }
 | PLUS_PLUS unary_expr
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("++", std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>("++", std::move($2)),
+          @$);
+    }
 | MINUS_MINUS unary_expr
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("--", std::move($2)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>("--", std::move($2)),
+          @$);
+    }
 | LBRACKET INTEGER RBRACKET STAR unary_expr
-    { $$ = std::make_unique<hitsimple::ast::DerefExpr>(std::move($2), std::move($5)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::DerefExpr>(
+              std::move($2), std::move($5)),
+          @$);
+    }
 | SIZEOF LPAREN IDENTIFIER RPAREN
-    { $$ = std::make_unique<hitsimple::ast::SizeofExpr>(std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::SizeofExpr>(std::move($3)), @$);
+    }
 ;
 
 postfix_expr:
@@ -1125,45 +1425,75 @@ postfix_expr:
     { $$ = std::move($1); }
 | postfix_expr LBRACKET expression RBRACKET
     {
-      $$ = std::make_unique<hitsimple::ast::IndexExpr>(
-          std::move($1), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IndexExpr>(
+              std::move($1), std::move($3)),
+          @$);
     }
 | postfix_expr LBRACKET expression COLON expression RBRACKET
     {
-      $$ = std::make_unique<hitsimple::ast::SliceExpr>(
-          std::move($1), std::move($3), std::move($5), false);
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::SliceExpr>(
+              std::move($1), std::move($3), std::move($5), false),
+          @$);
     }
 | postfix_expr LBRACKET expression COLON PLUS expression RBRACKET
     {
-      $$ = std::make_unique<hitsimple::ast::SliceExpr>(
-          std::move($1), std::move($3), std::move($6), true);
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::SliceExpr>(
+              std::move($1), std::move($3), std::move($6), true),
+          @$);
     }
 | postfix_expr DOT IDENTIFIER
     {
-      $$ = std::make_unique<hitsimple::ast::MemberExpr>(
-          std::move($1), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::MemberExpr>(
+              std::move($1), std::move($3)),
+          @$);
     }
 | postfix_expr DOT IDENTIFIER LPAREN optional_argument_list RPAREN
     {
-      $$ = std::make_unique<hitsimple::ast::MethodCallExpr>(
-          std::move($1), std::move($3), std::move($5));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::MethodCallExpr>(
+              std::move($1), std::move($3), std::move($5)),
+          @$);
     }
 | postfix_expr UNSIGNED_QUESTION
-    { $$ = std::make_unique<hitsimple::ast::UnsignedExpr>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnsignedExpr>(std::move($1)), @$);
+    }
 | postfix_expr AS template_name
     {
-      $$ = std::make_unique<hitsimple::ast::AsExpr>(
-          std::move($1), std::move($3));
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::AsExpr>(
+              std::move($1), std::move($3)),
+          @$);
     }
 | postfix_expr PLUS_PLUS
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("post++", std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>(
+              "post++", std::move($1)),
+          @$);
+    }
 | postfix_expr MINUS_MINUS
-    { $$ = std::make_unique<hitsimple::ast::UnaryExpr>("post--", std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::UnaryExpr>(
+              "post--", std::move($1)),
+          @$);
+    }
 ;
 
 call_expr:
   IDENTIFIER LPAREN optional_argument_list RPAREN
-    { $$ = std::make_unique<hitsimple::ast::CallExpr>(std::move($1), std::move($3)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::CallExpr>(
+              std::move($1), std::move($3)),
+          @$);
+    }
 ;
 
 optional_argument_list:
@@ -1187,21 +1517,48 @@ argument_list:
 
 primary_expr:
   IDENTIFIER
-    { $$ = std::make_unique<hitsimple::ast::IdentifierExpr>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IdentifierExpr>(std::move($1)),
+          @$);
+    }
 | INTEGER
-    { $$ = std::make_unique<hitsimple::ast::IntegerLiteral>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IntegerLiteral>(std::move($1)),
+          @$);
+    }
 | FLOAT
-    { $$ = std::make_unique<hitsimple::ast::FloatLiteral>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::FloatLiteral>(std::move($1)), @$);
+    }
 | CHAR
-    { $$ = std::make_unique<hitsimple::ast::CharLiteral>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::CharLiteral>(std::move($1)), @$);
+    }
 | STRING
-    { $$ = std::make_unique<hitsimple::ast::StringLiteral>(std::move($1)); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::StringLiteral>(std::move($1)),
+          @$);
+    }
 | SELF
-    { $$ = std::make_unique<hitsimple::ast::IdentifierExpr>("self"); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::IdentifierExpr>("self"), @$);
+    }
 | TRUE
-    { $$ = std::make_unique<hitsimple::ast::BoolLiteral>(true); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BoolLiteral>(true), @$);
+    }
 | FALSE
-    { $$ = std::make_unique<hitsimple::ast::BoolLiteral>(false); }
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::BoolLiteral>(false), @$);
+    }
 | LPAREN expression RPAREN
     { $$ = std::move($2); }
 ;

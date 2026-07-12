@@ -250,6 +250,9 @@ target_link_libraries(hsc_unit_tests
   add_test(NAME hsc_dump_tokens
     COMMAND hsc --dump-tokens ${PROJECT_SOURCE_DIR}/tests/cases/lexer/typed_operators.hs
   )
+  add_hsc_shell_test(hsc_dump_tokens_reports_located_invalid_token
+    "! $<TARGET_FILE:hsc> --dump-tokens ${PROJECT_SOURCE_DIR}/tests/cases/lexer/invalid_token.hs >stdout 2>stderr && grep -Fq ':1:1: lexer: error: invalid token `@`' stderr"
+  )
   add_test(NAME hsc_preprocess_only
     COMMAND hsc --preprocess-only ${PROJECT_SOURCE_DIR}/tests/cases/preprocessor/main.hs
   )

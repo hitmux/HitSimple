@@ -25,6 +25,13 @@
     ],
     "description": "Declare an external function"
   },
+  "extern variable": {
+    "prefix": "externv",
+    "body": [
+      "extern ${1:external_value} as ${2:i32}"
+    ],
+    "description": "Declare an external variable with an explicit template"
+  },
   "memory declaration": {
     "prefix": "new",
     "body": [
@@ -32,12 +39,47 @@
     ],
     "description": "Declare memory data"
   },
+  "typed memory declaration": {
+    "prefix": "newas",
+    "body": [
+      "new ${1:name} as ${2:i32} = ${3:0}"
+    ],
+    "description": "Declare initialized memory with an explicit template"
+  },
+  "byte buffer declaration": {
+    "prefix": "newbytes",
+    "body": [
+      "new ${1:buffer}[${2:64}] as bytes"
+    ],
+    "description": "Declare a sized byte buffer"
+  },
+  "C string buffer declaration": {
+    "prefix": "newcstr",
+    "body": [
+      "new ${1:text}[${2:64}] as cstr = \"${3:text}\""
+    ],
+    "description": "Declare an initialized sized C string buffer"
+  },
+  "tracked address declaration": {
+    "prefix": "newaddr",
+    "body": [
+      "new ${1:pointer} as addr = &${2:target}"
+    ],
+    "description": "Declare an address derived from a named object"
+  },
   "static memory declaration": {
     "prefix": "static",
     "body": [
       "static ${1:name}[${2:1}]"
     ],
     "description": "Declare static memory data"
+  },
+  "typed static memory declaration": {
+    "prefix": "staticas",
+    "body": [
+      "static ${1:name} as ${2:u64} = ${3:0}"
+    ],
+    "description": "Declare initialized static memory with an explicit template"
   },
   "struct": {
     "prefix": "struct",
@@ -47,6 +89,49 @@
       "}"
     ],
     "description": "Create a struct definition"
+  },
+  "template": {
+    "prefix": "template",
+    "body": [
+      "template ${1:Name} {",
+      "    ${2:member}[${3:4}] as ${4:i32}",
+      "}"
+    ],
+    "description": "Create a user template"
+  },
+  "impl": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Name} {",
+      "    ${2:// operations and methods}",
+      "}"
+    ],
+    "description": "Create an impl block for a user template"
+  },
+  "operator implementation": {
+    "prefix": "op",
+    "body": [
+      "op ${1:+} (${2:lhs} as ${3:Name}, ${4:rhs} as ${3:Name}) -> ${3:Name} {",
+      "    return ${2:lhs}",
+      "}"
+    ],
+    "description": "Add a binary operator implementation inside an impl block"
+  },
+  "template method": {
+    "prefix": "method",
+    "body": [
+      "func ${1:copy}(self as ${2:Name}) -> ${2:Name} {",
+      "    return self",
+      "}"
+    ],
+    "description": "Add a template method with an explicit self parameter"
+  },
+  "set template": {
+    "prefix": "set",
+    "body": [
+      "set ${1:name} as ${2:i32}"
+    ],
+    "description": "Set the persistent template of a name or member chain"
   },
   "include guard": {
     "prefix": "guard",
