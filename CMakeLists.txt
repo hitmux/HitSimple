@@ -1,11 +1,18 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(HitSimple
-  VERSION 0.1.0
+  VERSION 0.2.0
   LANGUAGES C CXX
 )
 
 include(GNUInstallDirs)
+
+set(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY "" CACHE FILEPATH
+  "Use a prebuilt target runtime archive instead of compiling it with the compiler host toolchain")
+set(HITSIMPLE_BOOST_LICENSE "" CACHE FILEPATH
+  "Path to Boost LICENSE_1_0.txt for Windows package attribution")
+set(HITSIMPLE_LLVM_LICENSE "" CACHE FILEPATH
+  "Path to the LLVM distribution license for packaged builds")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,7 +21,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
-find_program(CLANG_EXECUTABLE clang REQUIRED)
+find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
 llvm_map_components_to_libnames(
   LLVM_LIBS
   Core
@@ -51,11 +58,11 @@ target_compile_definitions(hsc_mcpp
     HAVE_CONFIG_H=0
 )
 
-target_compile_options(hsc_mcpp
-  PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-std=gnu89>
-    $<$<COMPILE_LANGUAGE:C>:-w>
-)
+if(MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+  target_compile_options(hsc_mcpp PRIVATE /w)
+else()
+  target_compile_options(hsc_mcpp PRIVATE -std=gnu89 -w)
+endif()
 
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/Lexer.cpp
@@ -91,6 +98,7 @@ add_library(hitsimple_frontend STATIC
   src/codegen/LLVMCodegenCAbi.cpp
   src/codegen/LLVMCodegenControlFlow.cpp
   src/codegen/LLVMCodegenExpressions.cpp
+  src/codegen/LLVMCodegenF128.cpp
   src/codegen/LLVMCodegenFunctions.cpp
   src/codegen/LLVMCodegenRuntime.cpp
   src/codegen/LLVMCodegenStatements.cpp
@@ -109,8 +117,41 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
   src/stdlib/StandardLibrary.cpp
+  src/support/Path.cpp
+  src/support/Process.cpp
   src/support/ResourcePaths.cpp
+  src/support/Toolchain.cpp
 )
+
+if(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
+  add_library(hitsimple_runtime STATIC IMPORTED GLOBAL)
+  set_target_properties(hitsimple_runtime PROPERTIES
+    IMPORTED_LOCATION "${HITSIMPLE_PREBUILT_RUNTIME_LIBRARY}"
+  )
+else()
+  add_library(hitsimple_runtime STATIC runtime/hitsimple_runtime.c)
+
+  if(WIN32)
+    find_package(Boost 1.85.0 REQUIRED)
+    target_sources(hitsimple_runtime PRIVATE runtime/hitsimple_f128.cpp)
+    target_include_directories(hitsimple_runtime PRIVATE ${Boost_INCLUDE_DIRS})
+  else()
+    target_sources(hitsimple_runtime PRIVATE runtime/hitsimple_f128_native.c)
+  endif()
+
+  set_target_properties(hitsimple_runtime PROPERTIES
+    OUTPUT_NAME hitsimple_runtime
+  )
+
+  if(MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+    target_compile_options(hitsimple_runtime PRIVATE /W4)
+  else()
+    target_compile_options(hitsimple_runtime PRIVATE
+      $<$<COMPILE_LANGUAGE:C>:-Wall>
+      $<$<COMPILE_LANGUAGE:C>:-Wextra>
+    )
+  endif()
+endif()
 
 target_include_directories(hitsimple_frontend
   PUBLIC
@@ -133,18 +174,25 @@ target_compile_definitions(hitsimple_frontend
     HITSIMPLE_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     HITSIMPLE_MCPP_EXECUTABLE="$<TARGET_FILE:hsc_mcpp>"
     HITSIMPLE_RUNTIME_SOURCE="${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c"
+    HITSIMPLE_RUNTIME_LIBRARY="$<TARGET_FILE:hitsimple_runtime>"
 )
 
-target_compile_options(hitsimple_frontend
-  PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
+if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+  target_compile_options(hitsimple_frontend PRIVATE /W4)
+else()
+  target_compile_options(hitsimple_frontend PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 add_executable(hsc
   src/main.cpp
 )
+
+if(WIN32)
+  target_sources(hsc_mcpp PRIVATE cmake/windows-utf8.manifest)
+  target_sources(hsc PRIVATE cmake/windows-utf8.manifest)
+  target_compile_definitions(hitsimple_frontend PUBLIC NOMINMAX)
+  target_compile_definitions(hsc PRIVATE NOMINMAX)
+endif()
 
 target_include_directories(hsc
   PRIVATE
@@ -158,12 +206,11 @@ target_compile_definitions(hsc
     HITSIMPLE_LLVM_VERSION="${LLVM_PACKAGE_VERSION}"
 )
 
-target_compile_options(hsc
-  PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-)
+if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+  target_compile_options(hsc PRIVATE /W4)
+else()
+  target_compile_options(hsc PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 target_link_libraries(hsc
   PRIVATE
@@ -172,6 +219,9 @@ target_link_libraries(hsc
 )
 
 add_dependencies(hsc hsc_mcpp)
+if(NOT HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
+  add_dependencies(hsc hitsimple_runtime)
+endif()
 
 install(TARGETS hsc
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -179,12 +229,19 @@ install(TARGETS hsc
 install(TARGETS hsc_mcpp
   RUNTIME DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/hitsimple
 )
+if(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
+  install(FILES "${HITSIMPLE_PREBUILT_RUNTIME_LIBRARY}"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/hitsimple
+    RENAME libhitsimple_runtime.a
+  )
+else()
+  install(TARGETS hitsimple_runtime
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/hitsimple
+  )
+endif()
 install(DIRECTORY stdlib/
   DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/stdlib
   FILES_MATCHING PATTERN "*.hsh"
-)
-install(FILES runtime/hitsimple_runtime.c
-  DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/runtime
 )
 install(FILES README.md USAGE.md Standard.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
@@ -203,10 +260,27 @@ if(EXISTS "${LLVM_DISTRIBUTION_COPYRIGHT}")
     RENAME llvm-copyright.txt
   )
 endif()
+if(HITSIMPLE_LLVM_LICENSE AND EXISTS "${HITSIMPLE_LLVM_LICENSE}")
+  install(FILES "${HITSIMPLE_LLVM_LICENSE}"
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+    RENAME LLVM-LICENSE.txt
+  )
+endif()
 if(EXISTS "/usr/share/common-licenses/Apache-2.0")
   install(FILES "/usr/share/common-licenses/Apache-2.0"
     DESTINATION ${CMAKE_INSTALL_DOCDIR}
     RENAME Apache-2.0.txt
+  )
+endif()
+if(WIN32 AND HITSIMPLE_BOOST_LICENSE AND EXISTS "${HITSIMPLE_BOOST_LICENSE}")
+  install(FILES "${HITSIMPLE_BOOST_LICENSE}"
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+    RENAME Boost-Software-License-1.0.txt
+  )
+elseif(WIN32 AND EXISTS "${Boost_INCLUDE_DIRS}/../LICENSE_1_0.txt")
+  install(FILES "${Boost_INCLUDE_DIRS}/../LICENSE_1_0.txt"
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}
+    RENAME Boost-Software-License-1.0.txt
   )
 endif()
 
@@ -226,6 +300,7 @@ if(BUILD_TESTING)
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
     tests/sema/SemaTryCatchTests.cpp
+    tests/support/ProcessTests.cpp
     tests/support/ResourcePathsTests.cpp
     tests/support/TestRunner.cpp
   )
@@ -237,12 +312,11 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_BINARY_DIR}/generated
   )
 
-  target_compile_options(hsc_unit_tests
-    PRIVATE
-      -Wall
-      -Wextra
-      -Wpedantic
-  )
+  if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    target_compile_options(hsc_unit_tests PRIVATE /W4)
+  else()
+    target_compile_options(hsc_unit_tests PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
 
 target_link_libraries(hsc_unit_tests
   PRIVATE
@@ -251,13 +325,21 @@ target_link_libraries(hsc_unit_tests
 )
 
   add_dependencies(hsc_unit_tests hsc_mcpp)
+  if(NOT HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
+    add_dependencies(hsc_unit_tests hitsimple_runtime)
+  endif()
 
   set(HSC_CTEST_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/ctest-output")
 
   function(add_hsc_shell_test name shell_command)
     set(output_dir "${HSC_CTEST_OUTPUT_ROOT}/${name}")
     file(MAKE_DIRECTORY "${output_dir}")
-    add_test(NAME "${name}" COMMAND /bin/sh -c "${shell_command}")
+    if(WIN32)
+      add_test(NAME "${name}" COMMAND ${CMAKE_COMMAND} -E true)
+      set_tests_properties("${name}" PROPERTIES DISABLED TRUE)
+    else()
+      add_test(NAME "${name}" COMMAND /bin/sh -c "${shell_command}")
+    endif()
     set_tests_properties("${name}" PROPERTIES WORKING_DIRECTORY "${output_dir}")
   endfunction()
 
@@ -269,7 +351,17 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> --target-info | grep -Fx 'abi.main: unannotated main uses i32, fallthrough returns 0'"
   )
   add_hsc_shell_test(hsc_target_info_documents_checked_and_calloc_status
-    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics persist; extern globals, FFI raw addresses, and file handles are not registered' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 literals and math require Linux/glibc *f128 support' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
+    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: native.fp128' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics persist; extern globals, FFI raw addresses, and file handles are not registered' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
+  )
+  add_test(NAME hsc_compile_with_explicit_clang
+    COMMAND hsc --clang ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/hello.hs
+            -o ${CMAKE_CURRENT_BINARY_DIR}/explicit_clang_smoke
+  )
+  add_hsc_shell_test(hsc_emit_llvm_does_not_require_clang
+    "$<TARGET_FILE:hsc> --clang ${CMAKE_CURRENT_BINARY_DIR}/missing-clang --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll && test -s module.ll"
+  )
+  add_hsc_shell_test(hsc_reports_missing_clang_before_link
+    "! env PATH= $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program >stdout 2>stderr && grep -Fq 'no compatible Clang toolchain found' stderr"
   )
   add_hsc_shell_test(hsc_missing_input_fails
     "! $<TARGET_FILE:hsc> 2>stderr && grep -Fq 'hsc: missing input file' stderr"
@@ -419,7 +511,7 @@ target_link_libraries(hsc_unit_tests
     "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/duplicate_main_same_unit.hs -o program 2>stderr && grep -Fq 'only one main' stderr"
   )
   add_hsc_shell_test(hsc_rejects_multifile_duplicate_external_function
-    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/duplicate_function_a.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/duplicate_function_b.hs -o program 2>stderr && grep -Fq 'clang failed while linking executable' stderr"
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/duplicate_function_a.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/duplicate_function_b.hs -o program 2>stderr && grep -Fq 'Clang failed while linking executable' stderr"
   )
   add_hsc_shell_test(hsc_rejects_program_without_main
     "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs -o program 2>stderr && grep -Fq 'program must define a main function' stderr"
@@ -1188,3 +1280,24 @@ target_link_libraries(hsc_unit_tests
     PROPERTIES FIXTURES_REQUIRED checked_scanf_left_context_executable
   )
 endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+  set(HITSIMPLE_DEBIAN_ARCHITECTURE amd64)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+  set(HITSIMPLE_DEBIAN_ARCHITECTURE arm64)
+else()
+  set(HITSIMPLE_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
+endif()
+
+set(CPACK_PACKAGE_NAME hitsimple)
+set(CPACK_PACKAGE_VENDOR HitSimple)
+set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
+set(CPACK_PACKAGE_CONTACT "caokai674@gmail.com")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "caokai674@gmail.com")
+set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE ${HITSIMPLE_DEBIAN_ARCHITECTURE})
+set(CPACK_DEBIAN_FILE_NAME
+  "hitsimple_${PROJECT_VERSION}_${HITSIMPLE_DEBIAN_ARCHITECTURE}.deb")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "clang-18 | clang (>= 1:18)")
+set(CPACK_GENERATOR DEB)
+include(CPack)

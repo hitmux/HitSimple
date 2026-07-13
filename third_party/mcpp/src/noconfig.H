@@ -15,7 +15,12 @@
  */
 
 /* Define target operating-system.  */
-#if     defined (__linux__)
+#ifndef SYSTEM
+#if     defined (_WIN64)
+#define SYSTEM              SYS_WIN64
+#elif   defined (_WIN32)
+#define SYSTEM              SYS_WIN32
+#elif   defined (__linux__)
 #define SYSTEM              SYS_LINUX
 #elif   defined (__FreeBSD__)
 #define SYSTEM              SYS_FREEBSD
@@ -23,6 +28,7 @@
 #define SYSTEM              SYS_MAC
 #else
 #define SYSTEM              SYS_UNKNOWN
+#endif
 #endif
 
 /* Define target compiler.          */
@@ -34,7 +40,13 @@
 #define HOST_SYSTEM         SYSTEM
 
 /* Define host compiler.            */
+#ifndef HOST_COMPILER
+#if     defined (_MSC_VER)
+#define HOST_COMPILER       MSC
+#else
 #define HOST_COMPILER       GNUC
+#endif
+#endif
 
 /* Version message.                 */
 /* "MCPP V.2.* (200y/mm) compiled by " precedes VERSION_MSG */

@@ -7,7 +7,13 @@
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/preprocessor/Preprocessor.h"
 #include "hitsimple/sema/Sema.h"
+#include "hitsimple/support/Process.h"
+#include "hitsimple/support/Path.h"
 #include "hitsimple/support/ResourcePaths.h"
+#include "hitsimple/support/Toolchain.h"
+
+#include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/Triple.h>
 
 #include <algorithm>
 #include <bit>
@@ -23,7 +29,10 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <unistd.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -46,6 +55,7 @@ void printHelp(std::ostream& out) {
       << "  --checked         Enable static and runtime safety checks\n"
       << "  --static-checked  Enable static safety diagnostics without runtime checks\n"
       << "  --unchecked       Disable safety checks (default)\n"
+      << "  --clang <path>    Use a specific Clang executable for linking\n"
       << "  -o <path>         Write output to <path>\n";
 }
 
@@ -64,8 +74,32 @@ std::string_view hostByteOrder() {
   return "mixed";
 }
 
-void printTargetInfo(std::ostream& out) {
-  out << "llvm.version: " << HITSIMPLE_LLVM_VERSION << '\n'
+std::string targetTriple() {
+#ifdef _WIN32
+  return "x86_64-w64-windows-gnu";
+#else
+  return llvm::sys::getDefaultTargetTriple();
+#endif
+}
+
+void printTargetInfo(std::ostream& out,
+                     const hitsimple::support::ClangSelection& clang) {
+  const llvm::Triple target(targetTriple());
+  out << "target.triple: " << target.str() << '\n'
+      << "llvm.version: " << HITSIMPLE_LLVM_VERSION << '\n'
+      << "clang.path: "
+      << (clang.path ? hitsimple::support::pathToUtf8(*clang.path)
+                     : std::string("not found")) << '\n'
+      << "clang.source: " << clang.source << '\n'
+      << "runtime.kind: static-library\n"
+      << "runtime.path: "
+      << hitsimple::support::pathToUtf8(
+             hitsimple::support::runtimeLibraryPath()) << '\n'
+      << "f128.backend: "
+      << (target.isOSWindows()
+              ? "boost.cpp_bin_float.113-bit-software-binary128"
+              : "native.fp128")
+      << '\n'
       << "preprocessor.backend: mcpp vendored\n"
       << "pointer.length: " << sizeof(void*) << '\n'
       << "byte.order: " << hostByteOrder() << '\n'
@@ -88,7 +122,7 @@ void printTargetInfo(std::ostream& out) {
       << "abi.float.lengths: 2/4/8/16 byte float operations when supported by "
          "LLVM target lowering\n"
       << "float.fallback: f16 math evaluates as f32 and rounds back to "
-         "binary16; f128 literals and math require Linux/glibc *f128 support\n"
+         "binary16; f128 uses the target-specific runtime backend\n"
       << "abi.core.return.single: scalar integer or void; fN signatures preserve "
          "their floating ABI type\n"
       << "abi.core.return.multiple: LLVM aggregate retaining integer fields and "
@@ -172,7 +206,8 @@ std::string escapeLexeme(std::string_view lexeme) {
 }
 
 bool writeFile(const std::string& path, const std::string& content) {
-  std::ofstream output(path, std::ios::binary);
+  std::ofstream output(hitsimple::support::pathFromUtf8(path),
+                       std::ios::binary);
   if (!output) {
     return false;
   }
@@ -182,44 +217,32 @@ bool writeFile(const std::string& path, const std::string& content) {
 }
 
 bool validateOutputParent(const std::string& path) {
-  const auto parent = std::filesystem::path(path).parent_path();
+  const auto parent = hitsimple::support::pathFromUtf8(path).parent_path();
   if (parent.empty()) {
     return true;
   }
   if (!std::filesystem::exists(parent)) {
     std::cerr << "hsc: output directory does not exist '"
-              << parent.string() << "'\n";
+              << hitsimple::support::pathToUtf8(parent) << "'\n";
     return false;
   }
   if (!std::filesystem::is_directory(parent)) {
     std::cerr << "hsc: output parent is not a directory '"
-              << parent.string() << "'\n";
+              << hitsimple::support::pathToUtf8(parent) << "'\n";
     return false;
   }
   return true;
 }
 
 std::optional<std::string> readFile(const std::string& path) {
-  std::ifstream input(path, std::ios::binary);
+  std::ifstream input(hitsimple::support::pathFromUtf8(path),
+                      std::ios::binary);
   if (!input) {
     return std::nullopt;
   }
 
   return std::string(std::istreambuf_iterator<char>(input),
                      std::istreambuf_iterator<char>());
-}
-
-std::string shellQuote(std::string_view value) {
-  std::string quoted = "'";
-  for (const char ch : value) {
-    if (ch == '\'') {
-      quoted += "'\\''";
-    } else {
-      quoted += ch;
-    }
-  }
-  quoted += "'";
-  return quoted;
 }
 
 struct ParsedTranslationUnit {
@@ -680,7 +703,12 @@ int preprocessOnly(const std::string& inputPath,
 int compileExecutable(const std::vector<std::string>& inputPaths,
                       const std::optional<std::string>& outputPath,
                       hitsimple::codegen::CodegenOptions codegenOptions,
-                      bool cCompatibilityMode) {
+                      bool cCompatibilityMode,
+                      const hitsimple::support::ClangSelection& clang) {
+  if (!clang.path) {
+    std::cerr << "hsc: " << clang.error << '\n';
+    return EXIT_FAILURE;
+  }
   std::vector<CompiledTranslationUnit> units;
   units.reserve(inputPaths.size());
   std::size_t mainCount = 0;
@@ -714,7 +742,11 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     return EXIT_FAILURE;
   }
 
+#ifdef _WIN32
+  const std::string executablePath = outputPath.value_or("a.exe");
+#else
   const std::string executablePath = outputPath.value_or("a.out");
+#endif
   if (!validateOutputParent(executablePath)) {
     return EXIT_FAILURE;
   }
@@ -722,12 +754,14 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   tempPaths.reserve(units.size());
   const auto tempDirectory = std::filesystem::temp_directory_path();
   const auto tempPrefix =
-      "hitsimple-" + std::to_string(static_cast<long long>(getpid()));
+      "hitsimple-" +
+      std::to_string(hitsimple::support::currentProcessId());
   for (std::size_t index = 0; index < units.size(); ++index) {
     const auto tempPath =
         tempDirectory / (tempPrefix + "-" + std::to_string(index) + ".ll");
-    if (!writeFile(tempPath.string(), units[index].llvmIr)) {
-      std::cerr << "hsc: cannot write temporary file '" << tempPath.string()
+    const auto tempPathText = hitsimple::support::pathToUtf8(tempPath);
+    if (!writeFile(tempPathText, units[index].llvmIr)) {
+      std::cerr << "hsc: cannot write temporary file '" << tempPathText
                 << "'\n";
       for (const auto& path : tempPaths) {
         std::filesystem::remove(path);
@@ -737,19 +771,40 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     tempPaths.push_back(tempPath);
   }
 
-  std::string command = "clang -x ir";
+  std::vector<std::string> arguments{"-x", "ir"};
   for (const auto& tempPath : tempPaths) {
-    command += " " + shellQuote(tempPath.string());
+    arguments.push_back(hitsimple::support::pathToUtf8(tempPath));
   }
-  command += " -x c " +
-             shellQuote(hitsimple::support::runtimeSourcePath().string()) +
-             " -lm -o " + shellQuote(executablePath);
-  const int status = std::system(command.c_str());
+  if (const auto runtimeSource =
+          hitsimple::support::pathEnvironmentVariable(
+              "HITSIMPLE_RUNTIME_SOURCE")) {
+    arguments.insert(arguments.end(),
+                     {"-x", "c",
+                      hitsimple::support::pathToUtf8(*runtimeSource)});
+  } else {
+    arguments.insert(arguments.end(), {"-x", "none",
+                                       hitsimple::support::pathToUtf8(
+                                           hitsimple::support::runtimeLibraryPath())});
+  }
+#ifdef _WIN32
+  arguments.push_back("--target=x86_64-w64-windows-gnu");
+  arguments.push_back("-static-libgcc");
+  arguments.push_back("-static-libstdc++");
+#endif
+  arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
+  const auto process = hitsimple::support::runProcess(*clang.path, arguments);
   for (const auto& tempPath : tempPaths) {
     std::filesystem::remove(tempPath);
   }
-  if (status != 0) {
-    std::cerr << "hsc: clang failed while linking executable\n";
+  if (!process.launched) {
+    std::cerr << "hsc: cannot start Clang '"
+              << hitsimple::support::pathToUtf8(*clang.path)
+              << "': " << process.error << '\n';
+    return EXIT_FAILURE;
+  }
+  if (process.exitCode != 0) {
+    std::cerr << "hsc: Clang failed while linking executable (exit code "
+              << process.exitCode << ")\n";
     return EXIT_FAILURE;
   }
 
@@ -758,8 +813,8 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
 
 } // namespace
 
-int main(int argc, char** argv) {
-  if (argc == 1) {
+int hscMain(const std::vector<std::string>& arguments) {
+  if (arguments.size() == 1U) {
     std::cerr << "hsc: missing input file\n";
     return EXIT_FAILURE;
   }
@@ -772,11 +827,13 @@ int main(int argc, char** argv) {
   bool shouldPrintTargetInfo = false;
   bool cCompatibilityMode = false;
   hitsimple::codegen::CodegenOptions codegenOptions;
+  codegenOptions.targetTriple = targetTriple();
   std::vector<std::string> inputPaths;
   std::optional<std::string> outputPath;
+  std::optional<std::filesystem::path> clangOverride;
 
-  for (int i = 1; i < argc; ++i) {
-    const std::string_view arg(argv[i]);
+  for (std::size_t i = 1; i < arguments.size(); ++i) {
+    const std::string_view arg(arguments[i]);
 
     if (arg == "-h" || arg == "--help") {
       printHelp(std::cout);
@@ -839,13 +896,23 @@ int main(int argc, char** argv) {
       continue;
     }
 
+    if (arg == "--clang") {
+      if (i + 1 >= arguments.size()) {
+        std::cerr << "hsc: --clang requires an executable path\n";
+        return EXIT_FAILURE;
+      }
+      ++i;
+      clangOverride = hitsimple::support::pathFromUtf8(arguments[i]);
+      continue;
+    }
+
     if (arg == "-o") {
-      if (i + 1 >= argc) {
+      if (i + 1 >= arguments.size()) {
         std::cerr << "hsc: -o requires an output path\n";
         return EXIT_FAILURE;
       }
       ++i;
-      outputPath = argv[i];
+      outputPath = arguments[i];
       continue;
     }
 
@@ -924,7 +991,7 @@ int main(int argc, char** argv) {
       std::cerr << "hsc: --target-info does not take an input file\n";
       return EXIT_FAILURE;
     }
-    printTargetInfo(std::cout);
+    printTargetInfo(std::cout, hitsimple::support::resolveClang(clangOverride));
     return EXIT_SUCCESS;
   }
 
@@ -989,5 +1056,42 @@ int main(int argc, char** argv) {
   }
 
   return compileExecutable(inputPaths, outputPath, codegenOptions,
-                           cCompatibilityMode);
+                           cCompatibilityMode,
+                           hitsimple::support::resolveClang(clangOverride));
 }
+
+#ifdef _WIN32
+std::string utf8Argument(std::wstring_view value) {
+  if (value.empty()) {
+    return {};
+  }
+  const int size = WideCharToMultiByte(CP_UTF8, 0, value.data(),
+                                       static_cast<int>(value.size()), nullptr,
+                                       0, nullptr, nullptr);
+  if (size <= 0) {
+    return {};
+  }
+  std::string result(static_cast<std::size_t>(size), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                      result.data(), size, nullptr, nullptr);
+  return result;
+}
+
+int wmain(int argc, wchar_t** argv) {
+  std::vector<std::string> arguments;
+  arguments.reserve(static_cast<std::size_t>(argc));
+  for (int index = 0; index < argc; ++index) {
+    arguments.push_back(utf8Argument(argv[index]));
+  }
+  return hscMain(arguments);
+}
+#else
+int main(int argc, char** argv) {
+  std::vector<std::string> arguments;
+  arguments.reserve(static_cast<std::size_t>(argc));
+  for (int index = 0; index < argc; ++index) {
+    arguments.emplace_back(argv[index]);
+  }
+  return hscMain(arguments);
+}
+#endif

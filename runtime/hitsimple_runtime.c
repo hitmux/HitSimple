@@ -2,13 +2,20 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#if defined(__clang__) && defined(__GLIBC__) && defined(__x86_64__) && \
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+extern int hs_f128_format(const void *bits, char *buffer, size_t capacity);
+extern int hs_f128_parse(const char *text, void *bits);
+#elif defined(__clang__) && defined(__GLIBC__) && defined(__x86_64__) && \
     defined(__SIZEOF_FLOAT128__) && defined(__HAVE_FLOAT128) && \
     !__HAVE_FLOAT128
 /* glibc 2.35 treats Clang's GCC compatibility version as too old to expose
@@ -21,8 +28,11 @@ extern int strfromf128(char *restrict, size_t, const char *restrict,
 typedef _Float128 HsFloat128;
 #endif
 
+#ifndef _WIN32
 _Static_assert(sizeof(HsFloat128) == 16,
                "HitSimple f128 requires IEEE 754 binary128");
+
+#endif
 
 enum { HS_MAX_OBJECTS = 1024, HS_RUNTIME_ERROR = 120 };
 
@@ -530,6 +540,7 @@ static uint16_t hs_f32_to_f16(float value) {
   return (uint16_t)(sign | result);
 }
 
+#ifndef _WIN32
 HsFloat128 hs_f128_literal(const char *text) {
   if (text == NULL) {
     hs_fail("null f128 literal");
@@ -542,6 +553,40 @@ HsFloat128 hs_f128_literal(const char *text) {
   }
   return value;
 }
+
+HsFloat128 hs_f128_add(HsFloat128 left, HsFloat128 right) {
+  return left + right;
+}
+
+HsFloat128 hs_f128_sub(HsFloat128 left, HsFloat128 right) {
+  return left - right;
+}
+
+HsFloat128 hs_f128_mul(HsFloat128 left, HsFloat128 right) {
+  return left * right;
+}
+
+HsFloat128 hs_f128_div(HsFloat128 left, HsFloat128 right) {
+  return left / right;
+}
+
+uint8_t hs_f128_eq(HsFloat128 left, HsFloat128 right) { return left == right; }
+uint8_t hs_f128_ne(HsFloat128 left, HsFloat128 right) { return left != right; }
+uint8_t hs_f128_lt(HsFloat128 left, HsFloat128 right) { return left < right; }
+uint8_t hs_f128_le(HsFloat128 left, HsFloat128 right) { return left <= right; }
+uint8_t hs_f128_gt(HsFloat128 left, HsFloat128 right) { return left > right; }
+uint8_t hs_f128_ge(HsFloat128 left, HsFloat128 right) { return left >= right; }
+
+HsFloat128 hs_f128_from_i64(int64_t value) { return (HsFloat128)value; }
+HsFloat128 hs_f128_from_u64(uint64_t value) { return (HsFloat128)value; }
+HsFloat128 hs_f128_from_f32(float value) { return (HsFloat128)value; }
+HsFloat128 hs_f128_from_f64(double value) { return (HsFloat128)value; }
+int64_t hs_f128_to_i64(HsFloat128 value) { return (int64_t)value; }
+uint64_t hs_f128_to_u64(HsFloat128 value) { return (uint64_t)value; }
+float hs_f128_to_f32(HsFloat128 value) { return (float)value; }
+double hs_f128_to_f64(HsFloat128 value) { return (double)value; }
+
+#endif
 
 static int hs_write(FILE *file, const char *bytes, size_t size,
                     int64_t *written) {
@@ -691,9 +736,13 @@ int32_t hs_format_output(FILE *file, const char *format,
         memcpy(&value, argument->data, sizeof(value));
         length = snprintf(buffer, sizeof(buffer), "%.17g", value);
       } else {
+#ifdef _WIN32
+        length = hs_f128_format(argument->data, buffer, sizeof(buffer));
+#else
         HsFloat128 value;
         memcpy(&value, argument->data, sizeof(value));
         length = strfromf128(buffer, sizeof(buffer), "%g", value);
+#endif
       }
       break;
     default:
@@ -1046,11 +1095,17 @@ int32_t hs_scan_input(FILE *file, const char *format,
         }
         memcpy(target->data, &value, sizeof(value));
       } else {
+#ifdef _WIN32
+        if (!hs_f128_parse(token, target->data)) {
+          return converted;
+        }
+#else
         const HsFloat128 value = strtof128(token, &end);
         if (end == token || *end != '\0' || errno == ERANGE) {
           return converted;
         }
         memcpy(target->data, &value, sizeof(value));
+#endif
       }
       ++converted;
       continue;
@@ -1075,19 +1130,32 @@ int32_t hs_scan_input(FILE *file, const char *format,
 }
 
 uint64_t hs_time_ms(void) {
+#if defined(_WIN32)
+  FILETIME fileTime;
+  ULARGE_INTEGER ticks;
+  GetSystemTimeAsFileTime(&fileTime);
+  ticks.LowPart = fileTime.dwLowDateTime;
+  ticks.HighPart = fileTime.dwHighDateTime;
+  return (ticks.QuadPart - UINT64_C(116444736000000000)) / UINT64_C(10000);
+#else
   struct timespec ts;
   if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
     return 0;
   }
   return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+#endif
 }
 
 uint64_t hs_clock_ms(void) {
+#if defined(_WIN32)
+  return (uint64_t)GetTickCount64();
+#else
   struct timespec ts;
   if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
     return 0;
   }
   return (uint64_t)ts.tv_sec * 1000U + (uint64_t)ts.tv_nsec / 1000000U;
+#endif
 }
 
 void hs_panic(int32_t code) {

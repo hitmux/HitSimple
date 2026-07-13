@@ -7,6 +7,7 @@
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Alignment.h>
+#include <llvm/TargetParser/Triple.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -105,17 +106,17 @@ std::optional<std::string_view>
 f128MathRuntimeSymbol(stdlib::BuiltinId builtin) {
   using enum stdlib::BuiltinId;
   switch (builtin) {
-  case FAbs: return "fabsf128";
-  case FSqrt: return "sqrtf128";
-  case FSin: return "sinf128";
-  case FCos: return "cosf128";
-  case FTan: return "tanf128";
-  case FLog: return "logf128";
-  case FExp: return "expf128";
-  case FFloor: return "floorf128";
-  case FCeil: return "ceilf128";
-  case FRound: return "roundf128";
-  case FPow: return "powf128";
+  case FAbs: return "hs_f128_abs";
+  case FSqrt: return "hs_f128_sqrt";
+  case FSin: return "hs_f128_sin";
+  case FCos: return "hs_f128_cos";
+  case FTan: return "hs_f128_tan";
+  case FLog: return "hs_f128_log";
+  case FExp: return "hs_f128_exp";
+  case FFloor: return "hs_f128_floor";
+  case FCeil: return "hs_f128_ceil";
+  case FRound: return "hs_f128_round";
+  case FPow: return "hs_f128_pow";
   default: return std::nullopt;
   }
 }
@@ -395,7 +396,22 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 
     llvm::Value *result = nullptr;
     const auto op = operatorSuffix(comparison->op);
-    if (op == "==") {
+    if (comparison->operandByteLength == 16) {
+      std::string_view symbol;
+      if (op == "==") symbol = "hs_f128_eq";
+      else if (op == "!=") symbol = "hs_f128_ne";
+      else if (op == "<") symbol = "hs_f128_lt";
+      else if (op == "<=") symbol = "hs_f128_le";
+      else if (op == ">") symbol = "hs_f128_gt";
+      else if (op == ">=") symbol = "hs_f128_ge";
+      if (symbol.empty()) {
+        addDiagnostic("unsupported float comparison operator '" +
+                      comparison->op + "'");
+        return nullptr;
+      }
+      result = emitF128ScalarCall(symbol, builder_.getInt8Ty(), {left, right},
+                                  {true, true}, "f128.cmp");
+    } else if (op == "==") {
       result = builder_.CreateFCmpOEQ(left, right, "fcmptmp");
     } else if (op == "!=") {
       result = builder_.CreateFCmpUNE(left, right, "fcmptmp");
@@ -413,8 +429,10 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return nullptr;
     }
 
-    auto *booleanValue =
-        builder_.CreateZExt(result, builder_.getInt8Ty(), "fcmptmp.zext");
+    auto *booleanValue = result->getType() == builder_.getInt8Ty()
+                             ? result
+                             : builder_.CreateZExt(result, builder_.getInt8Ty(),
+                                                  "fcmptmp.zext");
     if (booleanValue->getType() == integerType) {
       return booleanValue;
     }
@@ -726,11 +744,24 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     if (!conversionType) {
       return nullptr;
     }
-    auto *converted = conversion->isUnsigned
-                          ? builder_.CreateFPToUI(floatValue, conversionType,
-                                                  "touinttmp")
-                          : builder_.CreateFPToSI(floatValue, conversionType,
-                                                  "tointtmp");
+    llvm::Value *converted = nullptr;
+    if (conversion->floatByteLength == 16) {
+      auto *runtimeType = builder_.getInt64Ty();
+      converted = emitF128ScalarCall(
+          conversion->isUnsigned ? "hs_f128_to_u64" : "hs_f128_to_i64",
+          runtimeType, {floatValue}, {true},
+          conversion->isUnsigned ? "touinttmp" : "tointtmp");
+      if (conversionType->getBitWidth() < 64U) {
+        converted = builder_.CreateTrunc(converted, conversionType,
+                                         "f128.toint.trunc");
+      }
+    } else {
+      converted = conversion->isUnsigned
+                      ? builder_.CreateFPToUI(floatValue, conversionType,
+                                              "touinttmp")
+                      : builder_.CreateFPToSI(floatValue, conversionType,
+                                              "tointtmp");
+    }
     if (conversionType == integerType) {
       return converted;
     }
@@ -1073,6 +1104,9 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
 llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
                                            llvm::Type *type,
                                            std::string_view name) {
+  if (usesSoftwareF128() && isF128ValueType(type)) {
+    return emitFloatValue(expression, 16);
+  }
   if (auto *integer = llvm::dyn_cast<llvm::IntegerType>(type)) {
     return emitIntegerValue(expression, integer->getBitWidth() / 8U);
   }
@@ -1476,9 +1510,20 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
       if (!left || !right) {
         return nullptr;
       }
-      auto *chooseLeft = builtin == stdlib::BuiltinId::Min
-                             ? builder_.CreateFCmpOLT(left, right, "min.cmp")
-                             : builder_.CreateFCmpOGT(left, right, "max.cmp");
+      llvm::Value *chooseLeft = nullptr;
+      if (call.byteLength == 16) {
+        chooseLeft = emitF128ScalarCall(
+            builtin == stdlib::BuiltinId::Min ? "hs_f128_lt"
+                                               : "hs_f128_gt",
+            builder_.getInt8Ty(), {left, right}, {true, true},
+            "f128.minmax");
+        chooseLeft = builder_.CreateICmpNE(
+            chooseLeft, builder_.getInt8(0), "f128.minmax.bool");
+      } else {
+        chooseLeft = builtin == stdlib::BuiltinId::Min
+                         ? builder_.CreateFCmpOLT(left, right, "min.cmp")
+                         : builder_.CreateFCmpOGT(left, right, "max.cmp");
+      }
       return builder_.CreateSelect(chooseLeft, left, right,
                                    call.callee + ".ret");
     }
@@ -1599,9 +1644,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     text.erase(std::remove(text.begin(), text.end(), '_'), text.end());
     if (byteLength == 16) {
       auto *literal = builder_.CreateGlobalStringPtr(text, "f128.literal");
-      auto callee = declareCFunction("hs_f128_literal", floatType,
-                                     {builder_.getPtrTy()});
-      return builder_.CreateCall(callee, {literal}, "f128.literal.value");
+      return emitF128ResultCall("hs_f128_literal", {literal}, {false},
+                                "f128.literal.value");
     }
     char *end = nullptr;
     const double value = std::strtod(text.c_str(), &end);
@@ -1639,10 +1683,7 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     if (sourceType == floatType) {
       return loaded;
     }
-    if (variable->byteLength < byteLength) {
-      return builder_.CreateFPExt(loaded, floatType);
-    }
-    return builder_.CreateFPTrunc(loaded, floatType);
+    return convertFloatValue(loaded, variable->byteLength, byteLength);
   }
 
   if (const auto *binary =
@@ -1657,6 +1698,20 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     }
 
     const auto op = operatorSuffix(binary->op);
+    if (binary->byteLength == 16) {
+      std::string_view symbol;
+      if (op == "+") symbol = "hs_f128_add";
+      else if (op == "-") symbol = "hs_f128_sub";
+      else if (op == "*") symbol = "hs_f128_mul";
+      else if (op == "/") symbol = "hs_f128_div";
+      else if (op == "**") symbol = "hs_f128_pow";
+      if (symbol.empty()) {
+        addDiagnostic("unsupported float operator '" + binary->op + "'");
+        return nullptr;
+      }
+      return emitF128ResultCall(symbol, {left, right}, {true, true},
+                                "f128.binary");
+    }
     if (op == "+") {
       return builder_.CreateFAdd(left, right, "faddtmp");
     }
@@ -1670,11 +1725,6 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       return builder_.CreateFDiv(left, right, "fdivtmp");
     }
     if (op == "**") {
-      if (binary->byteLength == 16) {
-        auto callee = declareCFunction("powf128", floatType,
-                                       {floatType, floatType});
-        return builder_.CreateCall(callee, {left, right}, "fpowtmp");
-      }
       auto *powFunction = llvm::Intrinsic::getDeclaration(
           module_.get(), llvm::Intrinsic::pow, {floatType});
       return builder_.CreateCall(powFunction, {left, right}, "fpowtmp");
@@ -1695,14 +1745,27 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       if (source->getType() == floatType) {
         return source;
       }
-      return sourceLength < byteLength
-                 ? builder_.CreateFPExt(source, floatType, "tofloat.fpext")
-                 : builder_.CreateFPTrunc(source, floatType, "tofloat.fptrunc");
+      return convertFloatValue(source, sourceLength, byteLength);
     }
     auto *integerValue = emitIntegerValue(
         *conversion->operand, expressionByteLength(*conversion->operand));
     if (!integerValue) {
       return nullptr;
+    }
+    if (byteLength == 16) {
+      auto *sourceType = llvm::cast<llvm::IntegerType>(integerValue->getType());
+      llvm::Value *argument = integerValue;
+      if (sourceType->getBitWidth() < 64U) {
+        argument = conversion->sourceUnsigned
+                       ? builder_.CreateZExt(integerValue, builder_.getInt64Ty())
+                       : builder_.CreateSExt(integerValue, builder_.getInt64Ty());
+      } else if (sourceType->getBitWidth() > 64U) {
+        argument = builder_.CreateTrunc(integerValue, builder_.getInt64Ty());
+      }
+      return emitF128ResultCall(
+          conversion->sourceUnsigned ? "hs_f128_from_u64"
+                                     : "hs_f128_from_i64",
+          {argument}, {false}, "to.f128");
     }
     return conversion->sourceUnsigned
                ? builder_.CreateUIToFP(integerValue, floatType, "toufloattmp")
@@ -1727,7 +1790,11 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       if (call->byteLength == 4) {
         symbol = "tanf";
       } else if (call->byteLength == 16) {
-        symbol = "tanf128";
+        symbol = "hs_f128_tan";
+      }
+      if (call->byteLength == 16) {
+        return emitF128ResultCall(symbol, {operand}, {true},
+                                  call->callee + ".ret");
       }
       auto callee = declareCFunction(symbol, floatType, {floatType});
       return builder_.CreateCall(callee, {operand}, call->callee + ".ret");
@@ -1752,8 +1819,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
           addDiagnostic("missing f128 runtime symbol for '" + call->callee + "'");
           return nullptr;
         }
-        auto callee = declareCFunction(*symbol, floatType, {floatType});
-        return builder_.CreateCall(callee, {operand}, call->callee + ".ret");
+        return emitF128ResultCall(*symbol, {operand}, {true},
+                                  call->callee + ".ret");
       }
       auto *intrinsic = llvm::Intrinsic::getDeclaration(
           module_.get(), *intrinsicId, {floatType});
@@ -1778,9 +1845,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         return builder_.CreateFPTrunc(result, floatType, "f16.pow.fptrunc");
       }
       if (call->byteLength == 16) {
-        auto callee = declareCFunction("powf128", floatType,
-                                       {floatType, floatType});
-        return builder_.CreateCall(callee, {base, exponent}, "f_pow.ret");
+        return emitF128ResultCall("hs_f128_pow", {base, exponent},
+                                  {true, true}, "f_pow.ret");
       }
       auto *intrinsic = llvm::Intrinsic::getDeclaration(
           module_.get(), llvm::Intrinsic::pow, {floatType});
@@ -1790,21 +1856,72 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     if (value == nullptr) {
       return nullptr;
     }
-    if (!value->getType()->isFloatingPointTy()) {
+    if (!value->getType()->isFloatingPointTy() &&
+        !isF128ValueType(value->getType())) {
       addDiagnostic("function call result is not floating point");
       return nullptr;
     }
     if (value->getType() == floatType) {
       return value;
     }
-    if (call->byteLength < byteLength) {
-      return builder_.CreateFPExt(value, floatType, "call.fpext");
-    }
-    return builder_.CreateFPTrunc(value, floatType, "call.fptrunc");
+    return convertFloatValue(value, call->byteLength, byteLength);
   }
 
   addDiagnostic("unsupported float expression");
   return nullptr;
+}
+
+bool LlvmEmitter::usesSoftwareF128() const {
+  return llvm::Triple(module_->getTargetTriple()).isOSWindows();
+}
+
+bool LlvmEmitter::isF128ValueType(llvm::Type *type) const {
+  return type != nullptr &&
+         (type->isFP128Ty() ||
+          (usesSoftwareF128() && type->isIntegerTy(128)));
+}
+
+llvm::Value *LlvmEmitter::convertFloatValue(llvm::Value *value,
+                                            std::size_t sourceByteLength,
+                                            std::size_t targetByteLength) {
+  if (value == nullptr || sourceByteLength == targetByteLength) {
+    return value;
+  }
+  auto *targetType = floatTypeForByteLength(targetByteLength);
+  if (!targetType) {
+    return nullptr;
+  }
+  if (targetByteLength == 16) {
+    std::string_view symbol;
+    if (sourceByteLength == 4) symbol = "hs_f128_from_f32";
+    else if (sourceByteLength == 8) symbol = "hs_f128_from_f64";
+    else if (sourceByteLength == 2) {
+      value = builder_.CreateFPExt(value, builder_.getFloatTy(),
+                                   "f16.tof128.f32");
+      symbol = "hs_f128_from_f32";
+    }
+    if (symbol.empty()) {
+      addDiagnostic("unsupported conversion to f128");
+      return nullptr;
+    }
+    return emitF128ResultCall(symbol, {value}, {false}, "to.f128");
+  }
+  if (sourceByteLength == 16) {
+    llvm::Type *runtimeType = targetByteLength == 8
+                                  ? static_cast<llvm::Type*>(builder_.getDoubleTy())
+                                  : static_cast<llvm::Type*>(builder_.getFloatTy());
+    const auto symbol = targetByteLength == 8 ? "hs_f128_to_f64"
+                                              : "hs_f128_to_f32";
+    auto *converted = emitF128ScalarCall(symbol, runtimeType, {value}, {true},
+                                         "from.f128");
+    if (targetByteLength == 2) {
+      return builder_.CreateFPTrunc(converted, targetType, "f128.tof16");
+    }
+    return converted;
+  }
+  return sourceByteLength < targetByteLength
+             ? builder_.CreateFPExt(value, targetType, "tofloat.fpext")
+             : builder_.CreateFPTrunc(value, targetType, "tofloat.fptrunc");
 }
 
 llvm::IntegerType *
@@ -1828,7 +1945,9 @@ llvm::Type *LlvmEmitter::floatTypeForByteLength(std::size_t byteLength) {
   case 8:
     return builder_.getDoubleTy();
   case 16:
-    return llvm::Type::getFP128Ty(context_);
+    return usesSoftwareF128()
+               ? static_cast<llvm::Type*>(builder_.getInt128Ty())
+               : llvm::Type::getFP128Ty(context_);
   default:
     addDiagnostic("unsupported float byte length " +
                   std::to_string(byteLength));

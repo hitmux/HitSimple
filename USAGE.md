@@ -1,169 +1,220 @@
-# Using `hsc`
+# 使用 `hsc`
 
-`hsc` is the HitSimple compiler. It preprocesses each input, parses it, performs semantic analysis, lowers it through HitSimple HIR and LLVM IR, and links executable builds with the host toolchain.
+`hsc` 会依次执行预处理、解析、语义分析、HIR lowering、LLVM IR 生成和最终链接。`Standard.md` 仍是语言语法与语义的依据；本文只描述编译器接口和发布包用法。
 
-This document describes the compiler interface. [`Standard.md`](Standard.md) remains the authority for language syntax and semantics.
-
-## Build the Compiler
-
-Configure and build the project before invoking `hsc`:
-
-```bash
-cmake -S . -B build
-cmake --build build --parallel
-```
-
-The resulting executable is `build/hsc`.
-
-## Command Form
+## 命令形式
 
 ```text
 hsc [options] <input>...
 ```
 
-An input path is required unless the selected action is `--help`, `--version`, or `--target-info`. An unknown option, a missing input, a missing `-o` value, or a non-existent output directory is an error.
+除 `--help`、`--version` 和 `--target-info` 外，命令必须提供输入文件。未知选项、缺少 `-o` 参数值或输出目录不存在都会返回错误。
 
-## Compile an Executable
-
-Compile a HitSimple source file into an executable:
+## 生成可执行文件
 
 ```bash
-./build/hsc examples/hello.hs -o hello
+hsc examples/hello.hs -o hello
 ./hello
 ```
 
-Without `-o`, the executable is written as `a.out` in the current directory:
+未指定 `-o` 时，Linux 默认生成 `a.out`，Windows 默认生成 `a.exe`。
 
-```bash
-./build/hsc examples/hello.hs
-./a.out
-```
-
-The output directory must already exist:
+输出目录必须预先存在：
 
 ```bash
 mkdir -p out
-./build/hsc examples/hello.hs -o out/hello
+hsc examples/hello.hs -o out/hello
 ```
 
-### Multiple Translation Units
+### 多翻译单元
 
-Pass multiple source files to compile each one as an independent translation unit and link them into one executable:
+多个输入文件会独立预处理、解析和生成 LLVM module，随后统一链接：
 
 ```bash
-./build/hsc app/main.hs app/math.hs app/io.hs -o app/program
+hsc app/main.hs app/math.hs app/io.hs -o app/program
 ```
 
-Cross-translation-unit declarations must match. Macros, typedefs, and file-scope `static` declarations remain translation-unit local.
+跨翻译单元的 `extern` 声明必须匹配。宏、typedef 和文件作用域 `static` 保持翻译单元局部。
 
-## Select a Safety Mode
+## 选择安全模式
 
-Choose one of the following options for an executable or LLVM IR build:
-
-| Option | Effect |
+| Option | 行为 |
 | --- | --- |
-| `--unchecked` | Disables safety checks. This is the default. |
-| `--static-checked` | Reports safety errors that can be proved statically and adds no runtime checks. |
-| `--checked` | Performs static checking and emits supported runtime checks for dynamic errors. |
-
-For example:
+| `--unchecked` | 不插入安全检查，默认模式。 |
+| `--static-checked` | 报告可静态证明的问题，不插入 runtime 检查。 |
+| `--checked` | 执行静态检查，并为已支持的动态错误插入 runtime 检查。 |
 
 ```bash
-./build/hsc --checked examples/hello.hs -o hello-checked
-./build/hsc --static-checked examples/hello.hs -o hello-static
+hsc --checked examples/hello.hs -o hello-checked
+hsc --static-checked examples/hello.hs -o hello-static
 ```
 
-The exact set of checked behaviours and the boundaries of runtime coverage are defined by [`Standard.md`](Standard.md) and reported for the current target by `--target-info`.
+实际覆盖范围可通过 `--target-info` 查看，规范合同以 `Standard.md` 为准。
 
-## Inspect a Program
+## 选择 Clang 工具链
 
-Inspection actions take exactly one input file and print to standard output. They cannot be combined with `-o`.
+最终生成可执行文件时，`hsc` 按以下顺序寻找 Clang：
+
+1. 命令行 `--clang <path>`。
+2. 环境变量 `HITSIMPLE_CLANG`。
+3. 发布包内的 `toolchain/bin/clang++.exe` 或对应平台路径。
+4. `clang-18`。
+5. PATH 中的 `clang`、`clang++`。
+
+显式指定：
 
 ```bash
-# Print lexer tokens.
-./build/hsc --dump-tokens examples/hello.hs
-
-# Print the parsed AST.
-./build/hsc --dump-ast examples/hello.hs
-
-# Print semantic HIR.
-./build/hsc --dump-hir examples/hello.hs
+hsc --clang /opt/llvm/bin/clang++ examples/hello.hs -o hello
 ```
 
-Use these actions separately. `hsc` rejects a command that requests more than one action.
-
-## Emit LLVM IR
-
-`--emit-llvm` takes exactly one input. With no output path it writes LLVM IR to standard output; with `-o`, it writes the IR to a file.
+环境变量：
 
 ```bash
-./build/hsc --emit-llvm examples/hello.hs
-./build/hsc --emit-llvm examples/hello.hs -o hello.ll
+export HITSIMPLE_CLANG=/opt/llvm/bin/clang++
+hsc examples/hello.hs -o hello
 ```
 
-Safety-mode options can be used with this action:
+Windows PowerShell：
+
+```powershell
+$env:HITSIMPLE_CLANG = 'C:\llvm-mingw\bin\clang++.exe'
+.\bin\hsc.exe examples\hello.hs -o hello.exe
+```
+
+找不到兼容工具链时，`hsc` 会在链接前返回明确错误。`--emit-llvm` 不执行链接，因此不要求 Clang 存在，即使传入的 `--clang` 路径无效也不受影响。
+
+`HITSIMPLE_RUNTIME_SOURCE` 仍可在开发调试时覆盖静态 runtime。正常安装和发布包默认链接 `lib/hitsimple/libhitsimple_runtime.a`。
+
+## 检查编译器和目标
 
 ```bash
-./build/hsc --checked --emit-llvm examples/hello.hs -o hello-checked.ll
+hsc --version
+hsc --help
+hsc --target-info
 ```
 
-## Preprocess Source
+`--target-info` 输出包括：
 
-Use `-E` or `--preprocess-only` to print the source after preprocessing. This action takes exactly one input and may write to standard output or to a file.
+- 实际 target triple。
+- Clang 路径和解析来源。
+- runtime 类型与路径。
+- `f128` backend。
+- ABI、安全模式和标准库实现边界。
+
+Windows target triple 固定为 `x86_64-w64-windows-gnu`。本版本只生成当前平台程序，不提供任意 `--target` 交叉编译接口。
+
+## 检查中间表示
+
+以下 action 每次只接受一个输入文件，且不能彼此组合：
 
 ```bash
-./build/hsc --preprocess-only examples/hello.hs
-./build/hsc -E examples/hello.hs -o hello.preprocessed.hs
+hsc --dump-tokens examples/hello.hs
+hsc --dump-ast examples/hello.hs
+hsc --dump-hir examples/hello.hs
 ```
 
-This is useful when diagnosing `$include`, macro expansion, and conditional preprocessing.
+这些输出写到标准输出，不支持 `-o`。
 
-## Use C Compatibility Mode
-
-`--c-compat` parses every supplied input as focused C-compatibility source, lowers it to the core HitSimple representation, and applies C ABI metadata before linking.
+## 生成 LLVM IR
 
 ```bash
-./build/hsc --c-compat path/to/program.c -o program
-./build/hsc --c-compat app/main.c app/support.c -o app/program
+hsc --emit-llvm examples/hello.hs
+hsc --emit-llvm examples/hello.hs -o hello.ll
+hsc --checked --emit-llvm examples/hello.hs -o hello-checked.ll
 ```
 
-It can be used with `--dump-ast`, `--dump-hir`, and `--emit-llvm`. It cannot be used with `--dump-tokens` or `--target-info`.
+`--emit-llvm` 每次只接受一个输入文件。
 
-The supported C subset and ABI restrictions are intentionally limited. Check [`Standard.md`](Standard.md) before relying on a C construct or a target-specific calling convention.
-
-## Inspect the Compiler and Target
+## 仅预处理
 
 ```bash
-# Display the HitSimple and LLVM versions.
-./build/hsc --version
-
-# Display all command-line options.
-./build/hsc --help
-
-# Display implementation-defined target, ABI, standard-library, and safety details.
-./build/hsc --target-info
+hsc --preprocess-only examples/hello.hs
+hsc -E examples/hello.hs -o hello.preprocessed.hs
 ```
 
-`--target-info` has no input file and cannot be combined with `-o` or `--c-compat`.
+该模式适合排查 `$include`、宏展开和条件预处理。它不进入 parser，因此 `--c-compat` 不改变预处理结果。
 
-## Action Constraints
+## C compatibility
 
-`--dump-tokens`, `--dump-ast`, `--dump-hir`, `--emit-llvm`, `--preprocess-only`, and `--target-info` are actions. Only one action may appear in a command.
+```bash
+hsc --c-compat path/to/program.c -o program
+hsc --c-compat app/main.c app/support.c -o app/program
+```
 
-| Action | Input files | Supports `-o` | Supports `--c-compat` |
+`--c-compat` 可以与 `--dump-ast`、`--dump-hir` 和 `--emit-llvm` 一起使用，不能与 `--dump-tokens` 或 `--target-info` 一起使用。
+
+该模式是受限 C syntax 到 core AST 的转换层。多维数组、复杂 declarator、函数指针、指向数组的指针、C vararg 和 GNU 扩展会明确拒绝。C struct 传值 ABI 仅覆盖已支持的 x86_64 SysV ELF 布局；Windows 不支持这一 ABI 范围。
+
+## Action 约束
+
+| Action | 输入数量 | 支持 `-o` | 支持 `--c-compat` |
 | --- | --- | --- | --- |
-| Default executable build | One or more | Yes | Yes |
-| `--dump-tokens` | Exactly one | No | No |
-| `--dump-ast` | Exactly one | No | Yes |
-| `--dump-hir` | Exactly one | No | Yes |
-| `--emit-llvm` | Exactly one | Yes | Yes |
-| `--preprocess-only` / `-E` | Exactly one | Yes | No effect |
-| `--target-info` | None | No | No |
+| 默认 executable build | 一个或多个 | 是 | 是 |
+| `--dump-tokens` | 一个 | 否 | 否 |
+| `--dump-ast` | 一个 | 否 | 是 |
+| `--dump-hir` | 一个 | 否 | 是 |
+| `--emit-llvm` | 一个 | 是 | 是 |
+| `--preprocess-only` / `-E` | 一个 | 是 | 无影响 |
+| `--target-info` | 无 | 否 | 否 |
 
-`--preprocess-only` does not parse the input, so `--c-compat` does not alter its output.
+## Linux DEB
 
-## Next Steps
+```bash
+sudo apt install ./hitsimple_0.2.0_amd64.deb
+```
 
-- Start with [`examples/hello.hs`](examples/hello.hs), then explore the other programs under [`examples/`](examples/).
-- Read [`Standard.md`](Standard.md) when you need the normative definition of a language feature.
-- Read [`CONTRIBUTING.md`](CONTRIBUTING.md) to build and test the compiler itself.
+arm64 使用：
+
+```bash
+sudo apt install ./hitsimple_0.2.0_arm64.deb
+```
+
+Ubuntu 22.04 与 Debian 12 需要先安装 Clang 18。以下命令按系统代号配置 apt.llvm.org；执行前应核对 [apt.llvm.org](https://apt.llvm.org/) 当前说明和签名方式。
+
+Ubuntu 22.04：
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | \
+  sudo tee /etc/apt/keyrings/apt.llvm.org.asc >/dev/null
+echo 'deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main' | \
+  sudo tee /etc/apt/sources.list.d/llvm-18.list
+sudo apt update
+sudo apt install clang-18
+```
+
+Debian 12 将上述两处 `jammy` 替换为 `bookworm`。DEB 本身不会添加或修改软件源。
+
+安装后可验证：
+
+```bash
+hsc --version
+hsc --target-info
+hsc examples/hello.hs -o /tmp/hitsimple-hello
+/tmp/hitsimple-hello
+```
+
+## Windows full/slim ZIP
+
+full 包解压后可直接运行：
+
+```powershell
+Expand-Archive .\hitsimple-0.2.0-windows-x86_64-full.zip
+cd .\hitsimple-0.2.0-windows-x86_64-full
+.\bin\hsc.exe path\to\hello.hs -o hello.exe
+.\hello.exe
+```
+
+slim 包需要通过 `--clang`、`HITSIMPLE_CLANG` 或 PATH 提供兼容的 llvm-mingw/Clang 18。路径可包含空格和 Unicode 字符；参数通过 argv 传递，不经过 shell quoting。
+
+Windows `f128` 使用软件 binary128 backend，覆盖字面量、算术、比较、数值转换、格式化、扫描和 `math.hsh` 的浮点入口。超越函数的精度和异常标志边界可通过 `--target-info` 查看。
+
+## 发布附件校验
+
+正式 Release 附带 `SHA256SUMS`。下载全部附件后，在 Linux 中运行：
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+只有哈希校验全部通过，才能认为下载内容与发布附件一致。

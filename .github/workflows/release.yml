@@ -9,7 +9,15 @@ on:
       version:
         description: Version to validate without publishing
         required: true
-        default: "0.1.0"
+        default: "0.2.0"
+      scope:
+        description: Validation jobs to run
+        required: true
+        type: choice
+        options:
+          - all
+          - windows
+        default: all
 
 permissions:
   contents: read
@@ -17,22 +25,23 @@ permissions:
 jobs:
   linux:
     name: Linux ${{ matrix.architecture }}
+    if: github.event_name == 'push' || inputs.scope != 'windows'
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-22.04
             architecture: x86_64
+            deb_architecture: amd64
             host_machine: x86_64
             file_pattern: x86-64
             predefined_macro: __x86_64__
-            testing: "ON"
           - runner: ubuntu-22.04-arm
             architecture: aarch64
+            deb_architecture: arm64
             host_machine: aarch64
             file_pattern: ARM aarch64
             predefined_macro: __aarch64__
-            testing: "ON"
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -50,45 +59,52 @@ jobs:
             version="$REQUESTED_VERSION"
           fi
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$version" = "$(sed -n 's/^  VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)"
           echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
-          sudo install -d -m 0755 /etc/apt/keyrings
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | \
-            sudo tee /etc/apt/keyrings/apt.llvm.org.asc >/dev/null
-          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" | \
-            sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
+          . /etc/os-release
+          if [[ "$ID:$VERSION_ID" == "ubuntu:22.04" ]]; then
+            sudo install -d -m 0755 /etc/apt/keyrings
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | \
+              sudo tee /etc/apt/keyrings/apt.llvm.org.asc >/dev/null
+            echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-18 main" | \
+              sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
+          fi
           sudo apt-get update
-          sudo apt-get install -y bison clang-18 file llvm-18-dev ninja-build re2c
-          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          sudo apt-get install -y bison clang-18 dpkg-dev file llvm-18-dev ninja-build re2c
 
-      - name: Configure
+      - name: Configure and build
         run: |
           cmake -S . -B build-release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=${{ matrix.testing }} \
+            -DBUILD_TESTING=ON \
             -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
-
-      - name: Build
-        run: cmake --build build-release --parallel
+          cmake --build build-release --parallel
 
       - name: Verify compiler identity
         run: |
           test "$(uname -m)" = "${{ matrix.host_machine }}"
           ./build-release/hsc --version | grep -Fx "hsc $HITSIMPLE_VERSION"
-          ./build-release/hsc --target-info
+          ./build-release/hsc --target-info | tee target-info.txt
+          grep -Fx "runtime.kind: static-library" target-info.txt
+          grep -Fx "f128.backend: native.fp128" target-info.txt
 
       - name: Run x86_64 regression suite
         if: matrix.architecture == 'x86_64'
         run: ctest --test-dir build-release --output-on-failure --parallel 4
 
-      - name: Run aarch64 front-end unit suite
+      - name: Run aarch64 front-end and executable regression
         if: matrix.architecture == 'aarch64'
         run: |
           ./build-release/hsc_unit_tests \
             SourceLocation_ Diagnostic_ CCompat_ Lexer_ Parser_ \
-            Preprocessor_ Sema_ ResourcePaths_
+            Preprocessor_ Sema_ ResourcePaths_ Process_ Toolchain_
+          ./build-release/hsc --checked examples/hello.hs -o hello-checked
+          ./hello-checked | grep -Fx 42
+          ./build-release/hsc tests/cases/run/f16_f128_fallback.hs -o f128-smoke
+          ./f128-smoke
 
       - name: Verify native preprocessor macro
         shell: bash
@@ -97,17 +113,17 @@ jobs:
             "${{ matrix.predefined_macro }}" > "$RUNNER_TEMP/native-architecture.hs"
           ./build-release/hsc -E "$RUNNER_TEMP/native-architecture.hs" >/dev/null
 
-      - name: Install and test relocatable package
+      - name: Build relocatable tar and DEB
         shell: bash
         run: |
+          mkdir -p dist
           package_name="hitsimple-${HITSIMPLE_VERSION}-linux-${{ matrix.architecture }}"
           package_root="$PWD/dist/$package_name"
           cmake --install build-release --prefix "$package_root" --strip
 
           file "$package_root/bin/hsc" | grep -F "${{ matrix.file_pattern }}"
-          test -f "$package_root/share/doc/HitSimple/mcpp-LICENSE.txt"
-          test -f "$package_root/share/doc/HitSimple/llvm-copyright.txt"
-          test -f "$package_root/share/doc/HitSimple/Apache-2.0.txt"
+          test -f "$package_root/lib/hitsimple/libhitsimple_runtime.a"
+          test ! -e "$package_root/share/hitsimple/runtime/hitsimple_runtime.c"
           "$package_root/bin/hsc" --version | grep -Fx "hsc $HITSIMPLE_VERSION"
 
           smoke_root="$RUNNER_TEMP/hitsimple-package-smoke"
@@ -124,47 +140,363 @@ jobs:
 
           tar -C "$PWD/dist" -czf "$PWD/dist/${package_name}.tar.gz" "$package_name"
           rm -rf "$package_root"
+          cpack --config build-release/CPackConfig.cmake -G DEB -B dist
+          test -f "dist/hitsimple_${HITSIMPLE_VERSION}_${{ matrix.deb_architecture }}.deb"
+
+      - name: Install, run and remove DEB
+        shell: bash
+        run: |
+          package="$PWD/dist/hitsimple_${HITSIMPLE_VERSION}_${{ matrix.deb_architecture }}.deb"
+          sudo apt-get install -y "$package"
+          dpkg-query -W -f='${Architecture} ${Version}\n' hitsimple | \
+            grep -Fx "${{ matrix.deb_architecture }} $HITSIMPLE_VERSION"
+          test -x /usr/bin/hsc
+          test -x /usr/libexec/hitsimple/hsc_mcpp
+          test -f /usr/lib/hitsimple/libhitsimple_runtime.a
+          test -d /usr/share/hitsimple/stdlib
+          /usr/bin/hsc examples/hello.hs -o "$RUNNER_TEMP/deb-hello"
+          "$RUNNER_TEMP/deb-hello" | grep -Fx 42
+          /usr/bin/hsc tests/cases/run/f16_f128_fallback.hs -o "$RUNNER_TEMP/deb-f128"
+          "$RUNNER_TEMP/deb-f128"
+          sudo apt-get remove -y hitsimple
+          test ! -e /usr/bin/hsc
+          test ! -e /usr/libexec/hitsimple/hsc_mcpp
+          test ! -e /usr/lib/hitsimple/libhitsimple_runtime.a
+          test ! -e /usr/share/hitsimple/stdlib
 
       - uses: actions/upload-artifact@v4
         with:
           name: hitsimple-linux-${{ matrix.architecture }}
-          path: dist/*.tar.gz
+          path: |
+            dist/hitsimple-${{ env.HITSIMPLE_VERSION }}-linux-${{ matrix.architecture }}.tar.gz
+            dist/hitsimple_${{ env.HITSIMPLE_VERSION }}_${{ matrix.deb_architecture }}.deb
+          if-no-files-found: error
+
+  deb_compatibility:
+    name: DEB ${{ matrix.image }} ${{ matrix.architecture }}
+    if: github.event_name == 'push' || inputs.scope != 'windows'
+    needs: linux
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu:22.04, ubuntu:24.04, debian:12, debian:13]
+        architecture: [amd64, arm64]
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+            artifact: hitsimple-linux-x86_64
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+            artifact: hitsimple-linux-aarch64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: deb-artifact
+
+      - name: Install and remove in clean distribution container
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+        run: |
+          package="$(find "$PWD/deb-artifact" -maxdepth 1 -name '*.deb' -print -quit)"
+          test -n "$package"
+          for attempt in 1 2 3; do
+            if docker pull "$IMAGE"; then
+              break
+            fi
+            if [[ "$attempt" == 3 ]]; then
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+          docker run --rm \
+            -e EXPECTED_ARCH \
+            -v "$PWD:/src:ro" \
+            -v "$package:/tmp/hitsimple.deb:ro" \
+            "$IMAGE" bash -euxo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+              test "$(dpkg --print-architecture)" = "$EXPECTED_ARCH"
+              apt-get update
+              apt-get install -y ca-certificates curl gnupg
+              . /etc/os-release
+              case "$ID:$VERSION_ID" in
+                ubuntu:22.04) llvm_suite=jammy ;;
+                debian:12) llvm_suite=bookworm ;;
+                *) llvm_suite= ;;
+              esac
+              if [ -n "$llvm_suite" ]; then
+                install -d -m 0755 /etc/apt/keyrings
+                curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key > /etc/apt/keyrings/apt.llvm.org.asc
+                echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/$llvm_suite/ llvm-toolchain-$llvm_suite-18 main" > /etc/apt/sources.list.d/llvm-18.list
+                apt-get update
+                apt-get install -y clang-18
+              else
+                apt-get install -y clang
+              fi
+              apt-get install -y /tmp/hitsimple.deb
+              cd /tmp
+              /usr/bin/hsc /src/examples/hello.hs -o hello
+              ./hello | grep -Fx 42
+              /usr/bin/hsc /src/tests/cases/run/f16_f128_fallback.hs -o f128
+              ./f128
+              apt-get remove -y hitsimple
+              test ! -e /usr/bin/hsc
+              test ! -e /usr/libexec/hitsimple/hsc_mcpp
+              test ! -e /usr/lib/hitsimple/libhitsimple_runtime.a
+              test ! -e /usr/share/hitsimple/stdlib
+            '
+
+  windows:
+    name: Windows x64 compiler
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          toolset: 14.29
+
+      - name: Resolve version
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq "push") {
+            if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw "invalid tag" }
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          } else {
+            $version = $env:REQUESTED_VERSION
+          }
+          if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw "invalid version" }
+          "HITSIMPLE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install build tools
+        shell: pwsh
+        run: choco install re2c ninja -y --no-progress
+
+      - name: Download pinned LLVM, llvm-mingw and Boost
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools | Out-Null
+          curl.exe -fL --retry 3 -o tools/llvm-sdk.tar.xz https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang%2Bllvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
+          & 7z.exe x tools/llvm-sdk.tar.xz -otools -y
+          tar.exe -xf tools/llvm-sdk.tar -C tools
+          Remove-Item tools/llvm-sdk.tar
+          curl.exe -fL --retry 3 -o tools/llvm-mingw.zip https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
+          & 7z.exe x tools/llvm-mingw.zip -otools -y
+          curl.exe -fL --retry 3 -o tools/boost.tar.bz2 https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2
+          & 7z.exe x tools/boost.tar.bz2 -otools -y
+          tar.exe -xf tools/boost.tar -C tools
+          Remove-Item tools/boost.tar
+          curl.exe -fL --retry 3 -o tools/win_flex_bison.zip https://github.com/lexxmark/winflexbison/releases/download/v2.5.25/win_flex_bison-2.5.25.zip
+          & 7z.exe x tools/win_flex_bison.zip -otools/win_flex_bison -y
+
+      - name: Build Windows target runtime with llvm-mingw
+        shell: pwsh
+        run: |
+          $mingw = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64).Path
+          $boost = (Resolve-Path tools/boost_1_85_0).Path
+          New-Item -ItemType Directory -Force build-runtime | Out-Null
+          & "$mingw/bin/x86_64-w64-mingw32-clang.exe" -std=c17 -O2 -Wall -Wextra -c runtime/hitsimple_runtime.c -o build-runtime/hitsimple_runtime.o
+          & "$mingw/bin/x86_64-w64-mingw32-clang++.exe" -std=c++20 -O2 -Wall -Wextra "-I$boost" -c runtime/hitsimple_f128.cpp -o build-runtime/hitsimple_f128.o
+          & "$mingw/bin/x86_64-w64-mingw32-llvm-ar.exe" rcs build-runtime/libhitsimple_runtime.a build-runtime/hitsimple_runtime.o build-runtime/hitsimple_f128.o
+          & "$mingw/bin/x86_64-w64-mingw32-clang++.exe" -std=c++20 tests/runtime/F128RuntimeTests.cpp build-runtime/libhitsimple_runtime.a -static-libgcc -static-libstdc++ -o build-runtime/f128-runtime-tests.exe
+          & build-runtime/f128-runtime-tests.exe
+
+      - name: Configure and build compiler
+        shell: pwsh
+        run: |
+          $llvm = (Resolve-Path tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc).Path
+          $boost = (Resolve-Path tools/boost_1_85_0).Path
+          $runtime = (Resolve-Path build-runtime/libhitsimple_runtime.a).Path
+          $dia = Join-Path $env:VSINSTALLDIR 'DIA SDK/lib/amd64/diaguids.lib'
+          if (-not (Test-Path $dia)) { throw "missing DIA SDK library: $dia" }
+          $oldDia = 'C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/DIA SDK/lib/amd64/diaguids.lib'
+          $newDia = $dia.Replace('\', '/')
+          $cmakeFiles = @(Get-ChildItem "$llvm/lib/cmake" -Filter '*.cmake' -Recurse | Where-Object {
+            [IO.File]::ReadAllText($_.FullName).Contains($oldDia)
+          })
+          if ($cmakeFiles.Count -eq 0) { throw 'LLVM CMake exports did not contain the expected LLVM 18 DIA SDK path' }
+          $cmakeFiles | ForEach-Object {
+            $content = [IO.File]::ReadAllText($_.FullName)
+            $updated = $content.Replace($oldDia, $newDia)
+            [IO.File]::WriteAllText($_.FullName, $updated)
+          }
+          $env:PATH = "$llvm/bin;$env:PATH"
+          $bison = (Resolve-Path tools/win_flex_bison/win_bison.exe).Path
+          $re2c = (Get-Command re2c.exe).Source
+          cmake -S . -B build-windows -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_C_COMPILER=$llvm/bin/clang-cl.exe" `
+            "-DCMAKE_CXX_COMPILER=$llvm/bin/clang-cl.exe" `
+            "-DLLVM_DIR=$llvm/lib/cmake/llvm" `
+            "-DBISON_EXECUTABLE=$bison" `
+            "-DRE2C_EXECUTABLE=$re2c" `
+            "-DHITSIMPLE_PREBUILT_RUNTIME_LIBRARY=$runtime" `
+            "-DHITSIMPLE_BOOST_LICENSE=$boost/LICENSE_1_0.txt" `
+            "-DHITSIMPLE_LLVM_LICENSE=$llvm/LICENSE.TXT" `
+            -DBUILD_TESTING=ON
+          cmake --build build-windows --parallel
+
+      - name: Run Windows unit and portable CLI tests
+        shell: pwsh
+        run: |
+          & build-windows/hsc_unit_tests.exe
+          $unitExitCode = $LASTEXITCODE
+          if ($unitExitCode -ne 0) {
+            throw "Windows unit tests failed with exit code $unitExitCode"
+          }
+          $mingwClang = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
+          & build-windows/hsc.exe --version | Select-String -SimpleMatch "hsc $env:HITSIMPLE_VERSION"
+          & build-windows/hsc.exe --target-info | Tee-Object -FilePath target-info.txt
+          Select-String -Path target-info.txt -SimpleMatch 'target.triple: x86_64-w64-windows-gnu'
+          Select-String -Path target-info.txt -SimpleMatch 'f128.backend: boost.cpp_bin_float.113-bit-software-binary128'
+          & build-windows/hsc.exe --clang $mingwClang --unchecked examples/hello.hs -o hello-unchecked.exe
+          & ./hello-unchecked.exe | Select-String -SimpleMatch '42'
+          & build-windows/hsc.exe --clang $mingwClang --static-checked examples/hello.hs -o hello-static.exe
+          & ./hello-static.exe | Select-String -SimpleMatch '42'
+          & build-windows/hsc.exe --clang $mingwClang --checked examples/hello.hs -o hello-checked.exe
+          & ./hello-checked.exe | Select-String -SimpleMatch '42'
+          & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-llvm examples/hello.hs -o hello.ll
+          if (-not (Test-Path hello.ll)) { throw '--emit-llvm unexpectedly required clang' }
+          $aggregateOutput = & build-windows/hsc.exe --c-compat --emit-llvm tests/cases/compat/c_aggregate_by_value.c 2>&1
+          $aggregateExitCode = $LASTEXITCODE
+          if ($aggregateExitCode -eq 0 -or "$aggregateOutput" -notmatch 'only supported for x86_64 SysV ELF') {
+            throw 'Windows C struct by-value ABI was not rejected'
+          }
+          $global:LASTEXITCODE = 0
+
+      - name: Run portable Windows CTest cases
+        shell: pwsh
+        run: |
+          ctest --test-dir build-windows --output-on-failure -R '^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm)$'
+
+      - name: Assemble full and slim packages
+        shell: pwsh
+        run: |
+          $version = $env:HITSIMPLE_VERSION
+          $fullName = "hitsimple-$version-windows-x86_64-full"
+          $slimName = "hitsimple-$version-windows-x86_64-slim"
+          New-Item -ItemType Directory -Force "dist/$fullName", "dist/$slimName" | Out-Null
+          cmake --install build-windows --prefix "dist/$fullName"
+          cmake --install build-windows --prefix "dist/$slimName"
+          Copy-Item tools/llvm-mingw-20240619-ucrt-x86_64 "dist/$fullName/toolchain" -Recurse
+
+          $crt = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'
+          Get-ChildItem $crt -Filter '*.dll' | Copy-Item -Destination "dist/$fullName/bin"
+          Get-ChildItem $crt -Filter '*.dll' | Copy-Item -Destination "dist/$slimName/bin"
+
+          Compress-Archive -Path "dist/$fullName" -DestinationPath "dist/$fullName.zip" -CompressionLevel Optimal
+          Compress-Archive -Path "dist/$slimName" -DestinationPath "dist/$slimName.zip" -CompressionLevel Optimal
+
+      - name: Smoke full package from Unicode path without external toolchain
+        shell: pwsh
+        run: |
+          $source = (Resolve-Path "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-full").Path
+          $root = Join-Path $env:RUNNER_TEMP 'HitSimple 空格路径'
+          Copy-Item $source $root -Recurse
+          $savedPath = $env:PATH
+          $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
+          $sourceRoot = Join-Path $root '源码 中文'
+          New-Item -ItemType Directory -Force $sourceRoot | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE/examples/hello.hs" (Join-Path $sourceRoot '你好.hs')
+          Copy-Item "$env:GITHUB_WORKSPACE/tests/cases/run/windows_f128_lowering.hs" (Join-Path $sourceRoot '四精度.hs')
+          Push-Location $root
+          & bin/hsc.exe (Join-Path $sourceRoot '你好.hs') -o '输出 程序.exe'
+          & '.\输出 程序.exe' | Select-String -SimpleMatch '42'
+          & bin/hsc.exe (Join-Path $sourceRoot '你好.hs')
+          if (-not (Test-Path a.exe)) { throw 'Windows default output a.exe was not created' }
+          & .\a.exe | Select-String -SimpleMatch '42'
+          & bin/hsc.exe (Join-Path $sourceRoot '四精度.hs') -o f128.exe
+          $f128CompileExitCode = $LASTEXITCODE
+          if ($f128CompileExitCode -ne 0) {
+            throw "Full package f128 compilation failed with exit code $f128CompileExitCode"
+          }
+          & ./f128.exe
+          $f128RunExitCode = $LASTEXITCODE
+          if ($f128RunExitCode -ne 0) {
+            throw "Full package f128 smoke failed with exit code $f128RunExitCode"
+          }
+          Pop-Location
+          $env:PATH = $savedPath
+
+      - name: Smoke slim package toolchain selection and errors
+        shell: pwsh
+        run: |
+          $slim = (Resolve-Path "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-slim").Path
+          $clang = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
+          & "$slim/bin/hsc.exe" --clang $clang examples/hello.hs -o slim-explicit.exe
+          & ./slim-explicit.exe | Select-String -SimpleMatch '42'
+          $env:HITSIMPLE_CLANG = $clang
+          & "$slim/bin/hsc.exe" examples/hello.hs -o slim-env.exe
+          & ./slim-env.exe | Select-String -SimpleMatch '42'
+          Remove-Item Env:HITSIMPLE_CLANG
+          $savedPath = $env:PATH
+          $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
+          $output = & "$slim/bin/hsc.exe" examples/hello.hs -o missing.exe 2>&1
+          $missingExitCode = $LASTEXITCODE
+          if ($missingExitCode -eq 0 -or "$output" -notmatch 'no compatible Clang toolchain found') {
+            throw 'missing toolchain diagnostic was not reported'
+          }
+          $global:LASTEXITCODE = 0
+          $env:PATH = $savedPath
+
+      - name: Audit DLL dependencies
+        shell: pwsh
+        run: |
+          $objdump = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/llvm-objdump.exe).Path
+          $executables = @(
+            "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-full/bin/hsc.exe",
+            "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-full/libexec/hitsimple/hsc_mcpp.exe",
+            "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-slim/bin/hsc.exe",
+            "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-slim/libexec/hitsimple/hsc_mcpp.exe",
+            "hello-unchecked.exe",
+            "build-runtime/f128-runtime-tests.exe",
+            (Join-Path $env:RUNNER_TEMP 'HitSimple 空格路径/输出 程序.exe'),
+            (Join-Path $env:RUNNER_TEMP 'HitSimple 空格路径/f128.exe'),
+            "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-full/toolchain/bin/clang++.exe",
+            "dist/hitsimple-$env:HITSIMPLE_VERSION-windows-x86_64-full/toolchain/bin/ld.lld.exe"
+          )
+          foreach ($exe in $executables) {
+            $dependencies = & $objdump -p $exe | Select-String 'DLL Name'
+            $dependencies | Out-Host
+            if ("$dependencies" -match 'msys|cygwin|libstdc\+\+|libgcc_s|libwinpthread') {
+              throw "unexpected runtime dependency in $exe"
+            }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hitsimple-windows-x86_64
+          path: dist/*.zip
           if-no-files-found: error
 
   extension:
-    name: VS Code extension
+    name: VS Code extension Linux
+    if: github.event_name == 'push' || inputs.scope != 'windows'
     needs: linux
     runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Resolve version
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
-        shell: bash
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$REQUESTED_VERSION"
-          fi
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
-
       - uses: actions/download-artifact@v4
         with:
           name: hitsimple-linux-x86_64
           path: compiler-asset
 
-      - name: Prepare packaged compiler for extension tests
+      - name: Resolve packaged compiler
         shell: bash
         run: |
-          tar -xzf "compiler-asset/hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
-            -C compiler-asset
-          mkdir -p build
-          ln -s "$PWD/compiler-asset/hitsimple-${HITSIMPLE_VERSION}-linux-x86_64/bin/hsc" \
-            build/hsc
+          version="$(node -p "require('./vscode/hitsimple/package.json').version")"
+          tar -xzf "compiler-asset/hitsimple-${version}-linux-x86_64.tar.gz" -C compiler-asset
+          echo "HSC_PATH=$PWD/compiler-asset/hitsimple-${version}-linux-x86_64/bin/hsc" >> "$GITHUB_ENV"
+          echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -172,28 +504,18 @@ jobs:
           cache: npm
           cache-dependency-path: vscode/hitsimple/package-lock.json
 
-      - name: Install extension dependencies
-        working-directory: vscode/hitsimple
-        run: npm ci
-
-      - name: Test extension
+      - name: Test and package extension
         working-directory: vscode/hitsimple
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
+          npm ci
           npm test
           xvfb-run -a npm run test:extension
           npm run verify:vsix
-
-      - name: Package VSIX
-        working-directory: vscode/hitsimple
-        shell: bash
-        run: |
-          version="$(node -p "require('./package.json').version")"
-          test "$version" = "$HITSIMPLE_VERSION"
           mkdir -p dist
           npm run package:vsix
-          test -f "dist/hitsimple-vscode-${version}.vsix"
+          test -f "dist/hitsimple-vscode-${HITSIMPLE_VERSION}.vsix"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -201,11 +523,54 @@ jobs:
           path: vscode/hitsimple/dist/*.vsix
           if-no-files-found: error
 
+  windows_extension:
+    name: VS Code extension Windows
+    needs: [windows, extension]
+    if: always() && needs.windows.result == 'success' && (inputs.scope == 'windows' || needs.extension.result == 'success')
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-windows-x86_64
+          path: compiler-asset
+      - uses: actions/download-artifact@v4
+        if: inputs.scope != 'windows'
+        with:
+          name: hitsimple-vscode
+          path: vsix-asset
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode/hitsimple/package-lock.json
+
+      - name: Test extension with Windows release compiler
+        shell: pwsh
+        env:
+          VALIDATION_SCOPE: ${{ inputs.scope }}
+        run: |
+          $version = (Get-Content vscode/hitsimple/package.json | ConvertFrom-Json).version
+          Expand-Archive "compiler-asset/hitsimple-$version-windows-x86_64-full.zip" -DestinationPath compiler -Force
+          $env:HSC_PATH = (Resolve-Path "compiler/hitsimple-$version-windows-x86_64-full/bin/hsc.exe").Path
+          Push-Location vscode/hitsimple
+          npm ci
+          npm test
+          npm run test:extension
+          npm run verify:vsix
+          New-Item -ItemType Directory -Force dist | Out-Null
+          npm run package:vsix
+          if (-not (Test-Path "dist/hitsimple-vscode-$version.vsix")) { throw 'missing Windows-built VSIX' }
+          Pop-Location
+          if ($env:VALIDATION_SCOPE -ne 'windows' -and -not (Test-Path "vsix-asset/hitsimple-vscode-$version.vsix")) {
+            throw 'missing release VSIX'
+          }
+
   assemble:
     name: Assemble release assets
-    needs:
-      - linux
-      - extension
+    if: github.event_name == 'push' || inputs.scope != 'windows'
+    needs: [linux, deb_compatibility, windows, extension, windows_extension]
     runs-on: ubuntu-24.04
 
     steps:
@@ -219,19 +584,20 @@ jobs:
           else
             version="$REQUESTED_VERSION"
           fi
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@v4
         with:
           name: hitsimple-linux-x86_64
           path: release-bundle/assets
-
       - uses: actions/download-artifact@v4
         with:
           name: hitsimple-linux-aarch64
           path: release-bundle/assets
-
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-windows-x86_64
+          path: release-bundle/assets
       - uses: actions/download-artifact@v4
         with:
           name: hitsimple-vscode
@@ -244,47 +610,32 @@ jobs:
           printf '%s\n' \
             "hitsimple-${HITSIMPLE_VERSION}-linux-aarch64.tar.gz" \
             "hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
+            "hitsimple_${HITSIMPLE_VERSION}_amd64.deb" \
+            "hitsimple_${HITSIMPLE_VERSION}_arm64.deb" \
+            "hitsimple-${HITSIMPLE_VERSION}-windows-x86_64-full.zip" \
+            "hitsimple-${HITSIMPLE_VERSION}-windows-x86_64-slim.zip" \
             "hitsimple-vscode-${HITSIMPLE_VERSION}.vsix" \
             | sort > "$RUNNER_TEMP/expected-assets"
-          find . -maxdepth 1 -type f -printf '%f\n' \
-            | sort > "$RUNNER_TEMP/actual-assets"
+          find . -maxdepth 1 -type f -printf '%f\n' | sort > "$RUNNER_TEMP/actual-assets"
           diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
 
-          sha256sum \
-            "hitsimple-${HITSIMPLE_VERSION}-linux-aarch64.tar.gz" \
-            "hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
-            "hitsimple-vscode-${HITSIMPLE_VERSION}.vsix" \
-            > SHA256SUMS
+          sha256sum $(cat "$RUNNER_TEMP/expected-assets") > SHA256SUMS
           sha256sum -c SHA256SUMS
-
-          printf '%s\n' SHA256SUMS \
-            "hitsimple-${HITSIMPLE_VERSION}-linux-aarch64.tar.gz" \
-            "hitsimple-${HITSIMPLE_VERSION}-linux-x86_64.tar.gz" \
-            "hitsimple-vscode-${HITSIMPLE_VERSION}.vsix" \
-            | sort > "$RUNNER_TEMP/expected-assets"
-          find . -maxdepth 1 -type f -printf '%f\n' \
-            | sort > "$RUNNER_TEMP/actual-assets"
-          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
+          printf '%s\n' SHA256SUMS $(cat "$RUNNER_TEMP/expected-assets") | \
+            sort > "$RUNNER_TEMP/expected-assets-with-sums"
+          find . -maxdepth 1 -type f -printf '%f\n' | sort > "$RUNNER_TEMP/actual-assets"
+          diff -u "$RUNNER_TEMP/expected-assets-with-sums" "$RUNNER_TEMP/actual-assets"
 
           cat > ../release-notes.txt <<EOF
-          HitSimple ${HITSIMPLE_VERSION} 是首个 Beta Release。
+          HitSimple ${HITSIMPLE_VERSION} 是统一的 Beta prerelease。
 
-          发布附件：
+          发布附件包括 Linux x86_64/aarch64 tar.gz、Linux amd64/arm64 DEB、Windows x64 full/slim ZIP、VS Code 扩展 VSIX 和 SHA256SUMS。
 
-          - Linux x86_64 编译器包
-          - Linux aarch64 编译器包
-          - VS Code 扩展 VSIX
-          - SHA-256 校验文件
+          Windows full 包内置 llvm-mingw-20240619-ucrt-x86_64，可直接编译当前 Windows x64 程序；slim 包需要通过 \`--clang\`、\`HITSIMPLE_CLANG\` 或 PATH 提供兼容的 llvm-mingw/Clang 18。Windows \`f128\` 使用 Boost 1.85.0 的 113-bit software backend，并按 IEEE binary128 位模式与 runtime 交互。
 
-          Linux 包面向 glibc 2.35 或更新环境（例如 Ubuntu 22.04+）。解压后可直接从 \`bin/hsc\` 启动；编译并链接可执行文件时仍需系统提供名为 \`clang\` 的 Clang 18。两个 Linux 包分别在 GitHub-hosted x86_64 与 ARM64 runner 上原生构建和验证。
+          DEB 安装到 \`/usr/bin\`、\`/usr/libexec/hitsimple\`、\`/usr/lib/hitsimple\` 和 \`/usr/share/hitsimple\`。Ubuntu 22.04 与 Debian 12 需要从 apt.llvm.org 安装 Clang 18；软件包不会自动添加软件源。
 
-          当前仍是实验性 Beta。x86_64 包运行完整回归；aarch64 包运行 284 项前端单测、原生 target/preprocessor 检查和端到端编译运行 smoke。C compatibility 的 struct 传值 ABI 只支持 x86_64 SysV ELF，aarch64 版本会明确拒绝该范围。
-
-          安装 VS Code 扩展：
-
-          \`\`\`bash
-          code --install-extension hitsimple-vscode-${HITSIMPLE_VERSION}.vsix --force
-          \`\`\`
+          当前仍是实验性 Beta。C compatibility 的 struct 传值 ABI 只支持 x86_64 SysV ELF；Windows 会明确拒绝该范围。
           EOF
 
       - uses: actions/upload-artifact@v4
@@ -312,14 +663,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            test "$(gh release view "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-            gh release delete "$GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY" --yes
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
           fi
-
           gh release create "$GITHUB_REF_NAME" release-bundle/assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
@@ -328,27 +675,26 @@ jobs:
             --draft \
             --latest=false
 
-      - name: Verify draft assets
+      - name: Verify draft assets and hashes
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          test "$(gh release view "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-
+          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          version="${GITHUB_REF_NAME#v}"
           printf '%s\n' SHA256SUMS \
-            "hitsimple-${GITHUB_REF_NAME#v}-linux-aarch64.tar.gz" \
-            "hitsimple-${GITHUB_REF_NAME#v}-linux-x86_64.tar.gz" \
-            "hitsimple-vscode-${GITHUB_REF_NAME#v}.vsix" \
-            | sort > "$RUNNER_TEMP/expected-assets"
-          gh release view "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '.assets[].name' | sort > "$RUNNER_TEMP/actual-assets"
+            "hitsimple-${version}-linux-aarch64.tar.gz" \
+            "hitsimple-${version}-linux-x86_64.tar.gz" \
+            "hitsimple_${version}_amd64.deb" \
+            "hitsimple_${version}_arm64.deb" \
+            "hitsimple-${version}-windows-x86_64-full.zip" \
+            "hitsimple-${version}-windows-x86_64-slim.zip" \
+            "hitsimple-vscode-${version}.vsix" | sort > "$RUNNER_TEMP/expected-assets"
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json assets --jq '.assets[].name' | sort > "$RUNNER_TEMP/actual-assets"
           diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
-
           mkdir -p "$RUNNER_TEMP/downloaded-release"
-          gh release download "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/downloaded-release"
           cd "$RUNNER_TEMP/downloaded-release"
           sha256sum -c SHA256SUMS
@@ -362,13 +708,3 @@ jobs:
             --draft=false \
             --prerelease \
             --latest=false
-
-      - name: Verify published release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(gh release view "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
-          test "$(gh release view "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" --json isPrerelease \
-            --jq .isPrerelease)" = true

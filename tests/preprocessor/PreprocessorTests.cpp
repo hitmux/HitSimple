@@ -2,6 +2,7 @@
 
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/preprocessor/Preprocessor.h"
+#include "hitsimple/support/Path.h"
 
 #include <filesystem>
 #include <fstream>
@@ -265,6 +266,33 @@ HS_TEST(Preprocessor_ProcessesQuotedRelativeIncludeFiles) {
                  std::string::npos);
 }
 
+HS_TEST(Preprocessor_ProcessesUnicodeInputAndIncludePaths) {
+  const auto root = std::filesystem::temp_directory_path() /
+                    hitsimple::support::pathFromUtf8(
+                        "HitSimple 预处理 空格路径");
+  const auto includeDirectory =
+      root / hitsimple::support::pathFromUtf8("中文目录");
+  const auto mainPath = root / hitsimple::support::pathFromUtf8("入口.hs");
+  const auto includePath =
+      includeDirectory / hitsimple::support::pathFromUtf8("数值.hsi");
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(includeDirectory);
+  std::ofstream(mainPath) << "$include \"中文目录/数值.hsi\"\n"
+                            "new x[4] = VALUE\n";
+  std::ofstream(includePath) << "$define VALUE 42\n";
+
+  const auto result = hitsimple::preprocessor::preprocessFile(
+      hitsimple::support::pathToUtf8(mainPath));
+  std::filesystem::remove_all(root);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.source.find("new x[4]") != std::string::npos);
+  HS_EXPECT_TRUE(result.source.find("42") != std::string::npos);
+  HS_EXPECT_TRUE(!result.lineOrigins.empty());
+  HS_EXPECT_TRUE(result.lineOrigins[0].file.find("入口.hs") !=
+                 std::string::npos);
+}
+
 HS_TEST(Preprocessor_AcceptsDirectiveWithoutSpaceAfterDollar) {
   const auto result = hitsimple::preprocessor::preprocessSource(
       "$define VALUE 9\n"
@@ -324,6 +352,18 @@ HS_TEST(Preprocessor_ProcessesSystemIncludePath) {
 }
 
 HS_TEST(Preprocessor_DefinesHostOperatingSystemAndArchitectureMacros) {
+#if defined(_WIN32)
+  std::string source =
+      "$ifndef _WIN32\n"
+      "$error \"missing Windows preprocessor macro\"\n"
+      "$endif\n";
+#if defined(_WIN64)
+  source +=
+      "$ifndef _WIN64\n"
+      "$error \"missing Windows x64 preprocessor macro\"\n"
+      "$endif\n";
+#endif
+#else
   std::string source =
       "$ifndef __linux__\n"
       "$error \"missing Linux preprocessor macro\"\n"
@@ -338,6 +378,7 @@ HS_TEST(Preprocessor_DefinesHostOperatingSystemAndArchitectureMacros) {
       "$ifndef __aarch64__\n"
       "$error \"missing aarch64 preprocessor macro\"\n"
       "$endif\n";
+#endif
 #endif
   source += "func main() { return 0 }\n";
 

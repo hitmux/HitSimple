@@ -2,7 +2,7 @@
   "name": "hitsimple-vscode",
   "displayName": "HitSimple",
   "description": "HitSimple language support for VS Code: syntax highlighting, snippets, diagnostics, and safe Build/Run commands.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "hitmux",
   "license": "UNLICENSED",
   "main": "./src/extension.js",
@@ -13,7 +13,7 @@
     "test": "node --test test/extension.test.mjs test/workflow.test.mjs",
     "test:extension": "node test/run-extension-host.mjs",
     "verify:vsix": "vsce ls --tree",
-    "package:vsix": "vsce package --out dist/hitsimple-vscode-0.1.0.vsix"
+    "package:vsix": "vsce package --out dist/hitsimple-vscode-0.2.0.vsix"
   },
   "devDependencies": {
     "@vscode/test-electron": "^3.0.0",
