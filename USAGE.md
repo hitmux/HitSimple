@@ -17,7 +17,7 @@ hsc examples/hello.hs -o hello
 ./hello
 ```
 
-未指定 `-o` 时，Linux 默认生成 `a.out`，Windows 默认生成 `a.exe`。
+未指定 `-o` 时，Linux 和 macOS 默认生成 `a.out`，Windows 默认生成 `a.exe`。
 
 输出目录必须预先存在：
 
@@ -57,7 +57,7 @@ hsc --static-checked examples/hello.hs -o hello-static
 
 1. 命令行 `--clang <path>`。
 2. 环境变量 `HITSIMPLE_CLANG`。
-3. 发布包内的 `toolchain/bin/clang++.exe` 或对应平台路径。
+3. Windows 完整包内的 `toolchain/bin/clang++.exe`。
 4. `clang-18`。
 5. PATH 中的 `clang`、`clang++`。
 
@@ -101,7 +101,7 @@ hsc --target-info
 - `f128` backend。
 - ABI、安全模式和标准库实现边界。
 
-Windows target triple 固定为 `x86_64-w64-windows-gnu`。本版本只生成当前平台程序，不提供任意 `--target` 交叉编译接口。
+Windows target triple 固定为 `x86_64-w64-windows-gnu`；macOS 使用当前 Darwin native target。本版本只生成当前平台程序，不提供任意 `--target` 交叉编译接口。
 
 ## 检查中间表示
 
@@ -143,7 +143,7 @@ hsc --c-compat app/main.c app/support.c -o app/program
 
 `--c-compat` 可以与 `--dump-ast`、`--dump-hir` 和 `--emit-llvm` 一起使用，不能与 `--dump-tokens` 或 `--target-info` 一起使用。
 
-该模式是受限 C syntax 到 core AST 的转换层。多维数组、复杂 declarator、函数指针、指向数组的指针、C vararg 和 GNU 扩展会明确拒绝。C struct 传值 ABI 仅覆盖已支持的 x86_64 SysV ELF 布局；Windows 不支持这一 ABI 范围。
+该模式是受限 C syntax 到 core AST 的转换层。多维数组、复杂 declarator、函数指针、指向数组的指针、C vararg 和 GNU 扩展会明确拒绝。C struct 传值 ABI 仅覆盖已支持的 x86_64 SysV ELF 布局；Windows 和 Darwin 不支持这一 ABI 范围。
 
 ## Action 约束
 
@@ -193,6 +193,32 @@ hsc --target-info
 hsc examples/hello.hs -o /tmp/hitsimple-hello
 /tmp/hitsimple-hello
 ```
+
+## Fedora 44 / EL9 RPM
+
+RPM 只为 Fedora 44 与 EL9 提供 x86_64/aarch64 基线。两个发行版分别使用不同的 release suffix，避免对跨发行版 glibc 基线作出承诺：
+
+```bash
+sudo dnf install ./hitsimple-0.2.0-1.fc44.x86_64.rpm
+sudo dnf install ./hitsimple-0.2.0-1.el9.aarch64.rpm
+```
+
+包依赖 `clang >= 18`，不内置 Clang，也不添加软件源或 GPG 签名。安装后可用与 DEB 相同的 `hsc --version`、`hsc --target-info` 和 hello 程序检查安装结果。
+
+## macOS tar.gz
+
+选择与机器一致的包：
+
+```bash
+tar -xzf hitsimple-0.2.0-macos-arm64.tar.gz
+cd hitsimple-0.2.0-macos-arm64
+bin/hsc --clang /opt/homebrew/opt/llvm@18/bin/clang path/to/hello.hs -o hello
+./hello
+```
+
+Intel Mac 使用 `hitsimple-0.2.0-macos-x86_64.tar.gz`。解压目录可以移动；`hsc` 会相对自身位置发现预处理器、标准库和静态 runtime。macOS 需要外部 Clang 18 或更高版本；包未签名、未 notarize，且不提供 PKG。
+
+macOS `f128` 与 Windows 一样使用软件 binary128 backend，覆盖字面量、算术、比较、数值转换、格式化、扫描和 `math.hsh` 的浮点入口。Linux 继续使用原生 `fp128`/glibc backend。
 
 ## Windows full/slim ZIP
 

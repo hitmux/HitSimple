@@ -836,6 +836,33 @@ HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
   HS_EXPECT_TRUE(result.llvmIr.find("fadd fp128") == std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_LowersDarwinF128ThroughBitPatternRuntime) {
+  hitsimple::codegen::CodegenOptions options;
+  options.targetTriple = "x86_64-apple-darwin";
+  auto result = emitSource(
+      "func main() {\n"
+      "    new value as f128 = 1.5\n"
+      "    new root as f128 = f_sqrt(value)\n"
+      "    new narrowed as f64 = to_f64(root)\n"
+      "    return 0\n"
+      "}\n",
+      options);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find(
+                     "target triple = \"x86_64-apple-darwin\"") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find(
+                     "declare void @hs_f128_literal(ptr, ptr)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_sqrt(ptr") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("declare double @hs_f128_to_f64(ptr)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @hs_f128_") ==
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_EmitsStageFStringAndBoolStores) {
   auto result = emitSource("func main() {\n"
                            "    new text[5] %s= \"HelloWorld\"\n"

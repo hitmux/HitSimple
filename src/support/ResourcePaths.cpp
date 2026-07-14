@@ -24,6 +24,10 @@
 #define HITSIMPLE_RUNTIME_LIBRARY "libhitsimple_runtime.a"
 #endif
 
+#ifndef HITSIMPLE_INSTALL_LIBDIR
+#define HITSIMPLE_INSTALL_LIBDIR "lib"
+#endif
+
 namespace hitsimple::support {
 namespace {
 
@@ -86,7 +90,7 @@ std::filesystem::path runtimeSourcePath() {
 
 std::filesystem::path runtimeLibraryPath() {
   return resolvePath("HITSIMPLE_RUNTIME_LIBRARY",
-                     "lib/hitsimple/libhitsimple_runtime.a",
+                     HITSIMPLE_INSTALL_LIBDIR "/hitsimple/libhitsimple_runtime.a",
                      HITSIMPLE_RUNTIME_LIBRARY);
 }
 
