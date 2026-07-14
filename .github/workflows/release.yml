@@ -304,9 +304,10 @@ jobs:
           llvm_prefix="$(brew --prefix llvm@18)"
           bison_prefix="$(brew --prefix bison)"
           boost_prefix="$(brew --prefix boost)"
+          boost_license="$(find "$boost_prefix" -type f -name LICENSE_1_0.txt -print -quit)"
           test -x "$llvm_prefix/bin/clang"
           test -x "$llvm_prefix/bin/clang++"
-          test -f "$boost_prefix/LICENSE_1_0.txt"
+          test -n "$boost_license"
           export PATH="$llvm_prefix/bin:$bison_prefix/bin:$PATH"
           cmake -S . -B build-macos -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -314,7 +315,7 @@ jobs:
             -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
             -DLLVM_DIR="$llvm_prefix/lib/cmake/llvm" \
             -DBoost_ROOT="$boost_prefix" \
-            -DHITSIMPLE_BOOST_LICENSE="$boost_prefix/LICENSE_1_0.txt" \
+            -DHITSIMPLE_BOOST_LICENSE="$boost_license" \
             -DBUILD_TESTING=ON
           cmake --build build-macos --parallel
 
@@ -461,7 +462,7 @@ jobs:
                   popd
                   export PATH="/usr/local/bin:$PATH"
                   source /opt/rh/gcc-toolset-15/enable
-                  test "$(bison --version | awk 'NR == 1 { print $NF }')" = 3.8.2
+                  test "$(bison --version | awk "NR == 1 { print \$NF }")" = 3.8.2
                   ;;
                 *)
                   echo "unknown RPM distribution: $DISTRIBUTION" >&2
