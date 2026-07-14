@@ -213,7 +213,11 @@ HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithStdoutSink) {
   HS_EXPECT_TRUE(result.llvmIr.find(
                      "call void @__hitsimple.implop.Vec2.0") !=
                  std::string::npos);
+#if defined(__APPLE__)
+  HS_EXPECT_TRUE(result.llvmIr.find("@__stdoutp") != std::string::npos);
+#else
   HS_EXPECT_TRUE(result.llvmIr.find("@stdout") != std::string::npos);
+#endif
   HS_EXPECT_TRUE(result.llvmIr.find("print.format.") == std::string::npos);
 }
 

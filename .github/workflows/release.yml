@@ -200,6 +200,14 @@ jobs:
           name: ${{ matrix.artifact }}
           path: deb-artifact
 
+      - name: Remove pre-existing containers
+        shell: bash
+        run: |
+          container_ids="$(docker ps -aq)"
+          if [[ -n "$container_ids" ]]; then
+            docker rm -f $container_ids
+          fi
+
       - name: Install and remove in clean distribution container
         shell: bash
         env:
@@ -435,6 +443,14 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           test "$version" = "$(sed -n 's/^  VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt)"
           echo "HITSIMPLE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Remove pre-existing containers
+        shell: bash
+        run: |
+          container_ids="$(docker ps -aq)"
+          if [[ -n "$container_ids" ]]; then
+            docker rm -f $container_ids
+          fi
 
       - name: Build and inspect RPM
         shell: bash

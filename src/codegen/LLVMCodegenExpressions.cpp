@@ -1878,8 +1878,8 @@ bool LlvmEmitter::usesSoftwareF128() const {
 llvm::Value *LlvmEmitter::emitStdoutFile() {
   auto *ptrTy = builder_.getPtrTy();
   if (parseTargetTriple(moduleTargetTriple(*module_)).isOSDarwin()) {
-    auto callee = declareCFunction("__stdoutp", ptrTy, {});
-    return builder_.CreateCall(callee, {}, "stdout");
+    return builder_.CreateLoad(
+        ptrTy, module_->getOrInsertGlobal("__stdoutp", ptrTy), "stdout");
   }
   return builder_.CreateLoad(
       ptrTy, module_->getOrInsertGlobal("stdout", ptrTy), "stdout");

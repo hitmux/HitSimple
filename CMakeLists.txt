@@ -451,6 +451,10 @@ target_link_libraries(hsc_unit_tests
     set(HSC_C_COMPAT_RUNTIME_PREFIX "")
     set(HSC_C_COMPAT_RUNTIME_SUFFIX "-x none $<TARGET_FILE:hitsimple_runtime>")
   endif()
+  if(APPLE)
+    set(HSC_C_COMPAT_LINKER
+      "${CMAKE_CXX_COMPILER} -isysroot $(xcrun --show-sdk-path)")
+  endif()
 
   add_hsc_shell_test(hsc_c_compat_native_scalar_abi
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi.c -o module.ll && ${HSC_C_COMPAT_LINKER} -x ir module.ll ${HSC_C_COMPAT_RUNTIME_PREFIX} -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi_helper.c ${HSC_C_COMPAT_RUNTIME_SUFFIX} -o program && ./program"
