@@ -24,6 +24,13 @@ find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
+
+set(HITSIMPLE_LLVM_INCLUDE_DIRS ${LLVM_INCLUDE_DIRS})
+if(APPLE)
+  # Homebrew's LLVM config includes the SDK C headers, which break libc++ include_next.
+  list(FILTER HITSIMPLE_LLVM_INCLUDE_DIRS EXCLUDE REGEX ".*/MacOSX[.]sdk/usr/include$")
+endif()
+
 llvm_map_components_to_libnames(
   LLVM_LIBS
   Core
@@ -172,7 +179,7 @@ target_include_directories(hitsimple_frontend
 target_include_directories(hitsimple_frontend
   SYSTEM
   PUBLIC
-    ${LLVM_INCLUDE_DIRS}
+    ${HITSIMPLE_LLVM_INCLUDE_DIRS}
 )
 
 target_compile_definitions(hitsimple_frontend
