@@ -305,14 +305,18 @@ jobs:
           bison_prefix="$(brew --prefix bison)"
           boost_prefix="$(brew --prefix boost)"
           boost_license="$PWD/third_party/licenses/Boost-Software-License-1.0.txt"
+          host_clang="$(xcrun --find clang)"
+          host_clangxx="$(xcrun --find clang++)"
           test -x "$llvm_prefix/bin/clang"
           test -x "$llvm_prefix/bin/clang++"
           test -f "$boost_license"
+          test -x "$host_clang"
+          test -x "$host_clangxx"
           export PATH="$llvm_prefix/bin:$bison_prefix/bin:$PATH"
           cmake -S . -B build-macos -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER="$llvm_prefix/bin/clang" \
-            -DCMAKE_CXX_COMPILER="$llvm_prefix/bin/clang++" \
+            -DCMAKE_C_COMPILER="$host_clang" \
+            -DCMAKE_CXX_COMPILER="$host_clangxx" \
             -DLLVM_DIR="$llvm_prefix/lib/cmake/llvm" \
             -DBoost_ROOT="$boost_prefix" \
             -DHITSIMPLE_BOOST_LICENSE="$boost_license" \
