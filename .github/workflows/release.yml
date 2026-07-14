@@ -304,10 +304,10 @@ jobs:
           llvm_prefix="$(brew --prefix llvm@18)"
           bison_prefix="$(brew --prefix bison)"
           boost_prefix="$(brew --prefix boost)"
-          boost_license="$(find "$boost_prefix" -type f -name LICENSE_1_0.txt -print -quit)"
+          boost_license="$PWD/third_party/licenses/Boost-Software-License-1.0.txt"
           test -x "$llvm_prefix/bin/clang"
           test -x "$llvm_prefix/bin/clang++"
-          test -n "$boost_license"
+          test -f "$boost_license"
           export PATH="$llvm_prefix/bin:$bison_prefix/bin:$PATH"
           cmake -S . -B build-macos -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
