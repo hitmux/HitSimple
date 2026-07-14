@@ -25,10 +25,15 @@ find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
 
-set(HITSIMPLE_LLVM_INCLUDE_DIRS ${LLVM_INCLUDE_DIRS})
-if(APPLE)
-  # Homebrew's LLVM config includes the SDK C headers, which break libc++ include_next.
-  list(FILTER HITSIMPLE_LLVM_INCLUDE_DIRS EXCLUDE REGEX ".*/MacOSX[.]sdk/usr/include$")
+# LLVM packages may append host SDK paths. Propagate only actual LLVM headers.
+set(HITSIMPLE_LLVM_INCLUDE_DIRS)
+foreach(llvmIncludeDir IN LISTS LLVM_INCLUDE_DIRS)
+  if(EXISTS "${llvmIncludeDir}/llvm/IR/Module.h")
+    list(APPEND HITSIMPLE_LLVM_INCLUDE_DIRS "${llvmIncludeDir}")
+  endif()
+endforeach()
+if(NOT HITSIMPLE_LLVM_INCLUDE_DIRS)
+  message(FATAL_ERROR "LLVM package did not provide an LLVM header directory")
 endif()
 
 llvm_map_components_to_libnames(
