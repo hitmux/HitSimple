@@ -1253,8 +1253,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     }
     auto callee =
         declareCFunction("fwrite", i64Ty, {ptrTy, i64Ty, i64Ty, ptrTy});
-    auto *stdoutPointer = builder_.CreateLoad(
-        ptrTy, module_->getOrInsertGlobal("stdout", ptrTy));
+    auto *stdoutPointer = emitStdoutFile();
     auto *written = builder_.CreateCall(
         callee, {source.data, builder_.getInt64(1), source.length, stdoutPointer},
         "put.count");
@@ -1874,6 +1873,16 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
 
 bool LlvmEmitter::usesSoftwareF128() const {
   return usesSoftwareF128Backend(moduleTargetTriple(*module_));
+}
+
+llvm::Value *LlvmEmitter::emitStdoutFile() {
+  auto *ptrTy = builder_.getPtrTy();
+  if (parseTargetTriple(moduleTargetTriple(*module_)).isOSDarwin()) {
+    auto callee = declareCFunction("__stdoutp", ptrTy, {});
+    return builder_.CreateCall(callee, {}, "stdout");
+  }
+  return builder_.CreateLoad(
+      ptrTy, module_->getOrInsertGlobal("stdout", ptrTy), "stdout");
 }
 
 bool LlvmEmitter::isF128ValueType(llvm::Type *type) const {

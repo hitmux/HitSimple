@@ -239,6 +239,7 @@ private:
                                         llvm::Type *returnType,
                                         std::vector<llvm::Type *> parameters,
                                         bool variadic = false);
+  llvm::Value *emitStdoutFile();
   static std::string decodeStringLiteral(std::string_view literal);
 
   void addDiagnostic(std::string diagnostic);

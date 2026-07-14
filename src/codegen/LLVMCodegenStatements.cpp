@@ -554,8 +554,7 @@ ViewValue LlvmEmitter::emitUserTemplateFormatCall(
   llvm::Value *sinkValue = nullptr;
   switch (sink) {
   case hir::FormatOutputSink::Stdout:
-    sinkValue = builder_.CreateLoad(
-        ptrTy, module_->getOrInsertGlobal("stdout", ptrTy), "format.stdout");
+    sinkValue = emitStdoutFile();
     break;
   case hir::FormatOutputSink::File:
     if (file == nullptr) {
@@ -627,8 +626,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
       return;
     }
     auto callee = declareCFunction("fwrite", i64Ty, {ptrTy, i64Ty, i64Ty, ptrTy});
-    auto *stdoutPointer = builder_.CreateLoad(
-        ptrTy, module_->getOrInsertGlobal("stdout", ptrTy));
+    auto *stdoutPointer = emitStdoutFile();
     builder_.CreateCall(callee, {source.data, builder_.getInt64(1),
                                  source.length, stdoutPointer});
     return;

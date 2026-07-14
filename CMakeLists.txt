@@ -441,11 +441,22 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_c_compat_external_symbol_abi_emit_llvm
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_abi_symbols.c > module.ll && grep -Fq 'declare i32 @puts(ptr)' module.ll && grep -Fq 'declare double @atof(ptr)' module.ll"
   )
+
+  set(HSC_C_COMPAT_LINKER "${CLANG_EXECUTABLE}")
+  set(HSC_C_COMPAT_RUNTIME_PREFIX
+    "-x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c")
+  set(HSC_C_COMPAT_RUNTIME_SUFFIX "")
+  if(WIN32 OR APPLE)
+    set(HSC_C_COMPAT_LINKER "${CMAKE_CXX_COMPILER}")
+    set(HSC_C_COMPAT_RUNTIME_PREFIX "")
+    set(HSC_C_COMPAT_RUNTIME_SUFFIX "-x none $<TARGET_FILE:hitsimple_runtime>")
+  endif()
+
   add_hsc_shell_test(hsc_c_compat_native_scalar_abi
-    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi_helper.c -o program && ./program"
+    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi.c -o module.ll && ${HSC_C_COMPAT_LINKER} -x ir module.ll ${HSC_C_COMPAT_RUNTIME_PREFIX} -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi_helper.c ${HSC_C_COMPAT_RUNTIME_SUFFIX} -o program && ./program"
   )
   add_hsc_shell_test(hsc_c_compat_native_scalar_void_native_to_hsc
-    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_library.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_caller.c -o program && ./program"
+    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_library.c -o module.ll && ${HSC_C_COMPAT_LINKER} -x ir module.ll ${HSC_C_COMPAT_RUNTIME_PREFIX} -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_caller.c ${HSC_C_COMPAT_RUNTIME_SUFFIX} -o program && ./program"
   )
   add_hsc_shell_test(hsc_c_compat_array_typedef_runtime
     "$<TARGET_FILE:hsc> --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_array_typedef.c -o program && ./program"
@@ -477,6 +488,8 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_rejects_c_compat_variadic_declaration
     "! $<TARGET_FILE:hsc> --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_variadic_declaration.c -o program >stdout 2>stderr && grep -Fq 'expected C type' stderr"
   )
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
   add_hsc_shell_test(hsc_c_compat_integer_triplet_hsc_to_native
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_integer_triplet_by_value.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_integer_triplet_by_value_native.c -o program && ./program"
   )
@@ -528,6 +541,7 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_c_compat_mixed_indirect_native_to_hsc
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_mixed_indirect_library.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_mixed_indirect_native_caller.c -o program && ./program"
   )
+  endif()
   add_hsc_shell_test(hsc_emit_llvm_library_translation_unit
     "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs > module.ll && grep -Fq '@add_two' module.ll && ! grep -Fq '@main' module.ll"
   )

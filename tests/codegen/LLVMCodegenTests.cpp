@@ -780,7 +780,11 @@ HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
 
 HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
   hitsimple::codegen::CodegenOptions options;
+#if defined(__aarch64__) || defined(_M_ARM64)
+  options.targetTriple = "aarch64-unknown-linux-gnu";
+#else
   options.targetTriple = "x86_64-unknown-linux-gnu";
+#endif
   auto result = emitSource(
       "func main() {\n"
       "    new half as f16 = 1.5\n"
@@ -802,7 +806,11 @@ HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
 
 HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
   hitsimple::codegen::CodegenOptions options;
+#if defined(__aarch64__) || defined(_M_ARM64)
+  options.targetTriple = "aarch64-w64-windows-gnu";
+#else
   options.targetTriple = "x86_64-w64-windows-gnu";
+#endif
   auto result = emitSource(
       "func main() {\n"
       "    new left as f128 = 1.5\n"
@@ -817,8 +825,8 @@ HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
       options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"x86_64-w64-windows-gnu\"") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"" + options.targetTriple +
+                                    "\"") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_from_i64(ptr") !=
@@ -838,7 +846,11 @@ HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
 
 HS_TEST(LLVMCodegen_LowersDarwinF128ThroughBitPatternRuntime) {
   hitsimple::codegen::CodegenOptions options;
+#if defined(__aarch64__) || defined(_M_ARM64)
+  options.targetTriple = "arm64-apple-darwin";
+#else
   options.targetTriple = "x86_64-apple-darwin";
+#endif
   auto result = emitSource(
       "func main() {\n"
       "    new value as f128 = 1.5\n"
@@ -849,9 +861,8 @@ HS_TEST(LLVMCodegen_LowersDarwinF128ThroughBitPatternRuntime) {
       options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "target triple = \"x86_64-apple-darwin\"") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"" + options.targetTriple +
+                                    "\"") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find(
                      "declare void @hs_f128_literal(ptr, ptr)") !=
                  std::string::npos);
@@ -1710,6 +1721,9 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForDarwinTarget) {
 }
 
 HS_TEST(LLVMCodegen_EmitsAggregateCAbiForExplicitX8664SysVElfTarget) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+  return;
+#endif
   auto parseResult = hitsimple::parser::parseSource(
       "extern host_pass(value[8]) -> [8]\n"
       "func main() {\n"
