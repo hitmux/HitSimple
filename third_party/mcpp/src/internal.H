@@ -530,6 +530,11 @@ extern void     at_end( void);
                 /* Do the final commands        */
 extern void     print_heap( void);
                 /* Print blocks of heap memory  */
+#if defined( __APPLE__)
+/* macOS SDKs redefine stpcpy as a FORTIFY variadic macro. */
+#undef stpcpy
+#endif
+
 #if ! HOST_HAVE_STPCPY
 extern char *   stpcpy( char * dest, const char * src);
                 /* Non-Standard library function*/

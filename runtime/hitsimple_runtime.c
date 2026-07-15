@@ -12,12 +12,15 @@
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#endif
 
+#if defined(_WIN32) || defined(HITSIMPLE_SOFTWARE_F128)
+#define HS_SOFTWARE_F128 1
 extern int hs_f128_format(const void *bits, char *buffer, size_t capacity);
 extern int hs_f128_parse(const char *text, void *bits);
 #elif defined(__clang__) && defined(__GLIBC__) && defined(__x86_64__) && \
-    defined(__SIZEOF_FLOAT128__) && defined(__HAVE_FLOAT128) && \
-    !__HAVE_FLOAT128
+    defined(__SIZEOF_FLOAT128__) && \
+    (!defined(__HAVE_FLOAT128) || !__HAVE_FLOAT128)
 /* glibc 2.35 treats Clang's GCC compatibility version as too old to expose
    its binary128 typedef and conversion declarations on x86_64. */
 typedef __float128 HsFloat128;
@@ -28,7 +31,7 @@ extern int strfromf128(char *restrict, size_t, const char *restrict,
 typedef _Float128 HsFloat128;
 #endif
 
-#ifndef _WIN32
+#ifndef HS_SOFTWARE_F128
 _Static_assert(sizeof(HsFloat128) == 16,
                "HitSimple f128 requires IEEE 754 binary128");
 
@@ -540,7 +543,7 @@ static uint16_t hs_f32_to_f16(float value) {
   return (uint16_t)(sign | result);
 }
 
-#ifndef _WIN32
+#ifndef HS_SOFTWARE_F128
 HsFloat128 hs_f128_literal(const char *text) {
   if (text == NULL) {
     hs_fail("null f128 literal");
@@ -736,7 +739,7 @@ int32_t hs_format_output(FILE *file, const char *format,
         memcpy(&value, argument->data, sizeof(value));
         length = snprintf(buffer, sizeof(buffer), "%.17g", value);
       } else {
-#ifdef _WIN32
+#ifdef HS_SOFTWARE_F128
         length = hs_f128_format(argument->data, buffer, sizeof(buffer));
 #else
         HsFloat128 value;
@@ -1095,7 +1098,7 @@ int32_t hs_scan_input(FILE *file, const char *format,
         }
         memcpy(target->data, &value, sizeof(value));
       } else {
-#ifdef _WIN32
+#ifdef HS_SOFTWARE_F128
         if (!hs_f128_parse(token, target->data)) {
           return converted;
         }

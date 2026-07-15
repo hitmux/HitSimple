@@ -2,6 +2,7 @@
 
 #include "hitsimple/support/Path.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <system_error>
 
@@ -15,10 +16,15 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <array>
 #include <cerrno>
 #include <cstring>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#else
+#include <array>
 #include <limits.h>
+#endif
+#include <vector>
 #endif
 
 namespace hitsimple::support {
@@ -142,6 +148,19 @@ std::optional<std::filesystem::path> currentExecutablePath() {
     }
     buffer.resize(buffer.size() * 2U);
   }
+#elif defined(__APPLE__)
+  std::uint32_t size = 0;
+  if (_NSGetExecutablePath(nullptr, &size) != -1 || size == 0) {
+    return std::nullopt;
+  }
+  std::vector<char> buffer(size);
+  if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+    return std::nullopt;
+  }
+  const std::filesystem::path path(buffer.data());
+  std::error_code error;
+  const auto canonical = std::filesystem::weakly_canonical(path, error);
+  return error ? path : canonical;
 #else
   std::array<char, PATH_MAX> buffer{};
   const auto length =

@@ -2,6 +2,7 @@
 #include "hitsimple/ast/AST.h"
 #include "hitsimple/compat/CCompat.h"
 #include "hitsimple/codegen/LLVMCodegen.h"
+#include "hitsimple/codegen/TargetCapabilities.h"
 #include "hitsimple/diagnostic/Diagnostic.h"
 #include "hitsimple/hir/HIR.h"
 #include "hitsimple/parser/Parser.h"
@@ -96,7 +97,7 @@ void printTargetInfo(std::ostream& out,
       << hitsimple::support::pathToUtf8(
              hitsimple::support::runtimeLibraryPath()) << '\n'
       << "f128.backend: "
-      << (target.isOSWindows()
+      << (hitsimple::codegen::usesSoftwareF128Backend(target.str())
               ? "boost.cpp_bin_float.113-bit-software-binary128"
               : "native.fp128")
       << '\n'
@@ -790,6 +791,9 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   arguments.push_back("--target=x86_64-w64-windows-gnu");
   arguments.push_back("-static-libgcc");
   arguments.push_back("-static-libstdc++");
+#endif
+#if defined(__APPLE__)
+  arguments.push_back("-lc++");
 #endif
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);

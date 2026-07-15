@@ -1,5 +1,8 @@
 #include "LlvmEmitter.h"
 
+#include "hitsimple/codegen/LlvmCompatibility.h"
+#include "hitsimple/codegen/TargetCapabilities.h"
+
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/IR/Constants.h>
@@ -7,7 +10,6 @@
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Alignment.h>
-#include <llvm/TargetParser/Triple.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -1054,8 +1056,8 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
           builder_.CreateLoad(type, source.data, "view.swap.input");
       llvm::cast<llvm::LoadInst>(value)->setAlignment(llvm::Align(1));
       if (swap->byteLength != 1) {
-        auto *intrinsic = llvm::Intrinsic::getDeclaration(
-            module_.get(), llvm::Intrinsic::bswap, {type});
+        auto intrinsic =
+            declareIntrinsic(*module_, llvm::Intrinsic::bswap, {type});
         value = builder_.CreateCall(intrinsic, {value}, "view.swap.bswap");
       }
       auto *store = builder_.CreateStore(value, result);
@@ -1251,8 +1253,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     }
     auto callee =
         declareCFunction("fwrite", i64Ty, {ptrTy, i64Ty, i64Ty, ptrTy});
-    auto *stdoutPointer = builder_.CreateLoad(
-        ptrTy, module_->getOrInsertGlobal("stdout", ptrTy));
+    auto *stdoutPointer = emitStdoutFile();
     auto *written = builder_.CreateCall(
         callee, {source.data, builder_.getInt64(1), source.length, stdoutPointer},
         "put.count");
@@ -1267,8 +1268,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!value || call.byteLength == 1) {
       return value;
     }
-    auto *intrinsic = llvm::Intrinsic::getDeclaration(
-        module_.get(), llvm::Intrinsic::bswap,
+    auto intrinsic = declareIntrinsic(
+        *module_, llvm::Intrinsic::bswap,
         {integerTypeForByteLength(call.byteLength)});
     return builder_.CreateCall(intrinsic, {value}, "bswap");
   }
@@ -1725,8 +1726,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       return builder_.CreateFDiv(left, right, "fdivtmp");
     }
     if (op == "**") {
-      auto *powFunction = llvm::Intrinsic::getDeclaration(
-          module_.get(), llvm::Intrinsic::pow, {floatType});
+      auto powFunction =
+          declareIntrinsic(*module_, llvm::Intrinsic::pow, {floatType});
       return builder_.CreateCall(powFunction, {left, right}, "fpowtmp");
     }
 
@@ -1807,8 +1808,7 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       if (call->byteLength == 2) {
         auto *f32Ty = builder_.getFloatTy();
         auto *extended = builder_.CreateFPExt(operand, f32Ty, "f16.math.fpext");
-        auto *intrinsic = llvm::Intrinsic::getDeclaration(
-            module_.get(), *intrinsicId, {f32Ty});
+        auto intrinsic = declareIntrinsic(*module_, *intrinsicId, {f32Ty});
         auto *result = builder_.CreateCall(intrinsic, {extended},
                                            call->callee + ".f32");
         return builder_.CreateFPTrunc(result, floatType, "f16.math.fptrunc");
@@ -1822,8 +1822,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         return emitF128ResultCall(*symbol, {operand}, {true},
                                   call->callee + ".ret");
       }
-      auto *intrinsic = llvm::Intrinsic::getDeclaration(
-          module_.get(), *intrinsicId, {floatType});
+      auto intrinsic =
+          declareIntrinsic(*module_, *intrinsicId, {floatType});
       return builder_.CreateCall(intrinsic, {operand}, call->callee + ".ret");
     }
     if (call->builtin == stdlib::BuiltinId::FPow) {
@@ -1837,8 +1837,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         auto *extendedBase = builder_.CreateFPExt(base, f32Ty, "f16.pow.base");
         auto *extendedExponent =
             builder_.CreateFPExt(exponent, f32Ty, "f16.pow.exponent");
-        auto *intrinsic = llvm::Intrinsic::getDeclaration(
-            module_.get(), llvm::Intrinsic::pow, {f32Ty});
+        auto intrinsic =
+            declareIntrinsic(*module_, llvm::Intrinsic::pow, {f32Ty});
         auto *result = builder_.CreateCall(intrinsic,
                                            {extendedBase, extendedExponent},
                                            "f16.pow.f32");
@@ -1848,8 +1848,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         return emitF128ResultCall("hs_f128_pow", {base, exponent},
                                   {true, true}, "f_pow.ret");
       }
-      auto *intrinsic = llvm::Intrinsic::getDeclaration(
-          module_.get(), llvm::Intrinsic::pow, {floatType});
+      auto intrinsic =
+          declareIntrinsic(*module_, llvm::Intrinsic::pow, {floatType});
       return builder_.CreateCall(intrinsic, {base, exponent}, "f_pow.ret");
     }
     auto *value = emitCallValue(*call);
@@ -1872,7 +1872,17 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
 }
 
 bool LlvmEmitter::usesSoftwareF128() const {
-  return llvm::Triple(module_->getTargetTriple()).isOSWindows();
+  return usesSoftwareF128Backend(moduleTargetTriple(*module_));
+}
+
+llvm::Value *LlvmEmitter::emitStdoutFile() {
+  auto *ptrTy = builder_.getPtrTy();
+  if (parseTargetTriple(moduleTargetTriple(*module_)).isOSDarwin()) {
+    return builder_.CreateLoad(
+        ptrTy, module_->getOrInsertGlobal("__stdoutp", ptrTy), "stdout");
+  }
+  return builder_.CreateLoad(
+      ptrTy, module_->getOrInsertGlobal("stdout", ptrTy), "stdout");
 }
 
 bool LlvmEmitter::isF128ValueType(llvm::Type *type) const {

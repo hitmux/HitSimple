@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(HitSimple
-  VERSION 0.2.0
+  VERSION 0.2.1
   LANGUAGES C CXX
 )
 
@@ -10,9 +10,11 @@ include(GNUInstallDirs)
 set(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY "" CACHE FILEPATH
   "Use a prebuilt target runtime archive instead of compiling it with the compiler host toolchain")
 set(HITSIMPLE_BOOST_LICENSE "" CACHE FILEPATH
-  "Path to Boost LICENSE_1_0.txt for Windows package attribution")
+  "Path to Boost LICENSE_1_0.txt for software f128 package attribution")
 set(HITSIMPLE_LLVM_LICENSE "" CACHE FILEPATH
   "Path to the LLVM distribution license for packaged builds")
+set(HITSIMPLE_RPM_RELEASE "1" CACHE STRING
+  "RPM Release field, including a distribution suffix when required")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +24,18 @@ find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
+
+# LLVM packages may append host SDK paths. Propagate only actual LLVM headers.
+set(HITSIMPLE_LLVM_INCLUDE_DIRS)
+foreach(llvmIncludeDir IN LISTS LLVM_INCLUDE_DIRS)
+  if(EXISTS "${llvmIncludeDir}/llvm/IR/Module.h")
+    list(APPEND HITSIMPLE_LLVM_INCLUDE_DIRS "${llvmIncludeDir}")
+  endif()
+endforeach()
+if(NOT HITSIMPLE_LLVM_INCLUDE_DIRS)
+  message(FATAL_ERROR "LLVM package did not provide an LLVM header directory")
+endif()
+
 llvm_map_components_to_libnames(
   LLVM_LIBS
   Core
@@ -62,6 +76,9 @@ if(MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
   target_compile_options(hsc_mcpp PRIVATE /w)
 else()
   target_compile_options(hsc_mcpp PRIVATE -std=gnu89 -w)
+  if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+    target_compile_options(hsc_mcpp PRIVATE -Wno-incompatible-pointer-types)
+  endif()
 endif()
 
 add_custom_command(
@@ -131,10 +148,13 @@ if(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
 else()
   add_library(hitsimple_runtime STATIC runtime/hitsimple_runtime.c)
 
-  if(WIN32)
+  if(WIN32 OR APPLE)
     find_package(Boost 1.85.0 REQUIRED)
     target_sources(hitsimple_runtime PRIVATE runtime/hitsimple_f128.cpp)
     target_include_directories(hitsimple_runtime PRIVATE ${Boost_INCLUDE_DIRS})
+    target_compile_definitions(hitsimple_runtime
+      PRIVATE HITSIMPLE_SOFTWARE_F128=1
+    )
   else()
     target_sources(hitsimple_runtime PRIVATE runtime/hitsimple_f128_native.c)
   endif()
@@ -164,7 +184,7 @@ target_include_directories(hitsimple_frontend
 target_include_directories(hitsimple_frontend
   SYSTEM
   PUBLIC
-    ${LLVM_INCLUDE_DIRS}
+    ${HITSIMPLE_LLVM_INCLUDE_DIRS}
 )
 
 target_compile_definitions(hitsimple_frontend
@@ -175,6 +195,7 @@ target_compile_definitions(hitsimple_frontend
     HITSIMPLE_MCPP_EXECUTABLE="$<TARGET_FILE:hsc_mcpp>"
     HITSIMPLE_RUNTIME_SOURCE="${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c"
     HITSIMPLE_RUNTIME_LIBRARY="$<TARGET_FILE:hitsimple_runtime>"
+    HITSIMPLE_INSTALL_LIBDIR="${CMAKE_INSTALL_LIBDIR}"
 )
 
 if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
@@ -272,12 +293,12 @@ if(EXISTS "/usr/share/common-licenses/Apache-2.0")
     RENAME Apache-2.0.txt
   )
 endif()
-if(WIN32 AND HITSIMPLE_BOOST_LICENSE AND EXISTS "${HITSIMPLE_BOOST_LICENSE}")
+if((WIN32 OR APPLE) AND HITSIMPLE_BOOST_LICENSE AND EXISTS "${HITSIMPLE_BOOST_LICENSE}")
   install(FILES "${HITSIMPLE_BOOST_LICENSE}"
     DESTINATION ${CMAKE_INSTALL_DOCDIR}
     RENAME Boost-Software-License-1.0.txt
   )
-elseif(WIN32 AND EXISTS "${Boost_INCLUDE_DIRS}/../LICENSE_1_0.txt")
+elseif((WIN32 OR APPLE) AND EXISTS "${Boost_INCLUDE_DIRS}/../LICENSE_1_0.txt")
   install(FILES "${Boost_INCLUDE_DIRS}/../LICENSE_1_0.txt"
     DESTINATION ${CMAKE_INSTALL_DOCDIR}
     RENAME Boost-Software-License-1.0.txt
@@ -344,14 +365,29 @@ target_link_libraries(hsc_unit_tests
   endfunction()
 
   add_test(NAME unit_tests COMMAND hsc_unit_tests)
+  if(APPLE AND NOT HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
+    add_executable(hitsimple_f128_runtime_tests
+      tests/runtime/F128RuntimeTests.cpp
+    )
+    target_link_libraries(hitsimple_f128_runtime_tests
+      PRIVATE hitsimple_runtime
+    )
+    add_test(NAME software_f128_runtime COMMAND hitsimple_f128_runtime_tests)
+  endif()
   add_test(NAME hsc_help COMMAND hsc --help)
   add_test(NAME hsc_version COMMAND hsc --version)
   add_test(NAME hsc_target_info COMMAND hsc --target-info)
   add_hsc_shell_test(hsc_target_info_documents_main_abi
     "$<TARGET_FILE:hsc> --target-info | grep -Fx 'abi.main: unannotated main uses i32, fallthrough returns 0'"
   )
+  if(WIN32 OR APPLE)
+    set(HITSIMPLE_EXPECTED_F128_BACKEND
+      "boost.cpp_bin_float.113-bit-software-binary128")
+  else()
+    set(HITSIMPLE_EXPECTED_F128_BACKEND "native.fp128")
+  endif()
   add_hsc_shell_test(hsc_target_info_documents_checked_and_calloc_status
-    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: native.fp128' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics persist; extern globals, FFI raw addresses, and file handles are not registered' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
+    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: ${HITSIMPLE_EXPECTED_F128_BACKEND}' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics persist; extern globals, FFI raw addresses, and file handles are not registered' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
   )
   add_test(NAME hsc_compile_with_explicit_clang
     COMMAND hsc --clang ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/hello.hs
@@ -405,11 +441,26 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_c_compat_external_symbol_abi_emit_llvm
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_abi_symbols.c > module.ll && grep -Fq 'declare i32 @puts(ptr)' module.ll && grep -Fq 'declare double @atof(ptr)' module.ll"
   )
+
+  set(HSC_C_COMPAT_LINKER "${CLANG_EXECUTABLE}")
+  set(HSC_C_COMPAT_RUNTIME_PREFIX
+    "-x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c")
+  set(HSC_C_COMPAT_RUNTIME_SUFFIX "")
+  if(WIN32 OR APPLE)
+    set(HSC_C_COMPAT_LINKER "${CMAKE_CXX_COMPILER}")
+    set(HSC_C_COMPAT_RUNTIME_PREFIX "")
+    set(HSC_C_COMPAT_RUNTIME_SUFFIX "-x none $<TARGET_FILE:hitsimple_runtime>")
+  endif()
+  if(APPLE)
+    set(HSC_C_COMPAT_LINKER
+      "${CMAKE_CXX_COMPILER} -isysroot $(xcrun --show-sdk-path)")
+  endif()
+
   add_hsc_shell_test(hsc_c_compat_native_scalar_abi
-    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi_helper.c -o program && ./program"
+    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi.c -o module.ll && ${HSC_C_COMPAT_LINKER} -x ir module.ll ${HSC_C_COMPAT_RUNTIME_PREFIX} -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_abi_helper.c ${HSC_C_COMPAT_RUNTIME_SUFFIX} -o program && ./program"
   )
   add_hsc_shell_test(hsc_c_compat_native_scalar_void_native_to_hsc
-    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_library.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_caller.c -o program && ./program"
+    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_library.c -o module.ll && ${HSC_C_COMPAT_LINKER} -x ir module.ll ${HSC_C_COMPAT_RUNTIME_PREFIX} -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_native_scalar_void_caller.c ${HSC_C_COMPAT_RUNTIME_SUFFIX} -o program && ./program"
   )
   add_hsc_shell_test(hsc_c_compat_array_typedef_runtime
     "$<TARGET_FILE:hsc> --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_array_typedef.c -o program && ./program"
@@ -441,6 +492,8 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_rejects_c_compat_variadic_declaration
     "! $<TARGET_FILE:hsc> --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_variadic_declaration.c -o program >stdout 2>stderr && grep -Fq 'expected C type' stderr"
   )
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
   add_hsc_shell_test(hsc_c_compat_integer_triplet_hsc_to_native
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_integer_triplet_by_value.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_integer_triplet_by_value_native.c -o program && ./program"
   )
@@ -492,6 +545,7 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_c_compat_mixed_indirect_native_to_hsc
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_mixed_indirect_library.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_mixed_indirect_native_caller.c -o program && ./program"
   )
+  endif()
   add_hsc_shell_test(hsc_emit_llvm_library_translation_unit
     "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs > module.ll && grep -Fq '@add_two' module.ll && ! grep -Fq '@main' module.ll"
   )
@@ -1283,10 +1337,17 @@ endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
   set(HITSIMPLE_DEBIAN_ARCHITECTURE amd64)
+  set(HITSIMPLE_RPM_ARCHITECTURE x86_64)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
   set(HITSIMPLE_DEBIAN_ARCHITECTURE arm64)
+  set(HITSIMPLE_RPM_ARCHITECTURE aarch64)
 else()
   set(HITSIMPLE_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
+  set(HITSIMPLE_RPM_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
+endif()
+
+if(HITSIMPLE_RPM_RELEASE STREQUAL "")
+  message(FATAL_ERROR "HITSIMPLE_RPM_RELEASE must not be empty")
 endif()
 
 set(CPACK_PACKAGE_NAME hitsimple)
@@ -1299,5 +1360,14 @@ set(CPACK_DEBIAN_FILE_NAME
   "hitsimple_${PROJECT_VERSION}_${HITSIMPLE_DEBIAN_ARCHITECTURE}.deb")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "clang-18 | clang (>= 1:18)")
-set(CPACK_GENERATOR DEB)
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+  "HitSimple experimental language compiler")
+set(CPACK_RPM_PACKAGE_ARCHITECTURE ${HITSIMPLE_RPM_ARCHITECTURE})
+set(CPACK_RPM_PACKAGE_RELEASE ${HITSIMPLE_RPM_RELEASE})
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_REQUIRES "clang >= 18")
+set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+set(CPACK_RPM_PACKAGE_LICENSE "UNLICENSED")
+set(CPACK_RPM_PACKAGE_GROUP "Development/Languages")
+set(CPACK_GENERATOR "DEB;RPM")
 include(CPack)

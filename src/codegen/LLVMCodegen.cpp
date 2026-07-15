@@ -1,15 +1,13 @@
 #include "LlvmEmitter.h"
 
+#include "hitsimple/codegen/LlvmCompatibility.h"
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/Target/TargetMachine.h>
 #include <llvm/TargetParser/Host.h>
-#include <llvm/TargetParser/Triple.h>
 
 #include <cstdint>
 #include <limits>
@@ -76,7 +74,7 @@ bool hasCAbiAggregateByValue(
 }
 
 bool isX86_64SysVElfTarget(std::string_view targetTriple) {
-  const llvm::Triple target{targetTriple};
+  const auto target = parseTargetTriple(targetTriple);
   return target.getArch() == llvm::Triple::x86_64 &&
          target.getObjectFormat() == llvm::Triple::ELF && !target.isX32();
 }
@@ -90,7 +88,7 @@ LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
   const auto targetTriple = options_.targetTriple.empty()
                                 ? llvm::sys::getDefaultTargetTriple()
                                 : options_.targetTriple;
-  module_->setTargetTriple(targetTriple);
+  setModuleTargetTriple(*module_, targetTriple);
 }
 
 EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
@@ -99,7 +97,7 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
     return EmitResult{"", std::move(diagnostics_)};
   }
 
-  const auto targetTriple = module_->getTargetTriple();
+  const auto targetTriple = moduleTargetTriple(*module_);
   if (!isX86_64SysVElfTarget(targetTriple)) {
     const auto rejectAggregateSignature =
         [&](std::string_view name,
@@ -130,8 +128,7 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
     return EmitResult{"", std::move(diagnostics_)};
   }
   std::string targetError;
-  const auto *target = llvm::TargetRegistry::lookupTarget(targetTriple,
-                                                           targetError);
+  const auto *target = resolveTarget(targetTriple, targetError);
   if (target == nullptr) {
     addDiagnostic("cannot resolve LLVM target '" + targetTriple + "': " +
                   targetError);
@@ -139,8 +136,7 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
   }
   llvm::TargetOptions targetOptions;
   std::unique_ptr<llvm::TargetMachine> targetMachine(
-      target->createTargetMachine(targetTriple, "generic", "", targetOptions,
-                                  std::nullopt));
+      createGenericTargetMachine(*target, targetTriple, targetOptions));
   if (!targetMachine) {
     addDiagnostic("cannot create LLVM target machine for '" + targetTriple +
                   "'");
