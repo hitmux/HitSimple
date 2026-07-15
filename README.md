@@ -12,7 +12,7 @@ source -> preprocessor -> lexer -> parser -> AST -> sema -> HIR -> LLVM IR -> ex
 
 ## Current Status
 
-`v0.2.1` is a Beta prerelease with release builds for:
+`v0.2.1` is the current Beta release with builds for:
 
 - Linux x86_64/aarch64 tar.gz archives.
 - Linux amd64/arm64 DEB packages.
