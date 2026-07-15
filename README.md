@@ -1,53 +1,53 @@
 # HitSimple
 
-HitSimple 是一个实验性编程语言和 C++20 编译器。它的核心模型是“数据存于内存，含义来自显式解释”：同一段字节可以按整数、浮点、字符串、地址或结构布局解释，存储与解释模板保持分离。
+HitSimple is an experimental programming language and a C++20 compiler. Its core model is "data resides in memory, and meaning comes from explicit interpretation": the same bytes can be interpreted as integers, floating-point values, strings, addresses, or structured layouts, while storage remains separate from interpretation templates.
 
-编译流程已经形成可运行闭环：
+The compiler pipeline is operational end to end:
 
 ```text
 source -> preprocessor -> lexer -> parser -> AST -> sema -> HIR -> LLVM IR -> executable
 ```
 
-`Standard.md` 是语言语义的依据。当前测试用于验证已有实现，不能替代对标准条款的逐项核对。
+`Standard.md` is the authority for language semantics. The current tests validate implemented behavior; they do not replace a clause-by-clause review of the Standard.
 
-## 当前状态
+## Current Status
 
-`v0.2.0` 是 Beta prerelease，发布构建覆盖：
+`v0.2.1` is the current Beta release with builds for:
 
-- Linux x86_64/aarch64 tar.gz。
-- Linux amd64/arm64 DEB。
-- macOS arm64/x86_64 tar.gz。
-- Fedora 44 与 EL9 x86_64/aarch64 RPM。
-- Windows x64 full/slim ZIP。
-- VS Code 扩展 VSIX。
+- Linux x86_64/aarch64 tar.gz archives.
+- Linux amd64/arm64 DEB packages.
+- macOS arm64/x86_64 tar.gz archives.
+- Fedora 44 and EL9 x86_64/aarch64 RPM packages.
+- Windows x64 full/slim ZIP archives.
+- A VS Code extension VSIX.
 
-Windows 只生成当前 Windows x64 平台程序，目标 ABI 固定为 `x86_64-w64-windows-gnu`。macOS 使用当前 Darwin native target。发布范围不包含其他 UNIX，也不提供跨目标 `hsc --target`。
+Windows builds programs only for the current Windows x64 platform, with the target ABI fixed as `x86_64-w64-windows-gnu`. macOS uses the current native Darwin target. The release scope excludes other UNIX platforms and does not provide cross-target `hsc --target` support.
 
-Windows 和 macOS 的 `f128` 通过 Boost 1.85.0 `cpp_bin_float` 的 113-bit 软件后端实现，在 runtime 边界按原始 IEEE 754 binary128 位模式传递。十进制转换和 binary128 编码显式执行 `roundTiesToEven`；NaN payload 的保留与传播仍属于实现定义行为。Linux 继续使用原生 LLVM `fp128` 与 glibc 接口。
+On Windows and macOS, `f128` uses Boost 1.85.0 `cpp_bin_float` as a 113-bit software backend and passes raw IEEE 754 binary128 bit patterns across runtime boundaries. Decimal conversion and binary128 encoding explicitly use `roundTiesToEven`; preservation and propagation of NaN payloads remain implementation-defined. Linux continues to use native LLVM `fp128` and glibc interfaces.
 
-## 从源码构建
+## Build from Source
 
-需要：
+Requirements:
 
-- CMake 3.24 或更高版本。
-- C++20 编译器。
-- LLVM development packages。
-- Bison。
-- re2c。
-- Clang。
+- CMake 3.24 or later.
+- A C++20 compiler.
+- LLVM development packages.
+- Bison.
+- re2c.
+- Clang.
 
-macOS 构建还需要 Boost 1.85.0 或更高版本；发布包本身仍要求外部 Clang 18 或更高版本完成最终链接。
+macOS builds also require Boost 1.85.0 or later. Release packages still require an external Clang 18 or later for final linking.
 
 ```bash
 cmake -S . -B build
 cmake --build build --parallel
 ```
 
-生成的编译器位于 `build/hsc`。
+The resulting compiler is `build/hsc`.
 
-## 第一个程序
+## First Program
 
-仓库中的 `examples/hello.hs`：
+The repository includes `examples/hello.hs`:
 
 ```hs
 $include <stdio.hsh>
@@ -65,9 +65,9 @@ func main() {
 ./hello
 ```
 
-## Linux 发布包
+## Linux Distribution Packages
 
-DEB 安装布局：
+The DEB installation layout is:
 
 ```text
 /usr/bin/hsc
@@ -77,68 +77,68 @@ DEB 安装布局：
 /usr/share/doc/HitSimple
 ```
 
-安装本地 DEB：
+Install a local DEB package:
 
 ```bash
-sudo apt install ./hitsimple_0.2.0_amd64.deb
+sudo apt install ./hitsimple_0.2.1_amd64.deb
 ```
 
-arm64 使用 `hitsimple_0.2.0_arm64.deb`。软件包依赖 `clang-18`，或者 Debian 包版本不低于 18 的 `clang`。Ubuntu 22.04 和 Debian 12 默认仓库缺少 Clang 18 时，需要先按 [apt.llvm.org](https://apt.llvm.org/) 配置对应的 `jammy` 或 `bookworm` 软件源；DEB 不会修改系统软件源。
+Use `hitsimple_0.2.1_arm64.deb` on arm64. The package depends on `clang-18`, or a Debian `clang` package at version 18 or later. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
 
-tar.gz 是可重定位目录包，解压后直接调用其中的 `bin/hsc`。编译器会相对自身位置寻找预处理器、标准库和 runtime。
+The tar.gz archive is a relocatable directory package. Run its `bin/hsc` directly after extraction. The compiler locates the preprocessor, standard library, and runtime relative to its own location.
 
-Fedora 44 和 EL9 分别提供 x86_64/aarch64 RPM，例如：
+Fedora 44 and EL9 each provide x86_64/aarch64 RPM packages, for example:
 
 ```bash
-sudo dnf install ./hitsimple-0.2.0-1.fc44.x86_64.rpm
+sudo dnf install ./hitsimple-0.2.1-1.fc44.x86_64.rpm
 ```
 
-EL9 使用 `1.el9` release suffix。RPM 安装到 `/usr/bin`、`/usr/libexec/hitsimple`、发行版库目录（x86_64/aarch64 为 `/usr/lib64/hitsimple`）和 `/usr/share/hitsimple`；系统需已有 `clang >= 18`，不内置 Clang，也不提供 GPG 签名。Fedora 44 和 EL9 是当前唯一承诺的 RPM 基线。
+EL9 uses the `1.el9` release suffix. RPM packages install to `/usr/bin`, `/usr/libexec/hitsimple`, the distribution library directory (`/usr/lib64/hitsimple` on x86_64/aarch64), and `/usr/share/hitsimple`; the system must already provide `clang >= 18`. They do not bundle Clang or provide a GPG signature. Fedora 44 and EL9 are the only currently supported RPM baselines.
 
-## macOS 发布包
+## macOS Distribution Packages
 
 ```text
-hitsimple-0.2.0-macos-arm64.tar.gz
-hitsimple-0.2.0-macos-x86_64.tar.gz
+hitsimple-0.2.1-macos-arm64.tar.gz
+hitsimple-0.2.1-macos-x86_64.tar.gz
 ```
 
-解压后直接使用其中的 `bin/hsc`。包会相对可执行文件定位 `hsc_mcpp`、静态 runtime 和标准库，移动解压目录后仍可使用。系统需提供 Clang 18 或更高版本，可通过 `--clang`、`HITSIMPLE_CLANG` 或 PATH 选择。
+After extraction, use `bin/hsc` directly. The package locates `hsc_mcpp`, the static runtime, and the standard library relative to the executable, so the extracted directory remains usable after being moved. The system must provide Clang 18 or later, selected through `--clang`, `HITSIMPLE_CLANG`, or PATH.
 
-macOS 只提供未签名的可重定位 tar.gz；不提供签名、notarization 或 PKG 安装器。
+macOS provides only unsigned relocatable tar.gz archives; no signing, notarization, or PKG installer is provided.
 
-## Windows 发布包
+## Windows Distribution Packages
 
-完整包：
+Full package:
 
 ```text
-hitsimple-0.2.0-windows-x86_64-full.zip
+hitsimple-0.2.1-windows-x86_64-full.zip
 ```
 
-其中包含 `hsc.exe`、标准库、静态 runtime，以及固定版本 `llvm-mingw-20240619-ucrt-x86_64`。解压后无需安装 Visual Studio 或系统 Clang。
+It includes `hsc.exe`, the standard library, the static runtime, and the pinned `llvm-mingw-20240619-ucrt-x86_64` toolchain. No Visual Studio or system Clang installation is required after extraction.
 
-精简包：
+Slim package:
 
 ```text
-hitsimple-0.2.0-windows-x86_64-slim.zip
+hitsimple-0.2.1-windows-x86_64-slim.zip
 ```
 
-精简包要求用户提供兼容的 llvm-mingw/Clang 18。工具链解析顺序为：
+The slim package requires a compatible llvm-mingw/Clang 18 installation. Toolchain lookup order is:
 
-1. `--clang <path>`。
-2. `HITSIMPLE_CLANG`。
-3. 完整包内的 `toolchain/bin/clang++.exe`。
-4. `clang-18`。
-5. PATH 中的 `clang`、`clang++`。
+1. `--clang <path>`.
+2. `HITSIMPLE_CLANG`.
+3. `toolchain/bin/clang++.exe` in the full package.
+4. `clang-18`.
+5. `clang` and `clang++` on PATH.
 
-Windows 未指定 `-o` 时默认生成 `a.exe`。生成的用户程序静态链接 GCC/C++ runtime，只应依赖 Windows 系统 DLL。
+When `-o` is omitted, Windows generates `a.exe` by default. User programs link the GCC/C++ runtime statically and should depend only on Windows system DLLs.
 
-## 编译器用法
+## Compiler Usage
 
 ```text
 hsc [options] <input>...
 ```
 
-常用命令：
+Common commands:
 
 ```bash
 hsc examples/hello.hs -o hello
@@ -148,30 +148,30 @@ hsc --clang /path/to/clang++ examples/hello.hs -o hello
 hsc --target-info
 ```
 
-完整 CLI 说明见 [`USAGE.md`](USAGE.md)。语言模型、标准模板、安全语义和 ABI 合同见 [`Standard.md`](Standard.md)。
+See [`USAGE.md`](USAGE.md) for complete CLI documentation. See [`Standard.md`](Standard.md) for the language model, standard templates, safety semantics, and ABI contracts.
 
-## VS Code 扩展
+## VS Code Extension
 
-扩展源码位于 `vscode/hitsimple/`，提供语法高亮、缩进、snippets、`$hsc` Problem Matcher，以及 Build/Run 命令。
+The extension source is in `vscode/hitsimple/`. It provides syntax highlighting, indentation, snippets, the `$hsc` Problem Matcher, and Build/Run commands.
 
 ```bash
 cd vscode/hitsimple
 npm ci
 npm test
 npm run package:vsix
-code --install-extension dist/hitsimple-vscode-0.2.0.vsix --force
+code --install-extension dist/hitsimple-vscode-0.2.1.vsix --force
 ```
 
-主要设置：
+Key settings:
 
-| Setting | Default | 作用 |
+| Setting | Default | Purpose |
 | --- | --- | --- |
-| `hitsimple.compilerPath` | `hsc` | 编译器可执行文件名或路径。 |
-| `hitsimple.mode` | `unchecked` | 选择 `unchecked`、`static-checked` 或 `checked`。 |
-| `hitsimple.outputDirectory` | `.hitsimple/build` | 工作区内的输出目录。 |
-| `hitsimple.additionalArgs` | `[]` | 按独立 argv 项传递的附加参数。 |
+| `hitsimple.compilerPath` | `hsc` | Compiler executable name or path. |
+| `hitsimple.mode` | `unchecked` | Selects `unchecked`, `static-checked`, or `checked`. |
+| `hitsimple.outputDirectory` | `.hitsimple/build` | Output directory inside the workspace. |
+| `hitsimple.additionalArgs` | `[]` | Additional arguments passed as separate argv entries. |
 
-`.hs` 也被 Haskell 使用。如同时安装两种语言扩展，可在工作区中明确关联：
+Haskell also uses `.hs`. When both language extensions are installed, explicitly associate the extension in the workspace:
 
 ```json
 {
@@ -181,27 +181,27 @@ code --install-extension dist/hitsimple-vscode-0.2.0.vsix --force
 }
 ```
 
-## 验证
+## Verification
 
 ```bash
 ./build/hsc_unit_tests
 ctest --test-dir build --output-on-failure --parallel 4
 ```
 
-VS Code Extension Host 测试在无图形界面的 Linux 环境中需要 `xvfb-run`：
+VS Code Extension Host tests require `xvfb-run` in headless Linux environments:
 
 ```bash
 cd vscode/hitsimple
 xvfb-run -a npm run test:extension
 ```
 
-## 已知边界
+## Known Boundaries
 
-- checked 模式尚未完整追踪 `extern` global、FFI 裸地址和文件句柄边界。
-- C compatibility 是受限子集。C struct 传值 ABI 仅支持已覆盖的 x86_64 SysV ELF 布局；Windows 和 Darwin 会明确拒绝。
-- `f16` 数学使用 `f32` 计算后回写。Linux `f128` 依赖平台的 binary128/glibc 支持；Windows 和 macOS 使用软件 backend。
-- `mut self` 和普通 `mut` 参数仍为保留语义并产生明确诊断。
+- Checked mode does not yet fully track boundaries for `extern` globals, raw FFI addresses, or file handles.
+- C compatibility is a restricted subset. C struct pass-by-value ABI supports only covered x86_64 SysV ELF layouts; Windows and Darwin reject it explicitly.
+- `f16` arithmetic computes through `f32` before writing back. Linux `f128` depends on platform binary128/glibc support; Windows and macOS use the software backend.
+- `mut self` and ordinary `mut` parameters remain reserved semantics and produce explicit diagnostics.
 
-## 许可证与第三方组件
+## License and Third-Party Components
 
-HitSimple 项目自身目前为 `UNLICENSED`，`v0.2.0` 不改变这一状态。发布包包含所使用第三方组件的许可证或版权说明，包括 mcpp、LLVM/llvm-mingw 和 Boost Software License 1.0。使用或再分发前应分别核对这些条款。
+HitSimple is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [LICENSE](LICENSE). Release packages include this license and licenses or copyright notices for used third-party components, including mcpp, LLVM/llvm-mingw, and the Boost Software License 1.0. Review those terms separately before using or redistributing them.

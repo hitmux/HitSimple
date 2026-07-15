@@ -972,7 +972,7 @@ jobs:
           diff -u "$RUNNER_TEMP/expected-assets-with-sums" "$RUNNER_TEMP/actual-assets"
 
           cat > ../release-notes.txt <<EOF
-          HitSimple ${HITSIMPLE_VERSION} 是统一的 Beta prerelease。
+          HitSimple ${HITSIMPLE_VERSION} 是正式 release。
 
           发布附件包括 Linux x86_64/aarch64 tar.gz、Linux amd64/arm64 DEB、macOS arm64/x86_64 tar.gz、Fedora 44 与 EL9 的 x86_64/aarch64 RPM、Windows x64 full/slim ZIP、VS Code 扩展 VSIX 和 SHA256SUMS。
 
@@ -1019,8 +1019,7 @@ jobs:
             --verify-tag \
             --title "HitSimple $GITHUB_REF_NAME" \
             --notes-file release-bundle/release-notes.txt \
-            --draft \
-            --latest=false
+            --draft
 
       - name: Verify draft assets and hashes
         env:
@@ -1052,12 +1051,11 @@ jobs:
           cd "$RUNNER_TEMP/downloaded-release"
           sha256sum -c SHA256SUMS
 
-      - name: Publish prerelease
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release edit "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --draft=false \
-            --prerelease \
-            --latest=false
+            --latest

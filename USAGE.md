@@ -1,91 +1,91 @@
-# 使用 `hsc`
+# Using `hsc`
 
-`hsc` 会依次执行预处理、解析、语义分析、HIR lowering、LLVM IR 生成和最终链接。`Standard.md` 仍是语言语法与语义的依据；本文只描述编译器接口和发布包用法。
+`hsc` performs preprocessing, parsing, semantic analysis, HIR lowering, LLVM IR generation, and final linking in sequence. `Standard.md` remains the authority for language syntax and semantics; this document describes only the compiler interface and release-package usage.
 
-## 命令形式
+## Command Form
 
 ```text
 hsc [options] <input>...
 ```
 
-除 `--help`、`--version` 和 `--target-info` 外，命令必须提供输入文件。未知选项、缺少 `-o` 参数值或输出目录不存在都会返回错误。
+Except for `--help`, `--version`, and `--target-info`, commands require an input file. Unknown options, a missing value for `-o`, or a nonexistent output directory produce an error.
 
-## 生成可执行文件
+## Build an Executable
 
 ```bash
 hsc examples/hello.hs -o hello
 ./hello
 ```
 
-未指定 `-o` 时，Linux 和 macOS 默认生成 `a.out`，Windows 默认生成 `a.exe`。
+When `-o` is omitted, Linux and macOS generate `a.out` by default, and Windows generates `a.exe`.
 
-输出目录必须预先存在：
+The output directory must already exist:
 
 ```bash
 mkdir -p out
 hsc examples/hello.hs -o out/hello
 ```
 
-### 多翻译单元
+### Multiple Translation Units
 
-多个输入文件会独立预处理、解析和生成 LLVM module，随后统一链接：
+Each input file is preprocessed, parsed, and lowered to an LLVM module independently, then all modules are linked together:
 
 ```bash
 hsc app/main.hs app/math.hs app/io.hs -o app/program
 ```
 
-跨翻译单元的 `extern` 声明必须匹配。宏、typedef 和文件作用域 `static` 保持翻译单元局部。
+`extern` declarations must agree across translation units. Macros, typedefs, and file-scope `static` declarations remain local to their translation unit.
 
-## 选择安全模式
+## Select a Safety Mode
 
-| Option | 行为 |
+| Option | Behavior |
 | --- | --- |
-| `--unchecked` | 不插入安全检查，默认模式。 |
-| `--static-checked` | 报告可静态证明的问题，不插入 runtime 检查。 |
-| `--checked` | 执行静态检查，并为已支持的动态错误插入 runtime 检查。 |
+| `--unchecked` | Does not insert safety checks. This is the default mode. |
+| `--static-checked` | Reports statically provable issues without inserting runtime checks. |
+| `--checked` | Performs static checks and inserts runtime checks for supported dynamic errors. |
 
 ```bash
 hsc --checked examples/hello.hs -o hello-checked
 hsc --static-checked examples/hello.hs -o hello-static
 ```
 
-实际覆盖范围可通过 `--target-info` 查看，规范合同以 `Standard.md` 为准。
+Use `--target-info` to inspect the actual coverage. `Standard.md` is the authority for the normative contract.
 
-## 选择 Clang 工具链
+## Select a Clang Toolchain
 
-最终生成可执行文件时，`hsc` 按以下顺序寻找 Clang：
+When producing an executable, `hsc` searches for Clang in this order:
 
-1. 命令行 `--clang <path>`。
-2. 环境变量 `HITSIMPLE_CLANG`。
-3. Windows 完整包内的 `toolchain/bin/clang++.exe`。
-4. `clang-18`。
-5. PATH 中的 `clang`、`clang++`。
+1. The `--clang <path>` command-line option.
+2. The `HITSIMPLE_CLANG` environment variable.
+3. `toolchain/bin/clang++.exe` in the Windows full package.
+4. `clang-18`.
+5. `clang` and `clang++` on PATH.
 
-显式指定：
+Specify it explicitly:
 
 ```bash
 hsc --clang /opt/llvm/bin/clang++ examples/hello.hs -o hello
 ```
 
-环境变量：
+Use an environment variable:
 
 ```bash
 export HITSIMPLE_CLANG=/opt/llvm/bin/clang++
 hsc examples/hello.hs -o hello
 ```
 
-Windows PowerShell：
+On Windows PowerShell:
 
 ```powershell
 $env:HITSIMPLE_CLANG = 'C:\llvm-mingw\bin\clang++.exe'
 .\bin\hsc.exe examples\hello.hs -o hello.exe
 ```
 
-找不到兼容工具链时，`hsc` 会在链接前返回明确错误。`--emit-llvm` 不执行链接，因此不要求 Clang 存在，即使传入的 `--clang` 路径无效也不受影响。
+If no compatible toolchain is found, `hsc` returns a clear error before linking. `--emit-llvm` does not link, so it does not require Clang, even when the supplied `--clang` path is invalid.
 
-`HITSIMPLE_RUNTIME_SOURCE` 仍可在开发调试时覆盖静态 runtime。正常安装和发布包默认链接 `lib/hitsimple/libhitsimple_runtime.a`。
+`HITSIMPLE_RUNTIME_SOURCE` can still override the static runtime during development and debugging. Normal installations and release packages link `lib/hitsimple/libhitsimple_runtime.a` by default.
 
-## 检查编译器和目标
+## Inspect the Compiler and Target
 
 ```bash
 hsc --version
@@ -93,19 +93,19 @@ hsc --help
 hsc --target-info
 ```
 
-`--target-info` 输出包括：
+`--target-info` reports:
 
-- 实际 target triple。
-- Clang 路径和解析来源。
-- runtime 类型与路径。
-- `f128` backend。
-- ABI、安全模式和标准库实现边界。
+- The actual target triple.
+- The Clang path and how it was resolved.
+- The runtime kind and path.
+- The `f128` backend.
+- ABI, safety-mode, and standard-library implementation boundaries.
 
-Windows target triple 固定为 `x86_64-w64-windows-gnu`；macOS 使用当前 Darwin native target。本版本只生成当前平台程序，不提供任意 `--target` 交叉编译接口。
+The Windows target triple is fixed as `x86_64-w64-windows-gnu`; macOS uses the current native Darwin target. This release generates programs only for the current platform and provides no arbitrary `--target` cross-compilation interface.
 
-## 检查中间表示
+## Inspect Intermediate Representations
 
-以下 action 每次只接受一个输入文件，且不能彼此组合：
+Each of the following actions accepts exactly one input file and cannot be combined with the others:
 
 ```bash
 hsc --dump-tokens examples/hello.hs
@@ -113,9 +113,9 @@ hsc --dump-ast examples/hello.hs
 hsc --dump-hir examples/hello.hs
 ```
 
-这些输出写到标准输出，不支持 `-o`。
+These outputs are written to standard output and do not support `-o`.
 
-## 生成 LLVM IR
+## Generate LLVM IR
 
 ```bash
 hsc --emit-llvm examples/hello.hs
@@ -123,55 +123,55 @@ hsc --emit-llvm examples/hello.hs -o hello.ll
 hsc --checked --emit-llvm examples/hello.hs -o hello-checked.ll
 ```
 
-`--emit-llvm` 每次只接受一个输入文件。
+`--emit-llvm` accepts exactly one input file per invocation.
 
-## 仅预处理
+## Preprocess Only
 
 ```bash
 hsc --preprocess-only examples/hello.hs
 hsc -E examples/hello.hs -o hello.preprocessed.hs
 ```
 
-该模式适合排查 `$include`、宏展开和条件预处理。它不进入 parser，因此 `--c-compat` 不改变预处理结果。
+This mode is useful for diagnosing `$include`, macro expansion, and conditional preprocessing. It does not enter the parser, so `--c-compat` does not change the preprocessing result.
 
-## C compatibility
+## C Compatibility
 
 ```bash
 hsc --c-compat path/to/program.c -o program
 hsc --c-compat app/main.c app/support.c -o app/program
 ```
 
-`--c-compat` 可以与 `--dump-ast`、`--dump-hir` 和 `--emit-llvm` 一起使用，不能与 `--dump-tokens` 或 `--target-info` 一起使用。
+`--c-compat` can be used with `--dump-ast`, `--dump-hir`, and `--emit-llvm`; it cannot be used with `--dump-tokens` or `--target-info`.
 
-该模式是受限 C syntax 到 core AST 的转换层。多维数组、复杂 declarator、函数指针、指向数组的指针、C vararg 和 GNU 扩展会明确拒绝。C struct 传值 ABI 仅覆盖已支持的 x86_64 SysV ELF 布局；Windows 和 Darwin 不支持这一 ABI 范围。
+This mode translates a restricted C syntax subset into the core AST. It explicitly rejects multidimensional arrays, complex declarators, function pointers, pointers to arrays, C varargs, and GNU extensions. C struct pass-by-value ABI covers only supported x86_64 SysV ELF layouts; Windows and Darwin do not support that ABI scope.
 
-## Action 约束
+## Action Constraints
 
-| Action | 输入数量 | 支持 `-o` | 支持 `--c-compat` |
+| Action | Input count | Supports `-o` | Supports `--c-compat` |
 | --- | --- | --- | --- |
-| 默认 executable build | 一个或多个 | 是 | 是 |
-| `--dump-tokens` | 一个 | 否 | 否 |
-| `--dump-ast` | 一个 | 否 | 是 |
-| `--dump-hir` | 一个 | 否 | 是 |
-| `--emit-llvm` | 一个 | 是 | 是 |
-| `--preprocess-only` / `-E` | 一个 | 是 | 无影响 |
-| `--target-info` | 无 | 否 | 否 |
+| Default executable build | One or more | Yes | Yes |
+| `--dump-tokens` | One | No | No |
+| `--dump-ast` | One | No | Yes |
+| `--dump-hir` | One | No | Yes |
+| `--emit-llvm` | One | Yes | Yes |
+| `--preprocess-only` / `-E` | One | Yes | No effect |
+| `--target-info` | None | No | No |
 
 ## Linux DEB
 
 ```bash
-sudo apt install ./hitsimple_0.2.0_amd64.deb
+sudo apt install ./hitsimple_0.2.1_amd64.deb
 ```
 
-arm64 使用：
+On arm64, use:
 
 ```bash
-sudo apt install ./hitsimple_0.2.0_arm64.deb
+sudo apt install ./hitsimple_0.2.1_arm64.deb
 ```
 
-Ubuntu 22.04 与 Debian 12 需要先安装 Clang 18。以下命令按系统代号配置 apt.llvm.org；执行前应核对 [apt.llvm.org](https://apt.llvm.org/) 当前说明和签名方式。
+Ubuntu 22.04 and Debian 12 need Clang 18 installed first. The following commands configure apt.llvm.org for the appropriate distribution codename; verify the current [apt.llvm.org](https://apt.llvm.org/) instructions and signing method before running them.
 
-Ubuntu 22.04：
+Ubuntu 22.04:
 
 ```bash
 sudo install -d -m 0755 /etc/apt/keyrings
@@ -183,9 +183,9 @@ sudo apt update
 sudo apt install clang-18
 ```
 
-Debian 12 将上述两处 `jammy` 替换为 `bookworm`。DEB 本身不会添加或修改软件源。
+On Debian 12, replace both occurrences of `jammy` above with `bookworm`. The DEB itself does not add or modify package sources.
 
-安装后可验证：
+After installation, verify it with:
 
 ```bash
 hsc --version
@@ -196,51 +196,51 @@ hsc examples/hello.hs -o /tmp/hitsimple-hello
 
 ## Fedora 44 / EL9 RPM
 
-RPM 只为 Fedora 44 与 EL9 提供 x86_64/aarch64 基线。两个发行版分别使用不同的 release suffix，避免对跨发行版 glibc 基线作出承诺：
+RPM packages provide x86_64/aarch64 baselines only for Fedora 44 and EL9. The distributions use distinct release suffixes to avoid claims about a cross-distribution glibc baseline:
 
 ```bash
-sudo dnf install ./hitsimple-0.2.0-1.fc44.x86_64.rpm
-sudo dnf install ./hitsimple-0.2.0-1.el9.aarch64.rpm
+sudo dnf install ./hitsimple-0.2.1-1.fc44.x86_64.rpm
+sudo dnf install ./hitsimple-0.2.1-1.el9.aarch64.rpm
 ```
 
-包依赖 `clang >= 18`，不内置 Clang，也不添加软件源或 GPG 签名。安装后可用与 DEB 相同的 `hsc --version`、`hsc --target-info` 和 hello 程序检查安装结果。
+The packages depend on `clang >= 18`. They do not bundle Clang, add package sources, or provide GPG signatures. After installation, use the same `hsc --version`, `hsc --target-info`, and hello-program checks as for DEB packages.
 
 ## macOS tar.gz
 
-选择与机器一致的包：
+Choose the archive matching the machine:
 
 ```bash
-tar -xzf hitsimple-0.2.0-macos-arm64.tar.gz
-cd hitsimple-0.2.0-macos-arm64
+tar -xzf hitsimple-0.2.1-macos-arm64.tar.gz
+cd hitsimple-0.2.1-macos-arm64
 bin/hsc --clang /opt/homebrew/opt/llvm@18/bin/clang path/to/hello.hs -o hello
 ./hello
 ```
 
-Intel Mac 使用 `hitsimple-0.2.0-macos-x86_64.tar.gz`。解压目录可以移动；`hsc` 会相对自身位置发现预处理器、标准库和静态 runtime。macOS 需要外部 Clang 18 或更高版本；包未签名、未 notarize，且不提供 PKG。
+Use `hitsimple-0.2.1-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang 18 or later. The package is unsigned and not notarized, and no PKG is provided.
 
-macOS `f128` 与 Windows 一样使用软件 binary128 backend，覆盖字面量、算术、比较、数值转换、格式化、扫描和 `math.hsh` 的浮点入口。Linux 继续使用原生 `fp128`/glibc backend。
+Like Windows, macOS uses the software binary128 backend for `f128`, covering literals, arithmetic, comparisons, numeric conversion, formatting, scanning, and the floating-point entry points in `math.hsh`. Linux continues to use the native `fp128`/glibc backend.
 
-## Windows full/slim ZIP
+## Windows Full/Slim ZIP
 
-full 包解压后可直接运行：
+The full package runs directly after extraction:
 
 ```powershell
-Expand-Archive .\hitsimple-0.2.0-windows-x86_64-full.zip
-cd .\hitsimple-0.2.0-windows-x86_64-full
+Expand-Archive .\hitsimple-0.2.1-windows-x86_64-full.zip
+cd .\hitsimple-0.2.1-windows-x86_64-full
 .\bin\hsc.exe path\to\hello.hs -o hello.exe
 .\hello.exe
 ```
 
-slim 包需要通过 `--clang`、`HITSIMPLE_CLANG` 或 PATH 提供兼容的 llvm-mingw/Clang 18。路径可包含空格和 Unicode 字符；参数通过 argv 传递，不经过 shell quoting。
+The slim package requires a compatible llvm-mingw/Clang 18 through `--clang`, `HITSIMPLE_CLANG`, or PATH. Paths may contain spaces and Unicode characters; arguments are passed through argv rather than shell quoting.
 
-Windows `f128` 使用软件 binary128 backend，覆盖字面量、算术、比较、数值转换、格式化、扫描和 `math.hsh` 的浮点入口。超越函数的精度和异常标志边界可通过 `--target-info` 查看。
+Windows uses the software binary128 backend for `f128`, covering literals, arithmetic, comparisons, numeric conversion, formatting, scanning, and the floating-point entry points in `math.hsh`. Use `--target-info` to inspect the precision and exception-flag boundaries for transcendental functions.
 
-## 发布附件校验
+## Verify Release Assets
 
-正式 Release 附带 `SHA256SUMS`。下载全部附件后，在 Linux 中运行：
+Official releases include `SHA256SUMS`. After downloading every asset, run on Linux:
 
 ```bash
 sha256sum -c SHA256SUMS
 ```
 
-只有哈希校验全部通过，才能认为下载内容与发布附件一致。
+Only when every hash verification passes can the downloaded contents be considered identical to the release assets.
