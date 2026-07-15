@@ -1,247 +1,247 @@
 # HitSimple Standard 1.0.0-Beta.21
 
-## 1. 简介、规范用语与设计边界
+## 1. Introduction, Normative Terminology, and Design Boundaries
 
-HitSimple（简称 **hs**）是一种以内存数据为中心的编程语言。语言只规定连续字节序列、地址、长度、生命周期、解释视图和操作解析；整数、浮点数、字符串、地址和结构化布局均通过显式解释获得语义。
+HitSimple (abbreviated **hs**) is a programming language centered on in-memory data. The language specifies only contiguous byte sequences, addresses, lengths, lifetimes, interpretation Views, and operation resolution; integers, floating-point numbers, strings, addresses, and structured layouts acquire semantics through explicit interpretation.
 
-HitSimple 的基本哲学是：**数据本身只是内存，含义来自显式解释**。
+The fundamental philosophy of HitSimple is: **data itself is only memory; meaning comes from explicit interpretation**.
 
-解释模板是默认语义承载单元。标准模板库提供基础模板；编译器可以为标准模板使用内建 fast path，但可观察行为必须与标准模板库语义一致。
+Interpretation templates are the default units that carry semantics. The standard template library provides fundamental templates. A compiler MAY use built-in fast paths for standard templates, but observable behavior MUST remain consistent with the semantics of the standard template library.
 
-### 1.1 规范用语
+### 1.1 Normative Terminology
 
-- **必须**：实现和程序均需满足的强制要求。
-- **不得**：被禁止的行为。
-- **应当**：推荐行为；偏离时实现或程序应当有明确理由。
-- **可以**：允许行为。
-- **未定义行为**：标准不规定结果，程序不得依赖其表现。
-- **实现定义行为**：实现必须文档化的行为。
-- **诊断信息**：编译器、解释器或运行时必须报告的错误或警告。
-- **可观察行为**：程序可观察到的编译期诊断、运行时错误、表达式结果长度、表达式结果模板、写入内存的字节序列、格式化输出、返回值和进程终止状态。
+- **MUST**: a mandatory requirement that both implementations and programs are required to satisfy.
+- **MUST NOT**: prohibited behavior.
+- **SHOULD**: recommended behavior; an implementation or program that deviates SHOULD have a clear reason.
+- **MAY**: permitted behavior.
+- **Undefined behavior**: behavior for which this Standard specifies no result; a program MUST NOT depend on its manifestation.
+- **Implementation-defined behavior**: behavior that an implementation MUST document.
+- **Diagnostic**: an error or warning that a compiler, interpreter, or runtime MUST report.
+- **Observable behavior**: compile-time diagnostics, runtime errors, expression-result lengths, expression-result templates, byte sequences written to memory, formatted output, return values, and process termination status that a program can observe.
 
-### 1.2 设计边界
+### 1.2 Design Boundaries
 
-HitSimple 不引入传统面向对象类型系统。模板默认操作和模板方法只是解释模板上的静态语义绑定。
+HitSimple does not introduce a traditional object-oriented type system. Template default operations and template methods are only static semantic bindings on interpretation templates.
 
-本标准不定义以下机制：
+This Standard does not define the following mechanisms:
 
-1. 隐式跨模板转换。
-2. 继承。
-3. 虚函数。
-4. 动态派发。
-5. 隐式构造函数。
-6. 隐式析构函数。
-7. 隐式 `self`。
-8. 隐式生命周期管理。
-9. 自动装箱或拆箱。
-10. 依赖运行时类型信息的操作解析。
+1. Implicit cross-template conversion.
+2. Inheritance.
+3. Virtual functions.
+4. Dynamic dispatch.
+5. Implicit constructors.
+6. Implicit destructors.
+7. Implicit `self`.
+8. Implicit lifetime management.
+9. Automatic boxing or unboxing.
+10. Operation resolution that depends on runtime type information.
 
-### 1.3 标准分层
+### 1.3 Standard Layering
 
-本标准按以下模型组织：
-
-```text
-存储对象 -> 左值视图/右值视图 -> 解释模板 -> 操作解析 -> 可观察行为
-```
-
-- 存储对象定义内存的位置、长度、生命周期和定义地址。
-- 视图定义一次表达式求值如何定位或复制字节，并携带解释模板。
-- 解释模板定义默认赋值、默认运算、比较、格式化和方法解析。
-- 标准模板库提供基础模板的规范语义。
-- C 兼容层只作为语法翻译层，进入语义分析前必须翻译为核心语法。
-
-### 1.4 规范处理流水线
-
-符合实现必须使外部可观察结果等价于以下处理流水线：
+This Standard is organized according to the following model:
 
 ```text
-源字节与 UTF-8 验证
--> 预处理指令扫描、宏展开与文件包含
--> 核心/兼容层词法分析
--> C 兼容层语法识别
--> C 兼容层翻译为核心语法
--> 核心语法解析
--> 顶层名称收集与 impl 合并
--> 语义分析、模板匹配与返回签名校验
--> 执行模式安全检查
--> lowering / 执行
+storage object -> lvalue View/rvalue View -> interpretation template -> operation resolution -> observable behavior
 ```
 
-预处理完成后的文本必须满足核心语言或 C 兼容层词法规则。C 兼容层翻译必须发生在核心语义分析之前；翻译结果中的旧语法、C declarator、C 表达式和 linkage 元数据不得跨越到核心语义层。
+- A storage object defines a memory location, length, lifetime, and definition address.
+- A View defines how one expression evaluation locates or copies bytes and carries an interpretation template.
+- An interpretation template defines default assignment, default operations, comparison, formatting, and method resolution.
+- The standard template library provides the normative semantics of fundamental templates.
+- The C compatibility layer serves only as a syntax-translation layer and MUST be translated into core syntax before semantic analysis.
+
+### 1.4 Normative Processing Pipeline
+
+A conforming implementation MUST produce externally observable results equivalent to the following processing pipeline:
+
+```text
+source bytes and UTF-8 validation
+-> preprocessing-directive scan, macro expansion, and file inclusion
+-> core/compatibility-layer lexical analysis
+-> C compatibility-layer syntax recognition
+-> translation of the C compatibility layer into core syntax
+-> core-syntax parsing
+-> top-level name collection and impl merging
+-> semantic analysis, template matching, and return-signature validation
+-> execution-mode safety checks
+-> lowering / execution
+```
+
+After preprocessing, the resulting text MUST satisfy the lexical rules of either the core language or the C compatibility layer. Translation of the C compatibility layer MUST occur before core semantic analysis. Legacy syntax, C declarators, C expressions, and linkage metadata in the translation result MUST NOT cross into the core semantic layer.
 
 ---
 
-## 2. 平台模型、执行模式与 ABI 最小要求
+## 2. Platform Model, Execution Modes, and Minimum ABI Requirements
 
-HitSimple 的语言语义依赖抽象执行平台。符合本标准的实现必须文档化本章列出的平台参数。
+The semantics of HitSimple depend on an abstract execution platform. A conforming implementation MUST document the platform parameters listed in this chapter.
 
-### 2.1 平台参数
+### 2.1 Platform Parameters
 
-- **字节大小**：1 byte 必须为 8 bit。
-- **指针长度 `P`**：系统指针长度，通常为 4 或 8 字节。`&`、`alloc()`、`fopen()` 等返回值均使用 `P` 字节。`[P]` 可作为长度规格，单位为 byte。
-- **字节序**：整数、浮点数和地址值在内存中的排列使用系统本地字节序。实现必须文档化目标平台字节序。
-- **空地址**：全零的 `P` 字节地址值表示空地址。对空地址解引用属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可运行时检测时必须报告运行时错误。
-- **文件句柄**：文件句柄是 `P` 字节不透明值，在语言层以长度为 `P` 且模板为 `handle` 的 View 传递。全零的 `P` 字节 `handle` 表示空句柄。标准语言层定义的 `handle` 行为包括文件 I/O 函数传递与返回、同模板默认赋值、相等比较和格式化；实现明确文档化时可以提供额外行为。
-- **对齐**：语言层面的内存访问以字节为单位。`new`、`static`、`alloc()` 返回地址的额外对齐保证属于实现定义行为。
+- **Byte size**: 1 byte MUST be 8 bits.
+- **Pointer length `P`**: the system pointer length, typically 4 or 8 bytes. Return values from `&`, `alloc()`, `fopen()`, and similar operations all use `P` bytes. `[P]` MAY be used as a length specification, measured in bytes.
+- **Byte order**: integers, floating-point values, and address values are represented in memory using the native byte order of the system. An implementation MUST document the byte order of the target platform.
+- **Null address**: an all-zero `P`-byte address value represents the null address. Dereferencing a null address is undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically. In checked mode, a runtime error MUST be reported when the condition can be detected at runtime.
+- **File handle**: a file handle is an opaque `P`-byte value passed at the language level as a View whose length is `P` and whose template is `handle`. An all-zero `P`-byte `handle` represents a null handle. The `handle` behavior defined by the standard language layer includes passing and returning values through file-I/O functions, same-template default assignment, equality comparison, and formatting. An implementation MAY provide additional behavior when it documents that behavior explicitly.
+- **Alignment**: language-level memory access is byte-addressed. Any additional alignment guarantees for addresses returned by `new`, `static`, and `alloc()` are implementation-defined.
 
-### 2.2 外部链接 ABI
+### 2.2 External-Linkage ABI
 
-`extern` 声明的是 HitSimple 外部符号。符号名编码、调用约定、寄存器使用、栈布局、参数传递、返回值存储、多返回 ABI、vararg ABI、与 C ABI 的兼容性均为实现定义行为，必须文档化。
+An `extern` declaration declares a HitSimple external symbol. Symbol-name encoding, calling convention, register usage, stack layout, argument passing, return-value storage, multiple-return ABI, vararg ABI, and compatibility with the C ABI are implementation-defined and MUST be documented.
 
-### 2.3 执行模式
+### 2.3 Execution Modes
 
-HitSimple 标准化三种执行模式。执行模式只调整安全检查策略；第 18.2 节列出的语法、名称解析、模板匹配、返回签名、重载冲突等静态语义诊断在所有模式中必须执行。
+HitSimple standardizes three execution modes. Execution modes modify only the safety-checking policy. Static-semantic diagnostics listed in Section 18.2, including syntax, name resolution, template matching, return signatures, and overload conflicts, MUST be performed in every mode.
 
-1. **unchecked 模式**：实现不要求插入安全检查。越界访问、除零、非法解引用、重复释放、释放后访问等按对应条款处理；对应条款未另行规定时属于未定义行为。
-2. **static-checked 模式**：实现必须执行所有可静态证明的安全检查，并产生编译期诊断。实现不得为了安全检查插入运行时检查代码。对无法静态证明安全性的动态行为，若标准没有其他约束，则按 unchecked 模式处理。static-checked 模式不得引入额外运行时开销。
-3. **checked 模式**：实现必须执行可静态证明的检查，并对可运行时检测的安全错误报告运行时错误。
+1. **unchecked mode**: an implementation is not required to insert safety checks. Out-of-bounds access, division by zero, invalid dereference, double free, use after free, and similar cases are handled according to their respective clauses. Where the relevant clause provides no additional rule, the behavior is undefined.
+2. **static-checked mode**: an implementation MUST perform every safety check that can be proven statically and MUST issue a compile-time diagnostic. An implementation MUST NOT insert runtime-checking code for safety checks. Dynamic behavior whose safety cannot be proven statically follows unchecked-mode behavior when this Standard imposes no other constraint. Static-checked mode MUST introduce no additional runtime overhead.
+3. **checked mode**: an implementation MUST perform checks that can be proven statically and MUST report runtime errors for safety violations that can be detected at runtime.
 
-本节所称安全检查包括越界访问、除零、空地址解引用、非法解引用、非法释放、重复释放、释放后访问、动态长度不匹配、动态 View 边界错误、标准库目标容量不足、`size * count` 溢出、`cstr` 缺少终止字节等本标准列明的内存和运行时值安全错误。
+For purposes of this section, safety checks include the memory- and runtime-value safety errors identified by this Standard, including out-of-bounds access, division by zero, null-address dereference, invalid dereference, invalid free, double free, use after free, dynamic-length mismatch, dynamic-View boundary errors, insufficient destination capacity in the standard library, `size * count` overflow, and a missing terminating byte in a `cstr`.
 
-模板操作解析是静态语义分析的一部分。普通操作符、模板方法和 `impl op` 的无匹配、重复匹配或冲突匹配必须作为编译诊断处理；运行时只处理动态长度、动态边界和运行时值导致的错误。后文条款写作“checked 模式下可检测时必须报告运行时错误”的要求，在 static-checked 模式中只采用其可静态证明子集，并以编译期诊断报告。
+Template-operation resolution is part of static semantic analysis. A missing match, duplicate match, or conflicting match involving ordinary operators, template methods, or `impl op` MUST be handled as a compile-time diagnostic. The runtime handles only errors caused by dynamic lengths, dynamic boundaries, or runtime values. Where a later clause states that “a runtime error MUST be reported when detectable in checked mode,” static-checked mode applies only the statically provable subset and reports it as a compile-time diagnostic.
 
-符合实现必须支持 unchecked 模式。支持 static-checked 或 checked 模式的实现必须文档化启用方式。支持 checked 模式的实现必须文档化错误码、错误转化为 `throw` 的策略，以及裸地址、外部地址、文件句柄和 FFI 地址的边界可检测性。
+A conforming implementation MUST support unchecked mode. An implementation that supports static-checked or checked mode MUST document how that mode is enabled. An implementation that supports checked mode MUST document its error codes, its policy for converting errors into `throw`, and the extent to which boundaries can be detected for raw addresses, external addresses, file handles, and FFI addresses.
 
 ---
 
-## 3. 词法规范
+## 3. Lexical Specification
 
-### 3.1 字符集
+### 3.1 Character Set
 
-源代码文件使用 UTF-8 编码；非法 UTF-8 字节序列必须产生编译诊断。注释中可以包含任意 Unicode 字符。字符串和字符字面量中可以包含任意 Unicode 标量值，最终按 UTF-8 字节序列存储。越界 Unicode 标量值和代理项码点必须产生编译诊断。
+Source files use UTF-8 encoding. An invalid UTF-8 byte sequence MUST produce a compile-time diagnostic. Comments MAY contain arbitrary Unicode characters. String and character literals MAY contain any Unicode scalar value and are ultimately stored as UTF-8 byte sequences. Out-of-range Unicode scalar values and surrogate code points MUST produce a compile-time diagnostic.
 
-标识符只能包含 `A-Z`、`a-z`、`0-9` 和 `_`，且不得以数字开头。标识符区分大小写。单独 `_` 是多重赋值左侧的丢弃目标，不得作为声明名、参数名、函数名、模板名、成员名或普通引用名称。形如 `t` 后接一个或多个数字的名称（例如 `t0`、`t10`）保留给模板实例计数字面量，不得作为普通标识符。以下划线开头且长度大于 1 的标识符应当预留给实现。
+Identifiers MAY contain only `A-Z`, `a-z`, `0-9`, and `_`, and MUST NOT begin with a digit. Identifiers are case-sensitive. A standalone `_` is a discard target on the left-hand side of multiple assignment and MUST NOT be used as a declaration name, parameter name, function name, template name, member name, or ordinary reference name. Names consisting of `t` followed by one or more digits, such as `t0` and `t10`, are reserved for template-instance count literals and MUST NOT be used as ordinary identifiers. Identifiers that begin with an underscore and contain more than one character SHOULD be reserved for the implementation.
 
-空格和水平制表符用于分隔词法单元。字符串和字符字面量外的换行产生 `NEWLINE` 词法单元。CRLF 视为一个 `NEWLINE`；单独 LF 和单独 CR 也视为一个 `NEWLINE`。分号 `;` 是普通标点词法单元；在第 4 章规定的位置，`;` 与 `NEWLINE` 都可作为语句或声明终结符。
+Spaces and horizontal tabs separate lexical tokens. Outside string and character literals, a line break produces a `NEWLINE` token. CRLF is treated as one `NEWLINE`; a standalone LF or CR is also treated as one `NEWLINE`. The semicolon `;` is an ordinary punctuation token. At positions specified in Chapter 4, both `;` and `NEWLINE` MAY terminate a statement or declaration.
 
-### 3.2 注释
+### 3.2 Comments
 
-单行注释以 `//` 开始，到行尾结束。多行注释以 `/*` 开始，以 `*/` 结束，不支持嵌套。未闭合多行注释必须产生编译诊断。
+A line comment begins with `//` and ends at the end of the line. A block comment begins with `/*` and ends with `*/`; nesting is not supported. An unterminated block comment MUST produce a compile-time diagnostic.
 
-注释只在字符串字面量和字符字面量之外识别。注释移除发生在核心语言词法单元识别前；单行注释的结束换行仍产生 `NEWLINE`，多行注释中的换行按实际行数产生等量 `NEWLINE`。字符串和字符字面量内部的 `//`、`/*`、`*/` 按字面量内容处理。
+Comments are recognized only outside string and character literals. Comment removal occurs before core-language token recognition. The line break that terminates a line comment still produces a `NEWLINE`; line breaks inside a block comment produce an equal number of `NEWLINE` tokens according to the actual line count. Inside string and character literals, `//`, `/*`, and `*/` are treated as literal content.
 
-### 3.3 关键字
+### 3.3 Keywords
 
-支持关键字如下：
+The supported keywords are as follows:
 
-| 关键字 | 用途 |
+| Keyword | Purpose |
 |---|---|
-| `new` | 声明局部或全局存储对象 |
-| `static` | 声明静态存储对象 |
-| `extern` | 声明外部符号 |
-| `func` | 定义函数或模板方法 |
-| `return` | 函数返回 |
-| `if` / `else` | 条件语句 |
-| `for` / `while` | 循环语句 |
-| `continue` / `break` | 循环控制 |
-| `goto` | 无条件跳转 |
-| `try` / `catch` / `throw` | 错误处理 |
-| `true` / `false` | 布尔字面量 |
-| `template` | 定义用户模板 |
-| `impl` | 定义模板默认操作和模板方法 |
-| `op` | 定义模板默认操作 |
-| `set` | 设置持久默认解释模板 |
-| `none` | 清除解释模板 |
-| `as` | 指定解释模板 |
-| `sizeof` | 编译期模板大小查询 |
-| `self` | 方法第一个参数的保留名称 |
+| `new` | Declare a local or global storage object |
+| `static` | Declare a static storage object |
+| `extern` | Declare an external symbol |
+| `func` | Define a function or template method |
+| `return` | Return from a function |
+| `if` / `else` | Conditional statement |
+| `for` / `while` | Loop statement |
+| `continue` / `break` | Loop control |
+| `goto` | Unconditional jump |
+| `try` / `catch` / `throw` | Error handling |
+| `true` / `false` | Boolean literal |
+| `template` | Define a user template |
+| `impl` | Define template default operations and template methods |
+| `op` | Define a template default operation |
+| `set` | Set a persistent default interpretation template |
+| `none` | Clear an interpretation template |
+| `as` | Specify an interpretation template |
+| `sizeof` | Query template size at compile time |
+| `self` | Reserved name for the first parameter of a method |
 
-保留关键字如下：
+The reserved keywords are as follows:
 
-| 关键字 | 预期用途 |
+| Keyword | Intended purpose |
 |---|---|
-| `mut` | 可写方法参数预留；在标准模式中出现时按诊断项处理 |
-| `switch` / `case` / `default` | 多分支选择 |
-| `do` | do-while 循环 |
-| `typedef` | 类型别名 |
-| `enum` | 枚举 |
-| `struct` | C 兼容层中 `template` 的等价写法 |
-| `union` | 联合布局 |
-| `const` / `volatile` | 兼容修饰符 |
+| `mut` | Reserved for writable method parameters; its appearance in standard mode is handled as a diagnostic item |
+| `switch` / `case` / `default` | Multi-way selection |
+| `do` | do-while loop |
+| `typedef` | Type alias |
+| `enum` | Enumeration |
+| `struct` | Compatibility-layer spelling equivalent to `template` |
+| `union` | Union layout |
+| `const` / `volatile` | Compatibility qualifiers |
 
-`self` 是方法声明中的保留名称；方法的第一个参数可以写为 `self as Template`。标准不提供隐式 `self`。可写行为通过赋值目标、`op =` 的目标借用或显式地址解引用表达。
+`self` is a reserved name in method declarations. The first parameter of a method MAY be written as `self as Template`. This Standard provides no implicit `self`. Writable behavior is expressed through assignment targets, target borrowing by `op =`, or explicit address dereference.
 
-### 3.4 预处理器指令词法
+### 3.4 Lexical Rules for Preprocessor Directives
 
-以 `$` 开头的预处理器指令在预处理阶段具有特殊含义。标准指令包括 `$include`、`$define`、`$undef`、`$if`、`$ifdef`、`$ifndef`、`$elif`、`$else`、`$endif`、`$error`、`$warning`、`$pragma`。
+Preprocessor directives that begin with `$` have special meaning during preprocessing. Standard directives include `$include`, `$define`, `$undef`, `$if`, `$ifdef`, `$ifndef`, `$elif`, `$else`, `$endif`, `$error`, `$warning`, and `$pragma`.
 
-宏名必须是有效标识符，且不得是支持关键字、保留关键字或单独 `_`。宏展开发生在语言词法和语法分析之前；宏展开后的源文本必须满足本章词法规则。`#` 和 `##` 只在预处理器宏替换上下文中作为字符串化和连接记号有效；宏展开完成后，核心语言词法中出现未被消费的 `#` 或 `##` 必须产生编译诊断，除非它们位于预处理器指令内。
+A macro name MUST be a valid identifier and MUST NOT be a supported keyword, reserved keyword, or standalone `_`. Macro expansion occurs before language-level lexical and syntactic analysis. Source text produced by macro expansion MUST satisfy the lexical rules of this chapter. `#` and `##` are valid as stringification and token-concatenation markers only in a preprocessor macro-replacement context. After macro expansion, any unconsumed `#` or `##` appearing in core-language lexical input MUST produce a compile-time diagnostic unless it occurs within a preprocessor directive.
 
-### 3.5 字面量
+### 3.5 Literals
 
-#### 3.5.1 整数字面量
+#### 3.5.1 Integer Literals
 
-支持十进制、十六进制、八进制和二进制整数字面量。十六进制前缀为 `0x`/`0X`，二进制前缀为 `0b`/`0B`，八进制前缀为 `0o`/`0O`；前缀大小写不敏感。数字分隔符 `_` 只能位于两个数字之间。
+Decimal, hexadecimal, octal, and binary integer literals are supported. The hexadecimal prefix is `0x`/`0X`, the binary prefix is `0b`/`0B`, and the octal prefix is `0o`/`0O`; prefix matching is case-insensitive. The digit separator `_` MAY appear only between two digits.
 
-整数字面量词法单元本身表示非负整数幅值，标准范围为 `[0, 2^64-1]`；超出该范围必须产生编译诊断，除非实现文档化为扩展。负号 `-` 是一元运算符。常量表达式上下文中，编译器必须支持把 `-M` 折叠为负整数常量，当且仅当 `M <= 2^63`；其中 `-9223372036854775808` 是合法的 8 字节有符号最小值。
+An integer-literal token itself represents a nonnegative integer magnitude. The standard range is `[0, 2^64-1]`; a value outside this range MUST produce a compile-time diagnostic unless the implementation documents it as an extension. The minus sign `-` is a unary operator. In a constant-expression context, the compiler MUST support folding `-M` into a negative integer constant if and only if `M <= 2^63`; accordingly, `-9223372036854775808` is a valid minimum signed 8-byte value.
 
-整数字面量结果为右值 View，模板为 `none`，并携带整数解释属性。非负幅值优先按能容纳其数学值的最小有符号宽度选择 1、2、4 或 8 字节；幅值位于 `[2^63, 2^64-1]` 时，结果长度为 8 字节并携带无符号解释属性。负常量按能容纳其数学值的最小有符号宽度选择 1、2、4 或 8 字节。
+The result of an integer literal is an rvalue View whose template is `none` and which carries an integer-interpretation attribute. A nonnegative magnitude preferentially uses the smallest signed width among 1, 2, 4, and 8 bytes that can represent its mathematical value. A magnitude in `[2^63, 2^64-1]` produces an 8-byte result carrying an unsigned-interpretation attribute. A negative constant uses the smallest signed width among 1, 2, 4, and 8 bytes that can represent its mathematical value.
 
-#### 3.5.2 浮点字面量
+#### 3.5.2 Floating-Point Literals
 
-支持常规小数形式和科学计数法。合法形状包括 `DIGITS '.' [DIGITS]`、`'.' DIGITS`、`DIGITS EXP`、`DIGITS '.' [DIGITS] EXP` 和 `'.' DIGITS EXP`，其中 `EXP` 为 `e` 或 `E` 后接可选正负号和至少一个数字。指数标记大小写不敏感。浮点字面量支持 `_` 作为数字分隔符，分隔符必须位于两个数字之间。`NaN`、`Inf` 和 `Infinity` 作为标准库格式化结果或实现扩展处理，不作为核心浮点字面量。
+Conventional decimal notation and scientific notation are supported. Valid forms include `DIGITS '.' [DIGITS]`, `'.' DIGITS`, `DIGITS EXP`, `DIGITS '.' [DIGITS] EXP`, and `'.' DIGITS EXP`, where `EXP` consists of `e` or `E`, an optional sign, and at least one digit. The exponent marker is case-insensitive. Floating-point literals support `_` as a digit separator, and each separator MUST occur between two digits. `NaN`, `Inf`, and `Infinity` are handled as standard-library formatting results or implementation extensions and are not core floating-point literals.
 
-浮点字面量长度由上下文推断；无上下文时默认为 8 字节 `f64`。
+The length of a floating-point literal is inferred from context. In the absence of context, it defaults to the 8-byte `f64` template.
 
-#### 3.5.3 字符和字符串字面量
+#### 3.5.3 Character and String Literals
 
-字符字面量用单引号包围，字符串字面量用双引号包围。字符字面量可以包含多个字符；转义处理后的 UTF-8 字节按书写顺序存储。空字符字面量 `''` 必须产生编译诊断。字符字面量形成模板为 `none` 的右值 View，长度为转义处理后的字节数。长度为 1 字节的字符字面量携带无符号整数解释属性，数值等于该字节值；长度大于 1 字节的字符字面量只携带原始字节序列，不携带整数解释属性。字符串字面量长度为字符总字节数加结尾 `0x00`，形成模板为 `cstr` 的右值 View。
+Character literals are enclosed in single quotation marks, and string literals are enclosed in double quotation marks. A character literal MAY contain multiple characters. After escape processing, the UTF-8 bytes are stored in written order. An empty character literal `''` MUST produce a compile-time diagnostic. A character literal forms an rvalue View whose template is `none` and whose length is the number of bytes after escape processing. A one-byte character literal carries an unsigned-integer interpretation attribute whose value equals that byte. A character literal longer than one byte carries only the raw byte sequence and no integer-interpretation attribute. The length of a string literal is the total number of character bytes plus a trailing `0x00`; it forms an rvalue View whose template is `cstr`.
 
-支持转义序列：`\n`、`\t`、`\r`、`\\`、`\'`、`\"`、`\0`、`\xHH`、`\ooo`、`\uXXXX`。非法转义、越界 Unicode 标量值和代理项码点必须产生编译诊断。
+The following escape sequences are supported: `\n`, `\t`, `\r`, `\\`, `\'`, `\"`, `\0`, `\xHH`, `\ooo`, and `\uXXXX`. Invalid escapes, out-of-range Unicode scalar values, and surrogate code points MUST produce a compile-time diagnostic.
 
-HitSimple 不自动拼接相邻字符串字面量；`"A" "B"` 是语法错误。
+HitSimple does not automatically concatenate adjacent string literals. `"A" "B"` is a syntax error.
 
-#### 3.5.4 布尔字面量
+#### 3.5.4 Boolean Literals
 
-`true` 和 `false` 长度为 1 字节。`true` 的字节值为 `0x01`，`false` 的字节值为 `0x00`，解释模板为 `bool`。
+`true` and `false` have a length of 1 byte. The byte value of `true` is `0x01`, the byte value of `false` is `0x00`, and the interpretation template is `bool`.
 
-### 3.6 运算符和标点符号
+### 3.6 Operators and Punctuation
 
-算术运算符：`+`、`-`、`*`、`/`、`%`、`**`。  
-关系运算符：`<`、`>`、`<=`、`>=`、`==`、`!=`。  
-逻辑运算符：`!`、`&&`、`||`。  
-位运算符：`&`、`|`、`^`、`~`、`<<`、`>>`。  
-赋值运算符：`=`、`%d=`、`%f=`、`%s=`、`%b=`、`&=`。  
-自增自减：`++`、`--`。  
-其他运算符：取址 `&`、解引用 `[N]*` / `[P]*` / `[sizeof(T)]*`、无符号解释后缀 `?`、临时解释视图 `as Template`、`sizeof(Name)`。  
-标点符号：`(`、`)`、`[`、`]`、`{`、`}`、`,`、`;`、`:`、`.`。
+Arithmetic operators: `+`, `-`, `*`, `/`, `%`, `**`.  
+Relational operators: `<`, `>`, `<=`, `>=`, `==`, `!=`.  
+Logical operators: `!`, `&&`, `||`.  
+Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>`.  
+Assignment operators: `=`, `%d=`, `%f=`, `%s=`, `%b=`, `&=`.  
+Increment and decrement: `++`, `--`.  
+Other operators: address-of `&`, dereference `[N]*` / `[P]*` / `[sizeof(T)]*`, unsigned-interpretation suffix `?`, temporary interpretation View `as Template`, and `sizeof(Name)`.  
+Punctuation: `(`, `)`, `[`, `]`, `{`, `}`, `,`, `;`, `:`, `.`.
 
-带类型标注运算符包括 `%d+`、`%8d+`、`%f+`、`%4f+` 等。带类型标注运算符整体形成单个词法单元；其中 `N` 表示结果字节宽度。整数宽度 `N` 在词法层为十进制数字序列，语义层要求其数值大于 0；浮点宽度 `N` 在词法层为十进制数字序列，语义层限制为 2、4、8 或 16。模板实例计数字面量如 `t10` 在 `[t10]` 中整体形成专用词法单元；形如 `t` 后接数字的词形保留给该用途，不作为普通 `IDENT`。词法分析必须采用最长匹配原则。
+Typed operators include `%d+`, `%8d+`, `%f+`, `%4f+`, and similar forms. A typed operator forms one lexical token in its entirety; `N` denotes the result width in bytes. At the lexical level, an integer width `N` is a decimal digit sequence, and at the semantic level its value is required to be greater than 0. At the lexical level, a floating-point width `N` is a decimal digit sequence, and at the semantic level it is restricted to 2, 4, 8, or 16. A template-instance count literal such as `t10` forms one dedicated lexical token when it occurs in `[t10]`. A token shape consisting of `t` followed by digits is reserved for this purpose and is not an ordinary `IDENT`. Lexical analysis MUST apply the longest-match rule.
 
-语句终止符由换行或分号表示。简单声明和简单语句可以用 `NEWLINE` 结束，也可以用 `;` 结束；分号后的换行只作为空终止符处理。连续空行和连续分号表示空终止符。`for (init; condition; post)` 头部中的两个分号是循环头分隔符，不作为语句终止符。预处理器指令仍以换行结束。`else` 和 `catch` 与前一个块之间可以有空白和任意数量换行；在前一个块与 `else` / `catch` 之间写入分号会结束前一个复合语句。
+A statement terminator is represented by a line break or semicolon. A simple declaration or simple statement MAY end with `NEWLINE` or `;`; a line break after a semicolon is treated only as an empty terminator. Consecutive blank lines and consecutive semicolons represent empty terminators. The two semicolons in a `for (init; condition; post)` header are loop-header separators and are not statement terminators. Preprocessor directives continue to end at a line break. Any amount of whitespace and any number of line breaks MAY appear between a preceding block and `else` or `catch`; a semicolon between the preceding block and `else`/`catch` terminates the preceding compound statement.
 
-### 3.7 运算符优先级
+### 3.7 Operator Precedence
 
-| 优先级 | 运算符 | 结合性 | 说明 |
+| Precedence | Operators | Associativity | Description |
 |---:|---|---|---|
-| 1 | `?` 后缀、`[]`、`()`、`.`、方法调用 | L | 后缀、索引、调用、成员 |
-| 2 | `&` 一元、`[N]*`、`!`、`~`、`-` 一元、`sizeof` | R | 一元 |
-| 3 | `as Template` | - | 临时解释视图 |
-| 4 | `**` | R | 乘方 |
-| 5 | `*`、`/`、`%` | L | 乘除模 |
-| 6 | `+`、`-` | L | 加减 |
-| 7 | `<<`、`>>` | L | 移位 |
-| 8 | `<`、`<=`、`>`、`>=` | L | 关系 |
-| 9 | `==`、`!=` | L | 相等比较 |
-| 10 | `&` 二元 | L | 位与 |
-| 11 | `^` | L | 位异或 |
-| 12 | `|` | L | 位或 |
-| 13 | `&&` | L | 逻辑与，短路 |
-| 14 | `||` | L | 逻辑或，短路 |
-| 15 | `? :` | R | 三元条件 |
-| 16 | `=`、`%d=`、`%f=`、`%s=`、`%b=`、`&=` | R | 赋值 |
+| 1 | postfix `?`, `[]`, `()`, `.`, method call | L | Postfix, indexing, call, member |
+| 2 | unary `&`, `[N]*`, `!`, `~`, unary `-`, `sizeof` | R | Unary |
+| 3 | `as Template` | - | Temporary interpretation View |
+| 4 | `**` | R | Exponentiation |
+| 5 | `*`, `/`, `%` | L | Multiplication, division, remainder |
+| 6 | `+`, `-` | L | Addition and subtraction |
+| 7 | `<<`, `>>` | L | Shift |
+| 8 | `<`, `<=`, `>`, `>=` | L | Relational |
+| 9 | `==`, `!=` | L | Equality comparison |
+| 10 | binary `&` | L | Bitwise AND |
+| 11 | `^` | L | Bitwise XOR |
+| 12 | `|` | L | Bitwise OR |
+| 13 | `&&` | L | Logical AND, short-circuiting |
+| 14 | `||` | L | Logical OR, short-circuiting |
+| 15 | `? :` | R | Ternary conditional |
+| 16 | `=`, `%d=`, `%f=`, `%s=`, `%b=`, `&=` | R | Assignment |
 
-带类型标注运算符与对应普通运算符具有相同优先级。`++`、`--` 是语句，不作为表达式返回值。
+A typed operator has the same precedence as its corresponding ordinary operator. `++` and `--` are statements and do not produce expression values.
 
 ---
 
-## 4. 核心语法
+## 4. Core Syntax
 
-本章给出核心语法骨架。完整 EBNF 见附录 20。实现可以使用任意 parser 技术，但接受的程序必须符合本标准语义。
+This chapter presents the core syntax skeleton. The complete EBNF appears in Appendix 20. An implementation MAY use any parser technology; every accepted program MUST conform to the semantics of this Standard.
 
-### 4.1 顶层声明
+### 4.1 Top-Level Declarations
 
-顶层声明包括函数定义、外部声明、全局声明、用户模板定义和 `impl` 定义。
+Top-level declarations include function definitions, external declarations, global declarations, user-template definitions, and `impl` definitions.
 
 ```ebnf
 program       = { external_decl | preprocessor_directive | terminator } ;
@@ -251,11 +251,11 @@ separator     = { NEWLINE | ";" } ;
 newline_gap   = { NEWLINE } ;
 ```
 
-顶层名称先按整个翻译单元收集，再分析函数体、方法体和表达式。标准模板、用户模板、函数、外部符号和全局存储对象共享顶层命名空间；重名必须产生编译诊断。函数、外部符号、用户模板、全局存储对象和 `impl` 可以前向引用；局部名称仍按词法作用域和声明顺序解析。`terminator` 表示一个或多个换行或分号；`separator` 表示零个或多个换行或分号；`newline_gap` 表示零个或多个换行。模板布局中的 `sizeof(Template)` 依赖必须形成无环的静态大小图，循环依赖必须产生编译诊断。
+Top-level names are collected across the entire translation unit before function bodies, method bodies, and expressions are analyzed. Standard templates, user templates, functions, external symbols, and global storage objects share one top-level namespace; a duplicate name MUST produce a compile-time diagnostic. Functions, external symbols, user templates, global storage objects, and `impl` definitions MAY be forward-referenced. Local names continue to be resolved according to lexical scope and declaration order. `terminator` denotes one or more line breaks or semicolons; `separator` denotes zero or more line breaks or semicolons; `newline_gap` denotes zero or more line breaks. `sizeof(Template)` dependencies in template layouts MUST form an acyclic static size graph; a cyclic dependency MUST produce a compile-time diagnostic.
 
-### 4.1.1 语句终结符
+### 4.1.1 Statement Terminators
 
-核心语法把 `NEWLINE` 和 `;` 统一视为语句终结符。凡本标准写作 `terminator` 的位置，程序可以使用换行、分号或二者组合结束当前声明或语句。连续终结符表示空语句或空分隔项，语义上忽略。
+Core syntax treats `NEWLINE` and `;` uniformly as statement terminators. At any position written as `terminator` in this Standard, a program MAY use a line break, a semicolon, or a combination of both to end the current declaration or statement. Consecutive terminators denote empty statements or empty separators and are ignored semantically.
 
 ```hs
 new a as i32 = 1
@@ -263,9 +263,9 @@ new b as i32 = 2; new c as i32 = a + b;
 if (c > 0) { print(c); }
 ```
 
-`for (init; condition; post)` 头部中的两个分号只作为 `for` 语法分隔符，不按语句终结符处理。`else` 和 `catch` 与前一个块之间可以有空白和任意数量换行；写入分号会结束前一个复合语句。预处理器指令仍按物理行结束，只由 `NEWLINE` 终止。
+The two semicolons in a `for (init; condition; post)` header serve only as `for` syntax separators and are not processed as statement terminators. Any amount of whitespace and any number of line breaks MAY appear between a preceding block and `else` or `catch`; inserting a semicolon terminates the preceding compound statement. A preprocessor directive continues to end at a physical line boundary and is terminated only by `NEWLINE`.
 
-### 4.2 声明与模板标注
+### 4.2 Declarations and Template Annotations
 
 ```ebnf
 global_decl   = "new" decl_list terminator ;
@@ -275,9 +275,9 @@ template_mark = "as" template_name ;
 template_name = IDENT | "none" ;
 ```
 
-声明级 `as` 设置持久默认解释模板。表达式级 `as` 产生临时解释视图。声明可以用换行结束，也可以用分号结束。`new { a as i32, b as i32 }` 形式表示同一声明关键字下的声明列表，语义等价于按书写顺序声明每个 `decl_item`。
+Declaration-level `as` sets the persistent default interpretation template. Expression-level `as` produces a temporary interpretation View. A declaration MAY end with a line break or a semicolon. The form `new { a as i32, b as i32 }` denotes a declaration list under one declaration keyword and is semantically equivalent to declaring each `decl_item` in written order.
 
-### 4.3 用户模板与 impl
+### 4.3 User Templates and `impl`
 
 ```ebnf
 template_def    = "template" IDENT "{" separator { template_member terminator } "}" [ terminator ] ;
@@ -289,9 +289,9 @@ op_def          = "op" overloadable_operator "(" op_param_list ")" return_sig bl
 method_def      = "func" IDENT "(" [ method_param_list ] ")" [ return_sig ] block ;
 ```
 
-`impl Name` 中的 `Name` 在顶层名称收集完成后必须能解析为已知模板。普通用户翻译单元中的 `impl` 只能指向用户模板；标准模板库单元可以提供标准模板的规范 `impl`。`op` 与方法解析均为静态解析。
+After top-level name collection, `Name` in `impl Name` MUST resolve to a known template. In an ordinary user translation unit, an `impl` MAY refer only to a user template; a standard-template-library unit MAY provide normative `impl` definitions for standard templates. Both `op` resolution and method resolution are static.
 
-### 4.4 返回签名
+### 4.4 Return Signatures
 
 ```ebnf
 return_sig             = "->" "()"
@@ -307,86 +307,85 @@ return_template_mark   = "as" return_template_name ;
 return_template_name   = IDENT | "none" ;
 ```
 
-`-> f64` 与 `-> as f64` 均表示匿名返回值，模板为 `f64`。`-> ok as bool` 表示具名返回值 `ok`，模板为 `bool`。当返回项以 `IDENT` 后接 `as` 或长度规格开头时，必须按具名返回项解析；只有单独 `IDENT` 才按模板简写解析。省略函数或方法返回签名等价于 `-> ()`。
+Both `-> f64` and `-> as f64` denote an anonymous return value whose template is `f64`. `-> ok as bool` denotes a named return value `ok` whose template is `bool`. When a return item begins with `IDENT` followed by `as` or a length specification, it MUST be parsed as a named return item. Only a standalone `IDENT` is parsed as template shorthand. Omitting a function or method return signature is equivalent to `-> ()`.
 
-返回项必须能静态确定长度。模板简写只能指向固定长度标准模板或用户模板；`bytes`、`cstr` 和 `none` 必须配合显式长度使用，例如 `-> [16] as none`。返回项只写 `length_spec` 且省略 `as` 时，返回模板为 `none`；因此 `-> [16]` 等价于 `-> [16] as none`，`-> name[16]` 等价于 `-> name[16] as none`。解析器可以先接受 `none` 返回模板形状，再按本节规则给出语义诊断。`-> none`、`-> as none`、`-> bytes`、`-> cstr`、`-> name as none` 这类缺少返回长度的签名必须产生编译诊断。标准库内建函数的动态长度结果只按第 14 章元签名处理。
+The length of every return item MUST be statically determinable. Template shorthand MAY refer only to a fixed-length standard template or a user template. `bytes`, `cstr`, and `none` MUST be accompanied by an explicit length, for example `-> [16] as none`. When a return item consists only of `length_spec` and omits `as`, its return template is `none`; therefore, `-> [16]` is equivalent to `-> [16] as none`, and `-> name[16]` is equivalent to `-> name[16] as none`. A parser MAY initially accept a return-template shape involving `none` and subsequently issue the semantic diagnostic required by this section. Signatures that omit the return length, including `-> none`, `-> as none`, `-> bytes`, `-> cstr`, and `-> name as none`, MUST produce a compile-time diagnostic. Dynamic-length results of standard-library built-ins are handled only through the meta-signatures in Chapter 14.
 
-### 4.5 表达式与方法调用
+### 4.5 Expressions and Method Calls
 
-`expr.method(arg0, arg1)` 是模板方法调用语法。方法调用按静态语法糖处理：左侧表达式必须携带模板，该模板的 `impl` 中必须存在匹配方法；左侧表达式作为第一个实参传入。
+`expr.method(arg0, arg1)` is the syntax for a template-method call. A method call is treated as static syntactic sugar: the expression on the left MUST carry a template, a matching method MUST exist in that template's `impl`, and the left-hand expression is passed as the first argument.
 
 ```hs
 new len as f64 = v.length()
 ```
 
-语义步骤：
+Semantic steps:
 
-1. 对 `v` 求值，得到 View。
-2. 从该 View 读取解释模板，例如 `Vec2`。
-3. 在 `impl Vec2` 中查找 `length` 方法。
-4. 以 `v` 的 View 作为第一个实参，按普通函数调用规则求其余实参。
+1. Evaluate `v` to obtain a View.
+2. Read the interpretation template from that View, for example `Vec2`.
+3. Find the `length` method in `impl Vec2`.
+4. Pass the View of `v` as the first argument and evaluate the remaining arguments according to ordinary function-call rules.
 
-当 `.` 后接 `IDENT` 且紧随其后的非空白词法单元为 `(` 时，parser 必须把该后缀归约为方法调用后缀 `method_suffix`。成员后缀再接普通调用后缀的形态不形成模板方法调用；核心语义也不定义成员函数指针或成员函数值。核心语法不提供 `Vec2.length(v)` 形式的模板命名空间函数调用；该写法仅可作为解释性伪代码出现。标准库普通函数只按函数调用解析；`length(x)` 是标准库函数调用，`x.length()` 只有在 `x` 的模板 `impl` 中显式定义 `func length(self as Template)` 时才合法。
+When `.` is followed by `IDENT` and the next non-whitespace token is `(`, the parser MUST reduce the suffix as a method-call suffix, `method_suffix`. A member suffix followed by an ordinary call suffix does not form a template-method call. Core semantics also define no member-function pointer or member-function value. Core syntax provides no template-namespace function-call form such as `Vec2.length(v)`; that notation MAY appear only as explanatory pseudocode. Ordinary standard-library functions are parsed only as function calls. `length(x)` is a standard-library function call, while `x.length()` is valid only when the template `impl` of `x` explicitly defines `func length(self as Template)`.
 
-### 4.6 左值限制
+### 4.6 Lvalue Restrictions
 
-`lvalue` 必须表示可写入的内存区域。字面量、函数调用结果、带 `?` 后缀的表达式、`sizeof(...)` 结果均为右值，不得作为赋值、自增自减或取址目标。`&=` 左侧必须是单个 `IDENT`。
+An `lvalue` MUST denote a writable memory region. Literals, function-call results, expressions with the `?` suffix, and `sizeof(...)` results are rvalues and MUST NOT be used as assignment, increment/decrement, or address-of targets. The left-hand side of `&=` MUST be a single `IDENT`.
 
-### 4.7 长度规格
+### 4.7 Length Specifications
 
-- `[N]` 表示字节长度，`N` 必须为正整数字面量或可静态求值的 `sizeof(TemplateName)`。
-- `[P]` 表示平台指针长度。
-- `new` 或 `static` 声明中的 `[tN]` 表示模板实例声明计数，只能用于带有效用户模板的声明；`N` 必须为正整数字面量。
-- 后缀位置的 `[tK]` 表示模板实例访问索引，只能用于模板实例数组 View；`K` 从 0 开始，且必须小于该数组的实例数量。
-- `[tN]` 出现在参数、返回项、`extern`、模板成员或普通解引用前缀时必须产生编译诊断。
-- `[0]`、模板实例声明计数 `[t0]` 和 `[0]*expr` 必须产生编译诊断；模板实例访问索引 `[t0]` 表示第一个实例。
-- `[P]*expr` 和 `[sizeof(TemplateName)]*expr` 是标准解引用语法，长度分别为平台指针长度和固定模板大小。`*expr` 和 `[]*expr` 不是标准解引用语法；实现接受时必须作为扩展文档化。
+- `[N]` denotes a byte length. `N` MUST be a positive integer literal or a statically evaluable `sizeof(TemplateName)`.
+- `[P]` denotes the platform pointer length.
+- In a `new` or `static` declaration, `[tN]` denotes a template-instance declaration count and MAY be used only in a declaration with a valid user template. `N` MUST be a positive integer literal.
+- In suffix position, `[tK]` denotes a template-instance access index and MAY be used only on a template-instance-array View. `K` is zero-based and MUST be less than the number of instances in the array.
+- An occurrence of `[tN]` in a parameter, return item, `extern` declaration, template member, or ordinary dereference prefix MUST produce a compile-time diagnostic.
+- `[0]`, the template-instance declaration count `[t0]`, and `[0]*expr` MUST produce a compile-time diagnostic. The template-instance access index `[t0]` denotes the first instance.
+- `[P]*expr` and `[sizeof(TemplateName)]*expr` are standard dereference syntax; their lengths are the platform pointer length and the fixed template size, respectively. `*expr` and `[]*expr` are not standard dereference syntax. An implementation that accepts either form MUST document it as an extension.
 
-### 4.8 `?` 解析规则
+### 4.8 `?` Parsing Rules
 
-parser 在 `conditional_expr` 层识别三元 `? :`。当 `?` 后的下一个非空白词法单元可作为表达式起始，且后续存在同层 `:` 时，该 `?` 是三元条件运算符。其他位置的 `?` 是后缀无符号解释运算符。
+The parser recognizes ternary `? :` at the `conditional_expr` level. When the next non-whitespace token after `?` can begin an expression and a `:` occurs later at the same nesting level, that `?` is the ternary conditional operator. At every other position, `?` is the postfix unsigned-interpretation operator.
 
 ```hs
 a? < b        // (a?) < b
 a?b:c         // a ? b : c
-(a?) ? b : c  // 无符号解释结果作为条件
+(a?) ? b : c  // use the unsigned-interpretation result as the condition
 ```
 
-附录 EBNF 中的后缀 `?` 与三元 `? :` 只描述语法形状；实现必须按本节规则在 parser 层消解二者。`a?b:c` 必须解析为三元表达式。
+The postfix `?` and ternary `? :` productions in the Appendix EBNF describe only their syntactic shapes. An implementation MUST disambiguate them at the parser level according to this section. `a?b:c` MUST be parsed as a ternary expression.
 
-三元条件表达式 `cond ? then_expr : else_expr` 的语义如下：
+The semantics of the ternary conditional expression `cond ? then_expr : else_expr` are as follows:
 
-1. 先求值 `cond`，并按布尔判断规则读取条件值。
-2. `cond` 求值完成后形成序列点；随后只求值被选中的分支，未选中分支不产生运行时副作用。
-3. 两个分支仍必须通过静态语义分析。两个分支结果 View 的模板必须相同，长度必须能静态证明相同；无法静态合并时必须产生编译诊断。
-4. 需要合并不同长度或不同模板时，程序必须显式使用 `as`、`resize_bytes()` 或标准转换函数。
-5. 三元表达式结果为所选分支的右值副本，结果长度和模板来自两个分支共同的 View 规则；该结果不保留分支的左值属性。
-
+1. Evaluate `cond` first and read its condition value according to the Boolean-test rules.
+2. Completion of `cond` evaluation establishes a sequence point. Only the selected branch is then evaluated; the unselected branch produces no runtime side effects.
+3. Both branches MUST still pass static semantic analysis. The result Views of the two branches MUST have the same template, and their lengths MUST be statically provable as equal. Failure to merge them statically MUST produce a compile-time diagnostic.
+4. To merge different lengths or different templates, the program MUST explicitly use `as`, `resize_bytes()`, or a standard conversion function.
+5. The result of the ternary expression is an rvalue copy of the selected branch. Its length and template follow the common View rules of the two branches, and the result does not retain the lvalue property of either branch.
 
 ---
 
-## 5. 存储对象、地址与生命周期
+## 5. Storage Objects, Addresses, and Lifetimes
 
-本章只定义内存在哪里、活多久、怎样定位。
+This chapter defines only where memory resides, how long it lives, and how it is located.
 
-### 5.1 存储对象
+### 5.1 Storage Objects
 
-存储对象是一段连续字节序列，具有长度、定义地址和生命周期。存储对象本身不保存“整数/浮点/字符串/地址”等传统类型状态。解释模板和视图只影响语义解释，不改变存储对象的字节内容、定义地址或生命周期。
+A storage object is a contiguous byte sequence with a length, a definition address, and a lifetime. A storage object itself does not retain traditional type state such as “integer,” “floating-point,” “string,” or “address.” Interpretation templates and Views affect only semantic interpretation; they do not alter the object's byte contents, definition address, or lifetime.
 
-### 5.2 名称、定义地址与绑定地址
+### 5.2 Names, Definition Addresses, and Binding Addresses
 
-`new` 或 `static` 声明会创建名称绑定。名称拥有：
+A `new` or `static` declaration creates a name binding. A name has:
 
-- **定义地址**：声明时分配得到的原始地址，在名称生命周期内保持不变。
-- **绑定地址**：通过名称访问内容时使用的当前地址。声明时绑定地址等于定义地址；`&=` 可以修改绑定地址。
-- **声明长度**：通过名称读写时使用的字节数。
-- **持久默认解释模板**：可为标准模板、用户模板或 `none`。
+- **Definition address**: the original address allocated at declaration time; it remains unchanged for the lifetime of the name.
+- **Binding address**: the current address used when content is accessed through the name. At declaration time, the binding address equals the definition address; `&=` can modify the binding address.
+- **Declared length**: the number of bytes used when reading or writing through the name.
+- **Persistent default interpretation template**: a standard template, user template, or `none`.
 
-自动作用域释放总是作用于名称的定义地址，不受 `&=` 影响。显式 `free(ptr)` 总是按传入的地址值释放动态对象；该地址值必须等于 `alloc()`、`calloc()` 或成功 `realloc()` 返回的动态对象基地址。把内部 `new` 对象、`static` 对象、外部对象、栈上临时区域对象地址、动态对象内部地址、切片地址或偏移地址传给 `free()` 属于非法释放。
+Automatic scope-based release always applies to the name's definition address and is unaffected by `&=`. An explicit `free(ptr)` always releases a dynamic object according to the supplied address value. That value MUST equal the base address of a dynamic object returned by `alloc()`, `calloc()`, or a successful `realloc()`. Passing to `free()` the address of an internal `new` object, a `static` object, an external object, a temporary-region object on the stack, an interior address of a dynamic object, a slice address, or an offset address constitutes an invalid free.
 
-### 5.3 `new` 与 `static`
+### 5.3 `new` and `static`
 
-核心内部具名存储对象必须通过 `new` 或 `static` 声明；`extern` 变量声明引用外部存储对象。核心语法中，函数外只能使用 `new` 声明全局存储对象。函数内和块内可以使用 `new` 或 `static`。C 兼容层中的文件作用域 `static` 在进入核心语义前翻译为 `new` 声明，并附带实现文档化的 internal linkage 元数据；该元数据不是核心语法的一部分。
+Named storage objects internal to the core language MUST be declared using `new` or `static`; an `extern` variable declaration refers to an external storage object. In core syntax, only `new` can declare a global storage object outside a function. Inside a function or block, either `new` or `static` MAY be used. A file-scope `static` declaration in the C compatibility layer is translated into a `new` declaration before entering core semantics and carries implementation-documented internal-linkage metadata. That metadata is not part of core syntax.
 
 ```hs
 new x as i32 = 100
@@ -400,43 +399,43 @@ func demo_static() -> () {
 }
 ```
 
-声明省略长度时按以下规则推断：
+When a declaration omits its length, the length is inferred according to the following rules:
 
-1. 固定长度标准模板给出长度。
-2. 用户模板给出 `sizeof(Template)`。
-3. 初始化表达式结果长度可静态确定时，使用该长度。
-4. `cstr`、`bytes` 无显式长度且无初始化表达式时必须产生编译诊断。
+1. A fixed-length standard template supplies the length.
+2. A user template supplies `sizeof(Template)`.
+3. When the result length of the initializer expression is statically determinable, that length is used.
+4. A declaration using `cstr` or `bytes` with neither an explicit length nor an initializer expression MUST produce a compile-time diagnostic.
 
-声明时未初始化的字节处于未初始化状态。读取未初始化字节属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下实现可检测时必须报告运行时错误。全局 `new` 初始化按源文件中全局声明的出现顺序执行；初始化表达式引用尚未完成初始化的全局对象时，读取该对象未初始化字节的规则照常适用。
+Bytes that are not initialized at declaration time are in an uninitialized state. Reading an uninitialized byte is undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the read can be proven statically. In checked mode, a runtime error MUST be reported when the implementation can detect the read. Global `new` initializers execute in the order in which global declarations appear in the source file. When an initializer expression references a global object whose initialization has not completed, the rules for reading that object's uninitialized bytes apply normally.
 
-函数内和块内 `static` 对象具有程序生命周期和块作用域名称可见性。其存储在程序开始前或等价时机保留；初始化表达式在控制流第一次到达该声明处时执行一次，完成后直到程序结束保持已初始化状态。没有初始化表达式的函数内 `static` 对象在第一次到达声明处时进入已创建状态，其字节初始化状态仍按声明规则处理。初始化期间递归进入同一 `static` 声明属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断，checked 模式下可检测时必须报告运行时错误。实现提供并发执行扩展时，必须文档化函数内 `static` 初始化的同步策略。
+A `static` object inside a function or block has program lifetime and block-scoped name visibility. Its storage is reserved before program startup or at an equivalent time. Its initializer expression executes exactly once, the first time control reaches the declaration, and the object remains initialized until program termination. A function-local `static` object without an initializer expression enters the created state the first time control reaches the declaration; the initialization state of its bytes continues to follow the declaration rules. Recursive entry into the same `static` declaration during initialization is undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected. An implementation that provides a concurrent-execution extension MUST document its synchronization policy for function-local `static` initialization.
 
-### 5.4 动态分配生命周期
+### 5.4 Dynamic-Allocation Lifetime
 
-`alloc()`、`calloc()`、`realloc()` 和 `free()` 管理动态存储对象。动态对象没有语言级名称；程序通过地址值访问。动态存储对象的边界元数据在 checked 模式下应当由运行时跟踪；static-checked 模式不得为了动态对象边界安全插入运行时元数据维护。
+`alloc()`, `calloc()`, `realloc()`, and `free()` manage dynamic storage objects. A dynamic object has no language-level name; a program accesses it through address values. In checked mode, the runtime SHOULD track boundary metadata for dynamic storage objects. Static-checked mode MUST NOT introduce runtime metadata maintenance for dynamic-object boundary safety.
 
-`free(ptr)` 与 `realloc(ptr, size)` 的非空 `ptr` 参数必须是当前有效动态对象基地址。内部地址、切片地址、偏移地址、已经释放的基地址、`new` / `static` / `extern` 对象地址和 FFI 非动态地址作为这两个函数的参数时均属于非法释放或非法重分配。
+A non-null `ptr` argument to `free(ptr)` or `realloc(ptr, size)` MUST be the base address of a currently valid dynamic object. Passing an interior address, slice address, offset address, already-freed base address, an address of a `new`/`static`/`extern` object, or a non-dynamic FFI address to either function constitutes an invalid free or invalid reallocation.
 
-`new` 和 `static` 声明的内存不得传给 `free()` 手动释放。重复释放、释放后访问、非法释放属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可检测时必须报告运行时错误。
+Memory declared by `new` or `static` MUST NOT be passed to `free()` for manual release. Double free, use after free, and invalid free are undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected.
 
-### 5.5 作用域释放规则
+### 5.5 Scope-Exit Release Rules
 
-- 全局 `new` 对象在整个程序生命周期内存在。
-- 函数内 `new` 对象在离开其声明所在作用域时自动释放定义地址。
-- 函数内 `static` 对象在程序结束时释放；名称作用域仍受声明所在块限制。
-- `return`、`throw`、`break`、`continue` 或 `goto` 离开块作用域时，按正常作用域规则释放已经创建的局部 `new` 对象。
-- 内层作用域可以声明与外层同名的名称，内层名称在该作用域内遮蔽外层名称。
-- 同一词法作用域内重复声明同名局部名称、参数名称、标签名称或静态名称必须产生编译诊断。
+- A global `new` object exists for the entire program lifetime.
+- A function-local `new` object has its definition address automatically released when execution leaves the scope containing its declaration.
+- A function-local `static` object is released at program termination; visibility of its name remains limited by the block containing its declaration.
+- When `return`, `throw`, `break`, `continue`, or `goto` leaves a block scope, already-created local `new` objects are released according to the ordinary scope rules.
+- An inner scope MAY declare a name that is identical to a name in an outer scope. The inner name shadows the outer name within that scope.
+- Re-declaring an identical local name, parameter name, label name, or static name in the same lexical scope MUST produce a compile-time diagnostic.
 
-### 5.6 取址
+### 5.6 Address-Of
 
-`&lvalue` 返回可定位左值的起始地址，结果长度为 `P`，模板为 `addr`。
+`&lvalue` returns the start address of a locatable lvalue. The result length is `P`, and its template is `addr`.
 
-- `&IDENT` 返回该名称当前绑定地址。
-- `&slice`、`&member`、`&index`、`&deref_lvalue` 返回对应区域的起始地址。
-- 对右值取地址必须产生编译诊断。
+- `&IDENT` returns the name's current binding address.
+- `&slice`, `&member`, `&index`, and `&deref_lvalue` return the start address of the corresponding region.
+- Taking the address of an rvalue MUST produce a compile-time diagnostic.
 
-地址算术应当显式使用无符号解释：
+Address arithmetic SHOULD use explicit unsigned interpretation:
 
 ```hs
 new arr[64] as bytes
@@ -446,76 +445,76 @@ new ptr as addr
 ptr = base? + offset?
 ```
 
-### 5.7 解引用
+### 5.7 Dereference
 
-`[L]*expr` 将 `expr` 的字节结果按系统指针长度解释为地址，并定位从该地址开始的 `L` 字节区域。`L` 可以是正整数字面量、`P` 或可静态求值的 `sizeof(TemplateName)`，静态求值结果必须大于 0。
+`[L]*expr` interprets the byte result of `expr` as an address of system-pointer length and locates an `L`-byte region beginning at that address. `L` MAY be a positive integer literal, `P`, or a statically evaluable `sizeof(TemplateName)` whose result MUST be greater than 0.
 
-- 作为右值读取时，复制目标地址处 `L` 字节。
-- 作为左值写入时，将源视图的最低 `L` 字节写入目标地址。
-- 对空地址、悬垂地址或越界地址解引用属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可检测时必须报告运行时错误。
+- When read as an rvalue, the operation copies `L` bytes from the target address.
+- When written as an lvalue, the operation writes the lowest `L` bytes of the source View to the target address.
+- Dereferencing a null address, dangling address, or out-of-bounds address is undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected.
 
-### 5.8 索引与切片
+### 5.8 Indexing and Slicing
 
-`arr[index]` 产生长度为 1 字节的左值视图，定位 `arr` 起始地址加 `index` 偏移处的单字节。`index` 先按有符号整数读取；负数或不小于对象长度时越界。
+`arr[index]` produces a one-byte lvalue View that locates the single byte at the start address of `arr` plus the `index` offset. `index` is first read as a signed integer; a negative value or a value greater than or equal to the object length is out of bounds.
 
-切片语法：
+Slice syntax:
 
 ```hs
-arr[start:end]   // 左闭右开
-arr[start:+len]  // 从 start 开始 len 字节
+arr[start:end]   // half-open range [start, end)
+arr[start:+len]  // len bytes beginning at start
 ```
 
-切片产生对原存储对象的左值视图。静态边界切片的长度可静态确定；动态边界切片的长度在运行时确定。动态长度切片可以赋给已声明目标、传给标准库函数或用于 `length()`，不得用于省略长度声明。
+A slice produces an lvalue View into the original storage object. The length of a slice with static boundaries is statically determinable; the length of a slice with dynamic boundaries is determined at runtime. A dynamic-length slice MAY be assigned to an already-declared target, passed to a standard-library function, or used with `length()`. It MUST NOT be used in a declaration that omits its length.
 
-### 5.9 越界、悬垂地址和释放错误
+### 5.9 Out-of-Bounds Access, Dangling Addresses, and Release Errors
 
-越界访问、悬垂地址解引用、重复释放、释放后访问、非法释放在 unchecked 模式下属于未定义行为。static-checked 模式下，可静态证明的此类错误必须产生编译诊断；无法静态证明的动态行为按 unchecked 模式处理。checked 模式下，对基于对象元数据可检测的情况必须报告运行时错误。裸地址、外部地址和 FFI 地址的边界检测能力属于实现定义行为。
+In unchecked mode, out-of-bounds access, dereference of a dangling address, double free, use after free, and invalid free are undefined behavior. In static-checked mode, each such error that can be proven statically MUST produce a compile-time diagnostic; dynamic behavior that cannot be proven statically follows unchecked-mode behavior. In checked mode, a runtime error MUST be reported for cases detectable from object metadata. Boundary-detection capability for raw addresses, external addresses, and FFI addresses is implementation-defined.
 
 ---
 
-## 6. 表达式结果、左值视图与解释模板
+## 6. Expression Results, Lvalue Views, and Interpretation Templates
 
-本章定义 View 模型。后续赋值、运算、模板成员、方法调用和标准库函数均以 View 作为输入和输出模型。
+This chapter defines the View model. Assignment, operations, template members, method calls, and standard-library functions in subsequent chapters all use Views as their input and output model.
 
-### 6.1 View 模型
+### 6.1 View Model
 
-一次表达式求值产生一个 View。View 具有以下属性：
+Evaluation of an expression produces a View. A View has the following properties:
 
-1. 字节序列或可定位内存区域。
-2. 长度。
-3. 左值或右值属性。
-4. 可选解释模板。
-5. 对左值视图而言，还具有起始地址和写入权限。
+1. A byte sequence or locatable memory region.
+2. A length.
+3. An lvalue or rvalue property.
+4. An optional interpretation template.
+5. For an lvalue View, a start address and write permission.
 
-View 不创建传统静态类型。解释模板只影响默认赋值、默认运算、比较、格式化、成员访问、诊断和长度推断。
+A View does not create a traditional static type. An interpretation template affects only default assignment, default operations, comparison, formatting, member access, diagnostics, and length inference.
 
-### 6.2 左值视图
+### 6.2 Lvalue Views
 
-左值视图定位一段可写内存区域。名称、成员访问、索引、切片和解引用均可产生左值视图。左值视图可以被赋值、取址、传给需要可写目标的操作。
+An lvalue View locates a writable memory region. Names, member access, indexing, slicing, and dereference can all produce lvalue Views. An lvalue View MAY be assigned to, have its address taken, or be passed to an operation that requires a writable target.
 
-### 6.3 右值视图
+### 6.3 Rvalue Views
 
-右值视图是表达式求值后得到的字节结果。字面量、函数返回值、普通运算结果、`sizeof()`、后缀 `?` 结果均为右值视图。右值视图不得被赋值、取址或自增自减。
+An rvalue View is the byte result obtained after expression evaluation. Literals, function return values, ordinary operation results, `sizeof()`, and results of the postfix `?` operator are rvalue Views. An rvalue View MUST NOT be assigned to, have its address taken, or be incremented or decremented.
 
-### 6.4 视图长度
+### 6.4 View Length
 
-视图长度来自声明长度、模板长度、字面量长度、切片范围、解引用长度、返回签名或操作定义。长度无法静态确定的视图仍可在运行时用于已声明目标和标准库函数；需要静态长度的位置必须产生编译诊断。
+A View's length comes from a declaration length, template length, literal length, slice range, dereference length, return signature, or operation definition. A View whose length is not statically determinable MAY still be used at runtime with an already-declared target or a standard-library function. Any position that requires a static length MUST produce a compile-time diagnostic when the length cannot be determined statically.
 
-### 6.5 视图携带的解释模板
+### 6.5 Interpretation Template Carried by a View
 
-View 可以携带标准模板、用户模板或 `none`。模板来源包括：
+A View MAY carry a standard template, a user template, or `none`. Template sources include:
 
-- 声明级 `as`。
-- `set` 设置的持久模板。
-- 成员声明中的模板。
-- 表达式级 `as`。
-- 函数返回签名。
-- 模板操作 `op` 的返回签名。
-- 标准模板库操作结果。
+- Declaration-level `as`.
+- A persistent template set by `set`.
+- A template in a member declaration.
+- Expression-level `as`.
+- A function return signature.
+- The return signature of a template `op`.
+- A result of a standard-template-library operation.
 
-### 6.6 声明级 `as`
+### 6.6 Declaration-Level `as`
 
-声明级 `as` 设置存储对象或函数参数、返回项、模板成员、外部符号的持久默认解释模板。
+Declaration-level `as` sets the persistent default interpretation template of a storage object, function parameter, return item, template member, or external symbol.
 
 ```hs
 new count as i32 = 0
@@ -523,15 +522,15 @@ new price as f64 = 19.99
 new ptr[P] as addr = &price
 ```
 
-固定长度模板要求声明长度一致。用户模板要求声明长度等于 `sizeof(Template)`。可变长度模板 `bytes` 和 `cstr` 接受任意正长度。
+A fixed-length template requires the declared length to match. A user template requires the declared length to equal `sizeof(Template)`. The variable-length templates `bytes` and `cstr` accept any positive length.
 
-### 6.7 表达式级 `as`
+### 6.7 Expression-Level `as`
 
-`expr as Template` 产生临时解释视图。操作数为左值时，结果为临时左值视图；操作数为右值时，结果为临时右值视图。该视图不修改源对象或源视图的持久默认解释模板。
+`expr as Template` produces a temporary interpretation View. When the operand is an lvalue, the result is a temporary lvalue View. When the operand is an rvalue, the result is a temporary rvalue View. The resulting View does not modify the persistent default interpretation template of the source object or source View.
 
-`as` 只改变 View 携带的解释模板。它不执行数值转换、符号扩展、零扩展、截断、补零、字节重排、地址重绑定或生命周期变更。
+`as` changes only the interpretation template carried by a View. It performs no numeric conversion, sign extension, zero extension, truncation, zero padding, byte reordering, address rebinding, or lifetime change.
 
-固定长度模板要求 `expr` 结果长度与模板长度一致；用户模板要求 `expr` 结果长度等于 `sizeof(Template)`；`bytes` 和 `cstr` 接受任意正长度；`expr as none` 清除当前 View 的临时模板。
+A fixed-length template requires the result length of `expr` to match the template length. A user template requires the result length of `expr` to equal `sizeof(Template)`. `bytes` and `cstr` accept any positive length. `expr as none` clears the current View's temporary template.
 
 ```hs
 new bits as u32 = 0x3F800000
@@ -541,15 +540,15 @@ new raw[16] as bytes
 new len as f64 = (raw as Vec2).length()
 ```
 
-### 6.8 `set` 持久模板
+### 6.8 Persistent Templates Set by `set`
 
-`set target as Template` 修改目标名称或成员链的持久默认解释模板；`set target as none` 将目标名称或成员链的持久默认解释模板设置为 `none`。`target` 只能是可静态定位的名称或成员链：
+`set target as Template` changes the persistent default interpretation template of the target name or member chain. `set target as none` sets the persistent default interpretation template of the target name or member chain to `none`. `target` MUST be a statically locatable name or member chain:
 
 ```ebnf
 set_target = IDENT { "." IDENT } ;
 ```
 
-示例：
+Examples:
 
 ```hs
 new raw[4] as bytes
@@ -561,102 +560,101 @@ new u as User
 set u.id as u32
 ```
 
-设置固定长度模板时，目标长度必须匹配模板长度。设置用户模板时，目标长度必须等于 `sizeof(Template)`。对索引、切片、解引用、动态长度 View 或临时表达式使用 `set` 必须产生编译诊断。动态视图需要临时解释时，应当使用表达式级 `as`。
+When setting a fixed-length template, the target length MUST match the template length. When setting a user template, the target length MUST equal `sizeof(Template)`. Using `set` on an index, slice, dereference, dynamic-length View, or temporary expression MUST produce a compile-time diagnostic. A dynamic View that requires temporary interpretation SHOULD use expression-level `as`.
 
-成员链 `set` 只作用于该名称绑定上的指定成员路径元数据，不绑定到执行 `set` 时的当前地址。之后即使该名称通过 `&=` 改变绑定地址，经该名称和成员链产生的 View 仍使用同一覆盖项；其他名称或裸地址别名不继承该覆盖项。读取成员 View 时，解析优先级为：表达式级 `as`、成员链 `set` 覆盖、成员声明模板、`none`。对象或名称持久模板只用于选择成员布局，不作为未标注成员的默认 View 模板。因此 `set u.id as i32` 会覆盖 `User.id` 成员声明中的模板；`set u.id as none` 会形成显式 `none` 覆盖。
+A member-chain `set` applies only to metadata for the specified member path on that name binding; it is not bound to the address current at the time `set` executes. Even if the name is later rebound through `&=`, Views produced through that name and member chain continue to use the same override. Other names and raw-address aliases do not inherit the override. When a member View is read, resolution precedence is: expression-level `as`, member-chain `set` override, member-declaration template, then `none`. The persistent template of an object or name is used only to select the member layout and does not become the default View template for an unannotated member. Therefore, `set u.id as i32` overrides the template declared for `User.id`, while `set u.id as none` creates an explicit `none` override.
 
-### 6.9 模板传播规则
+### 6.9 Template Propagation Rules
 
-- 名称读取携带该名称的持久模板；存在名称级 `set` 覆盖项时使用覆盖项。
-- 索引结果长度为 1，模板为 `none`。
-- 普通切片默认模板为 `none`。
-- 模板成员访问先检查该存储对象成员链上的 `set` 覆盖项；存在覆盖项时使用覆盖项，其后使用成员声明模板；成员声明未标注模板时结果模板为 `none`。
-- 表达式级 `as` 覆盖当前 View 模板。
-- 后缀 `?` 产生模板为 `none` 的右值视图，并携带无符号整数解释属性。
-- 普通运算结果模板由标准模板库操作或用户 `op` 返回签名决定。
-- 显式带类型运算符不经模板默认操作解析；其结果模板为 `none`，除非赋值目标或后续 `as` 指定模板。
+- Reading a name carries that name's persistent template; when a name-level `set` override exists, the override is used.
+- An indexing result has length 1 and template `none`.
+- An ordinary slice has template `none` by default.
+- Template-member access first checks for a `set` override on the storage object's member chain. When present, the override is used; otherwise, the member-declaration template is used. An unannotated member produces template `none`.
+- Expression-level `as` overrides the current View template.
+- The postfix `?` operator produces an rvalue View whose template is `none` and which carries an unsigned-integer interpretation attribute.
+- The template of an ordinary operation result is determined by the standard-template-library operation or the return signature of a user `op`.
+- An explicit typed operator bypasses template default-operation resolution. Its result template is `none`, unless an assignment target or subsequent `as` specifies a template.
 
-### 6.10 临时视图生命周期
+### 6.10 Temporary-View Lifetime
 
-临时右值视图在完整表达式结束后失效。临时左值视图的定位能力不延长底层存储对象生命周期。对已失效存储对象形成的临时视图进行读写属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可检测时必须报告运行时错误。
+A temporary rvalue View expires at the end of the full expression. The locating capability of a temporary lvalue View does not extend the lifetime of the underlying storage object. Reading or writing through a temporary View formed from an expired storage object is undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected.
 
 ---
+## 7. Assignment, Conversion, and Byte Representation
 
-## 7. 赋值、转换与字节表示
+This chapter addresses only how a destination View receives a source View.
 
-本章只回答目标 View 如何接收源 View。
+### 7.1 Assignment Input Model
 
-### 7.1 赋值输入模型
-
-赋值写作：
+Assignment is represented as:
 
 ```text
 dst View <- src View
 ```
 
-目标必须是左值视图。源可以是左值视图或右值视图。赋值操作可能读取源字节、按模板或显式操作符解释源值，再写入目标字节。
+The destination MUST be an lvalue View. The source MAY be an lvalue View or an rvalue View. An assignment operation MAY read source bytes, interpret the source value according to a template or explicit operator, and then write destination bytes.
 
-### 7.2 默认赋值 `=`
+### 7.2 Default Assignment `=`
 
-默认赋值由目标 View 的模板决定：
+Default assignment is determined by the template of the destination View:
 
-1. 目标携带标准模板时，使用标准模板库定义的 `op =` 和接收规则。
-2. 目标携带用户模板时，若存在匹配 `op =`，使用该操作。
-3. 用户模板未定义 `op =` 时，同模板之间逐字节复制。
-4. 不同用户模板之间的默认赋值必须产生编译诊断。
-5. 目标模板为 `none` 时，使用原始整数赋值语义。
+1. When the destination carries a standard template, use the `op =` and acceptance rules defined by the standard template library.
+2. When the destination carries a user template and a matching `op =` exists, use that operation.
+3. When a user template defines no `op =`, assignment between identical templates performs a byte-for-byte copy.
+4. Default assignment between different user templates MUST produce a compile-time diagnostic.
+5. When the destination template is `none`, use raw-integer assignment semantics.
 
-目标模板为 `none` 时，原始整数赋值的源接收规则如下：整数字面量、携带整数解释属性的 `none` View、`iN`、`uN`、`bool` 和 `addr` View 可按整数赋值语义接收；`fN`、`cstr`、`bytes`、用户模板和无解释属性的 `none` View 必须先通过标准转换函数、后缀 `?` 或显式赋值操作给出可接收的整数解释。源不满足本矩阵时必须产生编译诊断；动态来源导致的长度不匹配在 static-checked 模式中只检查可静态证明子集，在 checked 模式中按运行时错误处理。
+When the destination template is `none`, source acceptance for raw-integer assignment is as follows: integer literals, `none` Views carrying an integer-interpretation attribute, and Views with templates `iN`, `uN`, `bool`, or `addr` MAY be accepted under integer-assignment semantics. An `fN`, `cstr`, `bytes`, user-template View, or `none` View without an interpretation attribute MUST first be given an acceptable integer interpretation through a standard conversion function, the postfix `?` operator, or an explicit assignment operation. A source outside this matrix MUST produce a compile-time diagnostic. A length mismatch caused by a dynamic source is checked only for the statically provable subset in static-checked mode and is handled as a runtime error in checked mode.
 
-执行用户模板 `op =` 时，第一个参数按可写左值 View 借用传入，写入直接作用于赋值目标；源参数按 View 值传入。标准模板 `op =` 可以接收对应字面量和模板为 `none` 的 View，其接收矩阵由第 11 章和附录 21 定义。
+When a user-template `op =` executes, its first parameter is passed by borrowing the writable lvalue View, and writes act directly on the assignment target. Source parameters are passed by View value. A standard-template `op =` MAY accept corresponding literals and Views whose template is `none`; its acceptance matrix is defined by Chapter 11 and Appendix 21.
 
-显式赋值操作符始终优先于模板默认赋值。普通赋值或显式赋值操作符作为表达式使用时，先完成写入，再读取赋值目标当前字节形成右值副本；该表达式结果的长度和模板固定来自赋值目标 View。`op =` 的返回签名只约束操作体中的 `return` 表达式，不改变赋值表达式的可观察返回 View。
+An explicit assignment operator always takes precedence over template default assignment. When ordinary assignment or an explicit assignment operator is used as an expression, the write is completed first, after which the current bytes of the assignment target are read to form an rvalue copy. The length and template of that expression result are fixed by the destination View. The return signature of `op =` constrains only `return` expressions inside the operation body and does not alter the observable return View of the assignment expression.
 
-### 7.3 显式整数赋值 `%d=`
+### 7.3 Explicit Integer Assignment `%d=`
 
-`%d=` 按整数语义写入目标。源按当前整数解释属性读取；浮点格式内存不会自动执行浮点到整数的数值转换，需要使用 `to_i8()`、`to_i16()`、`to_i32()`、`to_i64()` 或对应 `to_uN()` 函数。
+`%d=` writes to the destination using integer semantics. The source is read according to its current integer-interpretation attribute. Memory in a floating-point format is not automatically converted numerically from floating point to integer; use `to_i8()`, `to_i16()`, `to_i32()`, `to_i64()`, or the corresponding `to_uN()` function.
 
-- 源长度大于目标长度时，按 `2^(8 * 目标长度)` 取模，保留数值最低有效字节。该规则按整数数值有效位处理，区别于 7.8 的低地址字节复制。
-- 源长度小于目标长度时，有符号源按符号位扩展，无符号源按零扩展。
-- 源长度等于目标长度时，复制源字节。
+- When the source length is greater than the destination length, the value is reduced modulo `2^(8 * destination length)`, preserving the numerically least-significant bytes. This rule operates on integer-value significance and differs from the low-address byte copy in Section 7.8.
+- When the source length is less than the destination length, a signed source is sign-extended and an unsigned source is zero-extended.
+- When the source length equals the destination length, the source bytes are copied.
 
-### 7.4 显式浮点赋值 `%f=`
+### 7.4 Explicit Floating-Point Assignment `%f=`
 
-`%f=` 按 IEEE 754 数值语义转换到目标精度。目标长度必须是 2、4、8 或 16 字节。浮点字面量按目标精度解析。非字面量源必须具有 2、4、8 或 16 字节长度，并按其长度对应浮点格式读取后转换。
+`%f=` converts to the destination precision according to IEEE 754 numeric semantics. The destination length MUST be 2, 4, 8, or 16 bytes. A floating-point literal is parsed at the destination precision. A nonliteral source MUST have a length of 2, 4, 8, or 16 bytes and is read in the floating-point format corresponding to its length before conversion.
 
-整数到浮点的数值转换使用 `to_f16()`、`to_f32()`、`to_f64()` 或 `to_f128()`。
+Integer-to-floating-point numeric conversion uses `to_f16()`, `to_f32()`, `to_f64()`, or `to_f128()`.
 
-### 7.5 显式字符串赋值 `%s=`
+### 7.5 Explicit String Assignment `%s=`
 
-`%s=` 按 C 风格字符串处理，保证目标内存至少有一个结尾 `0x00` 字节。目标更长时复制字符串并填充 `0x00`；目标等长或更短时截断并强制最后一个字节为 `0x00`。目标长度为 0 必须产生编译诊断。
+`%s=` processes data as a C-style string and guarantees that destination memory contains at least one trailing `0x00` byte. When the destination is longer, the string is copied and the remaining bytes are filled with `0x00`. When the destination is equal in length or shorter, the string is truncated and the final destination byte is forcibly set to `0x00`. A destination length of 0 MUST produce a compile-time diagnostic.
 
-### 7.6 显式布尔赋值 `%b=`
+### 7.6 Explicit Boolean Assignment `%b=`
 
-`%b=` 将源 View 按布尔判断规则读取：所有位为 0 时为假，其他情况为真。目标写入 `0x00` 或 `0x01`。目标长度大于 1 时，高地址剩余字节填充 `0x00`。
+`%b=` reads the source View according to the Boolean-test rules: all bits zero means false, and any other bit pattern means true. It writes `0x00` or `0x01` to the destination. When the destination length is greater than 1, the remaining higher-address bytes are filled with `0x00`.
 
-### 7.7 地址重绑定 `&=`
+### 7.7 Address Rebinding `&=`
 
-`IDENT &= expr` 修改名称的绑定地址。右侧表达式结果按系统指针长度解释为地址；长度不等于 `P` 时，按整数赋值规则调整到 `P` 字节。`&=` 不改变声明长度、定义地址、持久模板或生命周期。
+`IDENT &= expr` changes the binding address of a name. The result of the right-hand expression is interpreted as an address of system-pointer length. When its length differs from `P`, it is adjusted to `P` bytes according to integer-assignment rules. `&=` does not change the declared length, definition address, persistent template, or lifetime.
 
-`&=` 作为表达式时返回右值 View：内容为重绑定后的左侧名称内容的字节副本，长度等于左侧名称声明长度，模板为左侧名称的持久模板。
+As an expression, `&=` returns an rvalue View whose content is a byte copy of the left-hand name's content after rebinding, whose length equals the declared length of the left-hand name, and whose template is the persistent template of the left-hand name.
 
 ### 7.8 `resize_bytes(expr, length)`
 
-`resize_bytes()` 只调整表达式结果长度，不设置解释模板。`length` 可以来自运行时值；结果用于声明省略长度、返回签名或 `op` 返回签名等需要静态长度的位置时，`length` 必须是编译期常量。
+`resize_bytes()` changes only the length of an expression result and does not set an interpretation template. `length` MAY be obtained from a runtime value. When the result is used at a position that requires a static length, such as a declaration with an omitted length, a return signature, or an `op` return signature, `length` MUST be a compile-time constant.
 
-语义：
+Semantics:
 
-1. 结果长度为 `length`。
-2. 源长度等于 `length` 时逐字节复制。
-3. 源长度小于 `length` 时复制源字节，剩余高地址字节填充 `0x00`。
-4. 源长度大于 `length` 时复制源低地址前 `length` 字节。
-5. 结果模板为 `none`。
-6. 不执行数值转换。
-7. 不执行字节序调整。
+1. The result length is `length`.
+2. When the source length equals `length`, copy byte for byte.
+3. When the source length is less than `length`, copy the source bytes and fill the remaining higher-address bytes with `0x00`.
+4. When the source length is greater than `length`, copy the first `length` bytes at the low-address end of the source.
+5. The result template is `none`.
+6. No numeric conversion is performed.
+7. No byte-order adjustment is performed.
 
-`resize_bytes()` 按地址顺序复制字节；在大端平台上，低地址前缀不等于整数最低有效字节。需要数值扩展或截断时，应当使用整数赋值语义、显式整数赋值 `%d=` 或 `to_iN()` / `to_uN()`。
+`resize_bytes()` copies bytes in address order. On a big-endian platform, the low-address prefix is not the same as the least-significant bytes of an integer. Numeric extension or truncation SHOULD use integer-assignment semantics, explicit integer assignment `%d=`, or `to_iN()` / `to_uN()`.
 
-需要同时调整字节长度并设置字节序列模板时，必须显式组合：
+When both the byte length and the byte-sequence template must be changed, the operations MUST be composed explicitly:
 
 ```hs
 new a[4] as bytes
@@ -664,80 +662,80 @@ memset(a, 0, length(a))
 new b[8] as bytes = resize_bytes(a, 8) as bytes
 ```
 
-### 7.9 数值转换与字节重解释
+### 7.9 Numeric Conversion and Byte Reinterpretation
 
-- `as` 只改变视图模板。
-- `resize_bytes()` 只改变字节长度。
-- `byte_swap()` 只调整字节顺序。
-- `to_fN()`、`to_iN()` 和 `to_uN()` 执行数值转换。
+- `as` changes only the View template.
+- `resize_bytes()` changes only the byte length.
+- `byte_swap()` changes only byte order.
+- `to_fN()`, `to_iN()`, and `to_uN()` perform numeric conversion.
 
-`reinterpret()`、`to_float()` 和 `to_int()` 已移除。核心源文件、系统头文件和 C 兼容层都不得接受这些名称；分别使用 `resize_bytes()`、`to_fN()`、`to_iN()` 或 `to_uN()`。
+`reinterpret()`, `to_float()`, and `to_int()` have been removed. Core source files, system headers, and the C compatibility layer MUST NOT accept these names. Use `resize_bytes()`, `to_fN()`, `to_iN()`, or `to_uN()` as appropriate.
 
-### 7.10 多重赋值
+### 7.10 Multiple Assignment
 
-多重赋值先求值右侧表达式，形成源 View 序列；再按左侧目标顺序赋值。目标数量与源数量必须一致，除非被调用函数或标准库函数明确定义左上下文多返回语义。
+Multiple assignment first evaluates the right-hand expressions to form a sequence of source Views, then assigns them in left-hand target order. The number of targets MUST equal the number of sources unless the called function or standard-library function explicitly defines left-context multiple-return semantics.
 
-多重赋值左侧目标位置的 `_` 是上下文丢弃标记，表示丢弃对应源 View；其他语法位置按普通标识符规则处理。左侧可以用 `(lvalue %op=)` 指定赋值解释方式。
+At a target position on the left-hand side of multiple assignment, `_` is a contextual discard marker that discards the corresponding source View. At every other syntactic position, ordinary identifier rules apply. The left-hand side MAY use `(lvalue %op=)` to specify the assignment interpretation.
 
 ---
 
-## 8. 运算符、比较与求值顺序
+## 8. Operators, Comparisons, and Evaluation Order
 
-本章定义操作符如何消费 View 并产生新 View。
+This chapter defines how operators consume Views and produce new Views.
 
-### 8.1 操作符输入模型
+### 8.1 Operator Input Model
 
-普通操作符输入为操作符名和操作数 View。语义分析收集每个操作数 View 的模板、长度、左值/右值属性和解释属性，再静态解析目标操作。
+The input to an ordinary operator is an operator name and operand Views. Semantic analysis collects the template, length, lvalue/rvalue property, and interpretation attributes of every operand View and then resolves the target operation statically.
 
 ```text
-输入操作符 + 操作数 View
--> 构造候选集
--> 过滤适用候选
--> 检查冲突
--> 形成返回 View
--> 生成字节级可观察行为
+input operator + operand Views
+-> construct candidate set
+-> filter applicable candidates
+-> check conflicts
+-> form return View
+-> generate byte-level observable behavior
 ```
 
-### 8.2 普通操作符解析
+### 8.2 Ordinary Operator Resolution
 
-普通操作符解析按以下四阶段完成。
+Ordinary operator resolution is performed in the following four stages.
 
-**阶段一：候选集构造**
+**Stage 1: Candidate-set construction**
 
-1. 令操作符为 `opname`，操作数数量为 `arity`。
-2. 对每个携带标准模板的操作数，加入标准模板库中名称为 `opname` 且参数数量为 `arity` 的候选操作。
-3. 对每个携带用户模板的操作数，加入该模板 `impl` 中名称为 `opname` 且参数数量为 `arity` 的候选操作。
-4. 候选集按定义实体去重；同一候选被多个操作数发现时只保留一次。
-5. 若所有操作数模板均为 `none`，候选集为内建无模板整数规则。
-6. 显式带类型操作符不进入本阶段。
+1. Let the operator be `opname` and the number of operands be `arity`.
+2. For every operand carrying a standard template, add candidate operations from the standard template library whose name is `opname` and whose parameter count is `arity`.
+3. For every operand carrying a user template, add candidate operations from that template's `impl` whose name is `opname` and whose parameter count is `arity`.
+4. Deduplicate the candidate set by definition entity; when the same candidate is discovered through multiple operands, retain it only once.
+5. When every operand template is `none`, the candidate set is the built-in untemplated integer rule.
+6. Explicit typed operators do not enter this stage.
 
-**阶段二：适用性过滤**
+**Stage 2: Applicability filtering**
 
-候选操作适用时必须同时满足：
+For a candidate operation to be applicable, all of the following conditions MUST hold:
 
-1. 操作符名称一致。
-2. 参数数量一致。
-3. 每个形参均显式携带模板，或该候选是标准库规范性元候选。
-4. 普通 `impl op` 候选要求每个实参 View 的模板与对应形参模板一致。
-5. 形参模板为固定长度模板时，实参长度与模板长度一致。
-6. 形参模板为用户模板时，实参长度等于 `sizeof(Template)`。
-7. 返回签名能静态确定长度和模板。
+1. The operator names match.
+2. The parameter counts match.
+3. Every formal parameter explicitly carries a template, or the candidate is a normative standard-library meta-candidate.
+4. An ordinary `impl op` candidate requires the template of every argument View to equal the template of the corresponding formal parameter.
+5. When a formal-parameter template is fixed-length, the argument length equals the template length.
+6. When a formal-parameter template is a user template, the argument length equals `sizeof(Template)`.
+7. The return signature determines both length and template statically.
 
-标准模板赋值矩阵、标准库元签名和标准模板规范性候选是标准库接收规则，先于普通模板相等性过滤应用。它们可以使用 `view`、`lview`、`mem_view`、`mem_lview`、`cstr_view`、`bytes_view`、`same_len_view`、`none[len]` 等元形参描述接收集合；这些元形参只属于标准库规范，不进入用户 `impl op` 语法。标准模板候选的形参为整数模板时，可以接收整数字面量或模板为 `none` 且携带整数解释属性的 View；形参为浮点模板时，可以接收浮点字面量。接收前按形参模板执行对应标准赋值语义并参与候选匹配。可变长度标准模板 `bytes` 和 `cstr` 的形参接受任意正长度 View；`cstr` 的终止字节约束按 11.7 和标准库函数规则检查。用户模板候选、用户函数和模板方法仍按显式模板精确匹配。
+The standard-template assignment matrix, standard-library meta-signatures, and normative standard-template candidates are standard-library acceptance rules and are applied before ordinary template-equality filtering. They MAY use meta-parameters such as `view`, `lview`, `mem_view`, `mem_lview`, `cstr_view`, `bytes_view`, `same_len_view`, and `none[len]` to describe accepted sets. These meta-parameters belong only to the standard-library specification and do not enter user `impl op` syntax. When a standard-template candidate has an integer-template formal parameter, it MAY accept an integer literal or a View whose template is `none` and which carries an integer-interpretation attribute. When its formal parameter is a floating-point template, it MAY accept a floating-point literal. Before candidate matching, the corresponding standard assignment semantics of the formal-parameter template are applied for acceptance. Formal parameters using the variable-length standard templates `bytes` and `cstr` accept any positive-length View; the terminating-byte constraint of `cstr` is checked according to Section 11.7 and the standard-library function rules. User-template candidates, user functions, and template methods continue to use exact matching of explicit templates.
 
-**阶段三：冲突判定**
+**Stage 3: Conflict determination**
 
-适用候选数量为 0 时必须产生编译诊断。适用候选数量为 1 时选中该候选。适用候选数量大于 1 时必须产生重载冲突诊断。
+When the number of applicable candidates is 0, a compile-time diagnostic MUST be produced. When it is 1, that candidate is selected. When it is greater than 1, an overload-conflict diagnostic MUST be produced.
 
-操作定义合并时，`op` 的唯一键为 `(operator_name, arity, parameter_template_sequence)`。`impl_template` 只记录定义归属和候选来源；任意两个可能进入同一候选集的 `op` 只要拥有相同操作符名、参数数量和参数模板序列，即使返回签名不同，也必须在定义合并阶段产生编译诊断。参数名称、返回模板、返回长度、运行时值、对象来源、动态模板信息和返回值上下文均不参与重载区分或冲突消解。
+When operation definitions are merged, the unique key of an `op` is `(operator_name, arity, parameter_template_sequence)`. `impl_template` records only definition ownership and candidate origin. Any two `op` definitions that can enter the same candidate set and have the same operator name, parameter count, and parameter-template sequence MUST produce a compile-time diagnostic during definition merging, even when their return signatures differ. Parameter names, return templates, return lengths, runtime values, object origins, dynamic template information, and return-value context do not participate in overload distinction or conflict resolution.
 
-**阶段四：返回 View 形成**
+**Stage 4: Return-View formation**
 
-选中普通候选执行后形成右值 View。返回 View 的长度与模板来自候选返回签名。比较操作返回模板必须为 `bool`，长度必须为 1。`op =` 候选执行时，写入效果以第一个参数的实际写入为准；赋值表达式的返回 View 按 7.2 从赋值目标当前字节形成，返回签名只约束 `op =` 操作体中的 `return` 表达式。
+Execution of the selected ordinary candidate produces an rvalue View. The length and template of the return View come from the candidate's return signature. A comparison operation MUST return template `bool` with length 1. During execution of an `op =` candidate, the write effect is determined by the actual writes through the first parameter. Under Section 7.2, the assignment expression's return View is formed from the current bytes of the assignment target; the return signature constrains only `return` expressions inside the `op =` body.
 
-### 8.3 显式带类型操作符
+### 8.3 Explicit Typed Operators
 
-显式带类型操作符始终优先于模板默认操作。
+An explicit typed operator always takes precedence over template default operations.
 
 ```hs
 new a as i32 = 1
@@ -745,82 +743,82 @@ new b as i32 = 2
 new c as i64 = a %8d+ b
 ```
 
-`%8d+` 使用显式 8 字节整数加法路径。结果 View 的模板为 `none`，随后由目标 `c as i64` 的默认赋值接收。
+`%8d+` uses the explicit 8-byte integer-addition path. The result View has template `none` and is subsequently accepted by the default assignment of the `c as i64` destination.
 
-整数带类型操作符包括 `%d+`、`%Nd+`、`%d-`、`%Nd-`、`%d*`、`%Nd*`、`%d/`、`%Nd/`、`%d%`、`%Nd%`、`%d**`、`%Nd**`、`%d<<`、`%Nd<<`、`%d>>`、`%Nd>>`、`%d&`、`%Nd&`、`%d|`、`%Nd|`、`%d^`、`%Nd^`。`%Nd` 中的 `N` 表示 byte 宽度，词法层接收十进制数字序列，语义层要求数值大于 0。省略 `N` 的 `%d` 使用 `max(操作数 View 长度)` 作为计算宽度。
+Integer typed operators include `%d+`, `%Nd+`, `%d-`, `%Nd-`, `%d*`, `%Nd*`, `%d/`, `%Nd/`, `%d%`, `%Nd%`, `%d**`, `%Nd**`, `%d<<`, `%Nd<<`, `%d>>`, `%Nd>>`, `%d&`, `%Nd&`, `%d|`, `%Nd|`, `%d^`, and `%Nd^`. In `%Nd`, `N` denotes the width in bytes. The lexical layer accepts a decimal digit sequence, and the semantic layer requires its value to be greater than 0. When `N` is omitted, `%d` uses `max(operand View lengths)` as the computation width.
 
-浮点带类型操作符包括 `%f+`、`%Nf+`、`%f-`、`%Nf-`、`%f*`、`%Nf*`、`%f/`、`%Nf/`、`%f**`、`%Nf**`。`%Nf` 中的 `N` 表示 byte 宽度，只能是 2、4、8 或 16。省略 `N` 的 `%f` 使用参与运算的非字面量浮点 View 中最大浮点宽度；只有浮点字面量参与且无其他宽度上下文时使用 8 字节。非字面量操作数长度不是 2、4、8 或 16 时必须产生编译诊断。显式带类型操作符结果模板始终为 `none`。
+Floating-point typed operators include `%f+`, `%Nf+`, `%f-`, `%Nf-`, `%f*`, `%Nf*`, `%f/`, `%Nf/`, `%f**`, and `%Nf**`. In `%Nf`, `N` denotes the width in bytes and MUST be 2, 4, 8, or 16. When `N` is omitted, `%f` uses the greatest floating-point width among the participating nonliteral floating-point Views. When only floating-point literals participate and no other width context exists, it uses 8 bytes. A nonliteral operand whose length is not 2, 4, 8, or 16 MUST produce a compile-time diagnostic. The result template of an explicit typed operator is always `none`.
 
-### 8.4 无模板整数规则
+### 8.4 Untemplated Integer Rules
 
-无模板整数规则用于模板为 `none` 且未使用显式浮点路径的普通算术、比较、位运算和移位。
+The untemplated integer rules apply to ordinary arithmetic, comparison, bitwise, and shift operations when the templates are `none` and no explicit floating-point path is used.
 
-- 计算宽度 `C = max(L1, L2)`。
-- 有符号范围为 `[-2^(8C-1), 2^(8C-1)-1]`。
-- 无符号范围为 `[0, 2^(8C)-1]`。
-- 模板为 `none` 的内存 View 默认按自身长度的二进制补码有符号整数解释；整数字面量使用 3.5.1 携带的解释属性。任一操作数由 `?` 标记为无符号时，本次整数操作按无符号语义执行。
-- 整数运算结果按 `2^(8C)` 取模保存在 `C` 字节空间中。
+- The computation width is `C = max(L1, L2)`.
+- The signed range is `[-2^(8C-1), 2^(8C-1)-1]`.
+- The unsigned range is `[0, 2^(8C)-1]`.
+- A memory View whose template is `none` is interpreted by default as a two's-complement signed integer of its own length. Integer literals use the interpretation attributes carried under Section 3.5.1. When any operand is marked unsigned by `?`, the current integer operation uses unsigned semantics.
+- An integer-operation result is reduced modulo `2^(8C)` and stored in a `C`-byte space.
 
-模板为 `none` 的一元 `-` 和一元 `~` 按操作数 View 长度 `L` 执行内建整数语义。一元 `-` 按 `2^(8L)` 取模保存二进制补码取负结果；一元 `~` 对 `L` 字节逐位取反。结果长度为 `L`，模板为 `none`，并携带与本次一元操作一致的整数解释属性。
+Unary `-` and unary `~` on a View whose template is `none` use built-in integer semantics at the operand View length `L`. Unary `-` stores the two's-complement negation result modulo `2^(8L)`. Unary `~` inverts every bit across the `L` bytes. The result length is `L`, the template is `none`, and the result carries an integer-interpretation attribute consistent with the current unary operation.
 
-整数除零、负移位、负指数属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可检测时必须报告运行时错误。
+Integer division by zero, a negative shift count, and a negative exponent are undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected.
 
-### 8.5 标准模板默认操作
+### 8.5 Standard-Template Default Operations
 
-标准模板库定义 `iN`、`uN`、`fN`、`bool`、`addr`、`cstr`、`bytes` 等模板的默认操作。普通 `+`、`-`、`==` 等在操作数携带标准模板时解析到标准模板库操作。标准模板库还定义标准模板的一元 `-` 和 `~` 的内建语义；逻辑 `!`、`&&`、`||` 始终由 8.8 的布尔判断路径处理。这些一元操作不开放给用户模板重载。
+The standard template library defines default operations for templates including `iN`, `uN`, `fN`, `bool`, `addr`, `cstr`, and `bytes`. Ordinary operators such as `+`, `-`, and `==` resolve to standard-template-library operations when their operands carry standard templates. The standard template library also defines the built-in semantics of unary `-` and `~` for standard templates. Logical `!`, `&&`, and `||` always use the Boolean-test path in Section 8.8. These unary operations are not open to user-template overloading.
 
-标准库允许声明混合标准模板操作；每个组合必须以规范签名列入标准模板库。可移植核心只保证同模板二元运算；跨宽度、跨有符号性以及整数/浮点混合运算属于实现列明的标准库扩展，未列明组合必须产生编译诊断。
+The standard library MAY declare mixed standard-template operations, but every such combination MUST be listed in the standard template library with a normative signature. The portable core guarantees only same-template binary operations. Cross-width, cross-signedness, and mixed integer/floating-point operations are implementation-listed standard-library extensions. An unlisted combination MUST produce a compile-time diagnostic.
 
-### 8.6 用户模板 `op`
+### 8.6 User-Template `op`
 
-用户模板可在 `impl` 中定义默认操作。匹配要求按 8.2 执行。用户模板之间、用户模板与标准模板之间的混合操作必须显式定义。标准不进行隐式跨模板转换。
+A user template MAY define default operations in an `impl`. Matching follows Section 8.2. A mixed operation between user templates, or between a user template and a standard template, MUST be defined explicitly. This Standard performs no implicit cross-template conversion.
 
-用户 `op` 返回签名不得为 `-> ()`。`op format` 使用第 10.6 节定义的专门 ABI，并且必须提供静态返回 View。
+A user `op` MUST NOT have the return signature `-> ()`. `op format` uses the dedicated ABI defined in Section 10.6 and MUST provide a static return View.
 
-### 8.7 比较与 bool 结果
+### 8.7 Comparisons and `bool` Results
 
-比较操作包括 `==`、`!=`、`<`、`<=`、`>`、`>=`。标准模板和用户 `op` 比较的返回模板必须为 `bool`，长度必须为 1。
+Comparison operations are `==`, `!=`, `<`, `<=`, `>`, and `>=`. A comparison provided by a standard template or user `op` MUST return template `bool` with length 1.
 
-无模板比较按无模板整数规则比较，结果为 1 字节右值 View，模板为 `bool`。
+An untemplated comparison follows the untemplated integer rules and produces a one-byte rvalue View whose template is `bool`.
 
-### 8.8 逻辑运算和短路
+### 8.8 Logical Operations and Short-Circuiting
 
-布尔判断规则：所有位为 0 为假，其他情况为真。`!`、`&&`、`||` 的结果为 1 字节 `bool`。
+The Boolean-test rule is: all bits zero means false; any other bit pattern means true. The results of `!`, `&&`, and `||` are one-byte `bool` Views.
 
-逻辑运算使用内建布尔判断路径，不进入 8.2 的普通 `op` 候选集，也不调用用户模板 `op`。携带标准模板、用户模板或 `none` 的任意 View 均按本节布尔判断规则读取。`&&` 从左到右求值，左操作数为假时不求值右操作数。`||` 从左到右求值，左操作数为真时不求值右操作数。
+Logical operations use the built-in Boolean-test path. They do not enter the ordinary `op` candidate set in Section 8.2 and do not invoke a user-template `op`. Any View carrying a standard template, user template, or `none` is read according to the Boolean-test rule in this section. `&&` evaluates from left to right and does not evaluate its right operand when the left operand is false. `||` evaluates from left to right and does not evaluate its right operand when the left operand is true.
 
-### 8.9 无符号解释后缀 `?`
+### 8.9 Unsigned-Interpretation Suffix `?`
 
-后缀 `?` 将左侧 View 的字节按无符号整数解释，并产生右值 View。结果长度与左侧相同，模板为 `none`，且携带无符号整数解释属性。它只影响被标记的表达式。
+The postfix `?` operator interprets the bytes of the View on its left as an unsigned integer and produces an rvalue View. The result has the same length as the left operand, template `none`, and an unsigned-integer interpretation attribute. It affects only the expression to which it is applied.
 
 ```hs
 new x[4] = -1
 new y[4] = x? + 1
 ```
 
-### 8.10 求值顺序和序列点
+### 8.10 Evaluation Order and Sequence Points
 
-运算符优先级和结合性决定表达式分组。无序列点约束时，同级子表达式求值顺序由实现选择，程序不得依赖其先后。
+Operator precedence and associativity determine expression grouping. In the absence of a sequence-point constraint, the implementation chooses the evaluation order of peer subexpressions, and a program MUST NOT depend on that order.
 
-序列点包括：
+Sequence points occur:
 
-- `&&` 左操作数求值后。
-- `||` 左操作数求值后。
-- 三元 `? :` 第一个操作数求值后。
-- 函数调用所有参数求值完成后，函数体执行前。
-- `for` 循环头初始化、条件、迭代三部分之间。
-- `for_post` 中以逗号分隔的多个 `expr_stmt` 之间。
-- 完整表达式结束时。
+- After evaluation of the left operand of `&&`.
+- After evaluation of the left operand of `||`.
+- After evaluation of the first operand of ternary `? :`.
+- After evaluation of all function-call arguments and before execution of the function body.
+- Between the initialization, condition, and iteration components of a `for` loop header.
+- Between comma-separated `expr_stmt` entries in `for_post`.
+- At the end of a full expression.
 
-若两个未排序副作用写入同一重叠内存区域，或一个未排序副作用写入而另一个未排序求值读取同一区域，属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可检测时必须报告错误。
+When two unsequenced side effects write the same overlapping memory region, or when one unsequenced side effect writes a region while another unsequenced evaluation reads that region, the behavior is undefined. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, an error MUST be reported when the condition can be detected.
 
 ---
 
-## 9. 用户定义模板、成员布局与模板实例
+## 9. User-Defined Templates, Member Layout, and Template Instances
 
-### 9.1 模板定义
+### 9.1 Template Definitions
 
-`template` 定义用户模板。它描述一段连续内存的成员布局，以及每个成员的默认解释模板。
+`template` defines a user template. It describes the member layout of a contiguous memory region and the default interpretation template of each member.
 
 ```hs
 template Point {
@@ -829,23 +827,23 @@ template Point {
 }
 ```
 
-规则：
+Rules:
 
-- 成员按声明顺序紧密排列，无隐式对齐。
-- 成员长度必须是正整数字面量、`[P]` 或可静态求值的 `sizeof(TemplateName)`。
-- 成员不得使用 `[tN]`。
-- 成员模板不改变成员大小，也不引入额外对齐。
-- 用户模板只能在全局作用域定义。
-- 标准模板、用户模板、函数、外部符号和全局存储对象共享全局命名空间；重名必须产生编译诊断。
-- 用户模板名称不得重定义标准模板库名称。
+- Members are packed in declaration order with no implicit alignment.
+- A member length MUST be a positive integer literal, `[P]`, or a statically evaluable `sizeof(TemplateName)`.
+- A member MUST NOT use `[tN]`.
+- A member template does not change the member size and introduces no additional alignment.
+- A user template MAY be defined only at global scope.
+- Standard templates, user templates, functions, external symbols, and global storage objects share the global namespace; a duplicate name MUST produce a compile-time diagnostic.
+- A user-template name MUST NOT redefine a standard-template-library name.
 
 ### 9.2 `sizeof(Template)`
 
-`sizeof(Name)` 是编译期表达式。对固定长度标准模板和用户模板返回其字节长度。`sizeof(addr)` 返回 `P`。对可变长度标准模板 `bytes` 和 `cstr` 使用 `sizeof` 必须产生编译诊断。
+`sizeof(Name)` is a compile-time expression. For a fixed-length standard template or user template, it returns the template's length in bytes. `sizeof(addr)` returns `P`. Using `sizeof` on the variable-length standard templates `bytes` or `cstr` MUST produce a compile-time diagnostic.
 
-用户模板大小等于所有成员长度之和。
+The size of a user template is the sum of the lengths of all its members.
 
-### 9.3 实例声明
+### 9.3 Instance Declarations
 
 ```hs
 new p as Point
@@ -853,20 +851,20 @@ new q[sizeof(Point)] as Point
 new arr[t10] as Point
 ```
 
-- `new p as Point` 分配 `sizeof(Point)` 字节。
-- 显式长度与模板大小必须一致。
-- `[tN]` 分配 `N * sizeof(Template)` 字节，`N` 必须为正整数字面量。
+- `new p as Point` allocates `sizeof(Point)` bytes.
+- An explicit length MUST equal the template size.
+- `[tN]` allocates `N * sizeof(Template)` bytes, where `N` MUST be a positive integer literal.
 
-### 9.4 成员访问
+### 9.4 Member Access
 
-成员访问本质是编译期偏移计算。
+Member access is fundamentally a compile-time offset calculation.
 
-- `obj.member` 使用对象当前用户模板访问成员。
-- `(obj as Template).member` 使用临时模板视图访问成员。
-- `arr[tK]` 访问第 `K` 个模板实例，`K` 从 0 开始，且必须小于声明时的实例数量；结果为左值视图，长度为 `sizeof(Template)`，模板为数组声明中的用户模板。
-- `arr[tK].member` 访问第 `K` 个模板实例的成员。
-- 成员访问产生左值视图，长度来自成员声明；模板来自对应成员链 `set` 覆盖项或成员声明模板，成员未标注模板时为 `none`。
-- `&obj.member` 返回成员起始地址，模板为 `addr`。
+- `obj.member` accesses a member using the object's current user template.
+- `(obj as Template).member` accesses a member through a temporary template View.
+- `arr[tK]` accesses template instance `K`, where `K` is zero-based and MUST be less than the number of instances declared. The result is an lvalue View whose length is `sizeof(Template)` and whose template is the user template declared for the array.
+- `arr[tK].member` accesses a member of template instance `K`.
+- Member access produces an lvalue View whose length comes from the member declaration. Its template comes from the corresponding member-chain `set` override or the member-declaration template; an unannotated member has template `none`.
+- `&obj.member` returns the member's start address with template `addr`.
 
 ```hs
 template User {
@@ -880,17 +878,17 @@ u.id = 1001
 u.name = "Kai"
 ```
 
-### 9.5 模板与操作
+### 9.5 Templates and Operations
 
-用户模板定义布局。用户模板上的默认行为由 `impl` 定义。未定义 `op =` 时，同一用户模板之间的默认赋值按逐字节复制执行。其他普通操作必须有匹配 `op`。
+A user template defines layout. Default behavior on a user template is defined by `impl`. When no `op =` is defined, default assignment between identical user templates performs a byte-for-byte copy. Every other ordinary operation MUST have a matching `op`.
 
 ---
 
-## 10. `impl`、默认操作与模板方法
+## 10. `impl`, Default Operations, and Template Methods
 
-### 10.1 `impl` 定义
+### 10.1 `impl` Definitions
 
-`impl TemplateName { ... }` 为模板绑定默认操作和方法。普通用户翻译单元中的 `TemplateName` 必须解析为用户模板；标准模板库单元可以为标准模板提供规范 `impl`。用户程序重定义或扩展标准模板 `impl` 必须产生编译诊断，除非实现文档化为扩展模式。同一模板可以出现在多个 `impl` 块中；实现必须在顶层名称收集后合并这些块，并按 10.3、10.7 和 10.10 检查重复操作键、重复方法键和候选冲突。
+`impl TemplateName { ... }` binds default operations and methods to a template. In an ordinary user translation unit, `TemplateName` MUST resolve to a user template. A standard-template-library unit MAY provide normative `impl` definitions for standard templates. A user program that redefines or extends an `impl` for a standard template MUST produce a compile-time diagnostic unless the implementation documents an extension mode. The same template MAY appear in multiple `impl` blocks. After top-level name collection, the implementation MUST merge those blocks and check duplicate operation keys, duplicate method keys, and candidate conflicts according to Sections 10.3, 10.7, and 10.10.
 
 ```hs
 impl Vec2 {
@@ -907,29 +905,29 @@ impl Vec2 {
 }
 ```
 
-### 10.2 可重载操作
+### 10.2 Overloadable Operations
 
-用户模板可以定义以下操作：
+A user template MAY define the following operations:
 
 ```text
 = == != < <= > >= + - * / % ** << >> & | ^ format
 ```
 
-这些操作均按静态模板匹配解析。除 `format` 外，用户模板可重载操作均为二元操作，形参数量必须恰好为 2；`op =` 的两个参数分别是赋值目标和源 View。`op format` 固定为 `op format (value as Template, out[P] as addr) -> i32`。`format` 是 `op` 声明中的上下文操作名，其他位置按普通标识符解析。用户模板不得重载一元 `!`、`~`、一元 `-` 或 `++`/`--`；标准模板库仍可为这些内建运算定义规范语义。操作参数必须显式携带模板。返回签名必须静态确定长度和模板。
+All of these operations are resolved through static template matching. Except for `format`, every user-template-overloadable operation is binary and MUST have exactly two formal parameters. The two parameters of `op =` are the assignment target and source View, respectively. `op format` has the fixed form `op format (value as Template, out[P] as addr) -> i32`. `format` is a contextual operation name within an `op` declaration and is parsed as an ordinary identifier elsewhere. A user template MUST NOT overload unary `!`, unary `~`, unary `-`, or `++`/`--`; the standard template library MAY still define normative built-in semantics for those operations. Every operation parameter MUST explicitly carry a template. The return signature MUST determine both length and template statically.
 
-### 10.3 候选签名与重复定义
+### 10.3 Candidate Signatures and Duplicate Definitions
 
-一个 `op` 的重载键由以下三项组成：
+The overload key of an `op` consists of the following three components:
 
 ```text
 (operator_name, arity, parameter_template_sequence)
 ```
 
-`impl_template` 只表示候选来源。任意两个可能进入同一候选集的 `op` 只要拥有相同操作符名、参数数量和参数模板序列，即使返回签名不同，也必须在定义合并阶段产生编译诊断。参数名称不参与重载区分；相同参数模板序列不能只靠返回模板或返回长度形成重载。
+`impl_template` denotes only the candidate origin. Any two `op` definitions that can enter the same candidate set and have the same operator name, parameter count, and parameter-template sequence MUST produce a compile-time diagnostic during definition merging, even when their return signatures differ. Parameter names do not distinguish overloads. Identical parameter-template sequences cannot be overloaded solely by return template or return length.
 
-### 10.4 默认赋值操作 `op =`
+### 10.4 Default Assignment Operation `op =`
 
-`op =` 的第一个参数表示赋值目标，必须以可写左值 View 借用方式传入。操作体可以写入目标成员；返回签名用于校验操作体 `return` 表达式，必须静态确定，并且必须与第一个参数的模板和长度一致。赋值表达式的可观察结果固定为赋值目标当前字节形成的右值副本。
+The first parameter of `op =` represents the assignment target and MUST be passed by borrowing a writable lvalue View. The operation body MAY write target members. The return signature is used to validate `return` expressions in the operation body; it MUST be statically determinable and MUST match the template and length of the first parameter. The observable result of the assignment expression is fixed as an rvalue copy formed from the current bytes of the assignment target.
 
 ```hs
 impl Vec2 {
@@ -941,20 +939,20 @@ impl Vec2 {
 }
 ```
 
-`op =` 解析要求：
+Resolution of `op =` requires:
 
-1. 第一个实参必须是赋值语句左侧目标形成的可写左值 View。
-2. 第一个形参模板必须与目标 View 模板一致。
-3. 其余形参按普通 View 值复制规则传入。
-4. 返回签名必须静态确定，并与第一个参数的模板和长度一致。
-5. 操作体的 `return` 表达式必须满足返回签名；赋值表达式按 7.2 返回目标副本，该返回值不保留赋值目标的左值属性。
-6. 未定义 `op =` 的用户模板使用同模板逐字节复制兜底规则。
+1. The first argument MUST be the writable lvalue View formed from the left-hand target of the assignment statement.
+2. The template of the first formal parameter MUST equal the template of the destination View.
+3. Remaining formal parameters are passed according to ordinary View-value copy rules.
+4. The return signature MUST be statically determinable and MUST match the template and length of the first parameter.
+5. A `return` expression in the operation body MUST satisfy the return signature. Under Section 7.2, the assignment expression returns a copy of the target, and that return value does not retain the lvalue property of the assignment target.
+6. A user template without an `op =` uses the fallback rule of byte-for-byte copy between identical templates.
 
-### 10.5 算术、位运算和比较操作
+### 10.5 Arithmetic, Bitwise, and Comparison Operations
 
-算术、位运算和移位操作返回模板必须显式声明。返回值可以是同模板，也可以是另一个模板。比较操作返回模板必须为 `bool`，长度必须为 1。
+The return template of an arithmetic, bitwise, or shift operation MUST be declared explicitly. The return value MAY use the same template or a different template. A comparison operation MUST return template `bool` with length 1.
 
-混合模板操作必须显式定义：
+A mixed-template operation MUST be defined explicitly:
 
 ```hs
 impl Vec2 {
@@ -967,181 +965,181 @@ impl Vec2 {
 }
 ```
 
-### 10.6 格式化操作
+### 10.6 Formatting Operation
 
-`op format` 用于标准输出、字符串格式化和诊断显示。标准格式为：
+`op format` is used for standard output, string formatting, and diagnostic display. Its standard form is:
 
 ```hs
 op format (value as Template, out[P] as addr) -> i32
 ```
 
-`out` 指向实现提供的格式化输出目标。返回值为写入字节数；负数表示实现定义错误码。标准模式下用户 `op format` 必须恰有这 2 个参数，第二个参数必须是 `[P] as addr`，返回模板必须为 `i32`。更复杂的格式化 ABI 属于标准库扩展，必须文档化。
+`out` points to a formatting output target supplied by the implementation. The return value is the number of bytes written; a negative value denotes an implementation-defined error code. In standard mode, a user `op format` MUST have exactly these two parameters, its second parameter MUST be `[P] as addr`, and its return template MUST be `i32`. A more complex formatting ABI is a standard-library extension and MUST be documented.
 
-### 10.7 方法调用
+### 10.7 Method Calls
 
-模板方法是 `impl` 命名空间中的函数。方法调用：
+A template method is a function in an `impl` namespace. A method call has the form:
 
 ```hs
 expr.method(arg0, arg1)
 ```
 
-解析规则：
+Resolution rules:
 
-1. 求 `expr` 的 View。
-2. 读取该 View 携带的模板。
-3. 在该模板的 `impl` 中查找同名 `func`。
-4. 将 `expr` 作为第一个实参传入。
-5. 其余实参按书写顺序传入。
-6. 按函数调用规则复制参数 View。
-7. 解析失败必须产生编译诊断。
+1. Evaluate the View of `expr`.
+2. Read the template carried by that View.
+3. Find a `func` with the same name in that template's `impl`.
+4. Pass `expr` as the first argument.
+5. Pass the remaining arguments in written order.
+6. Copy parameter Views according to the function-call rules.
+7. A resolution failure MUST produce a compile-time diagnostic.
 
-方法的第一个参数必须显式声明，且其模板必须等于所在 `impl TemplateName` 的模板；零参数方法必须产生编译诊断。方法内部没有额外隐藏权限，字段访问仍遵循普通成员访问规则。
+The first parameter of a method MUST be declared explicitly, and its template MUST equal the template of the enclosing `impl TemplateName`. A zero-parameter method MUST produce a compile-time diagnostic. A method has no additional hidden privileges; field access continues to follow ordinary member-access rules.
 
-方法重载键为：
+The method-overload key is:
 
 ```text
 (method_name, arity, parameter_template_sequence)
 ```
 
-`arity` 包含第一个参数。参数名称、返回模板、返回长度和运行时值不参与方法重载区分。相同方法重载键的定义必须在定义合并阶段产生编译诊断；方法调用时适用候选数量为 0 或大于 1 都必须产生编译诊断。
+`arity` includes the first parameter. Parameter names, return templates, return lengths, and runtime values do not participate in method-overload distinction. Definitions with an identical method-overload key MUST produce a compile-time diagnostic during definition merging. At a method call, an applicable-candidate count of 0 or greater than 1 MUST produce a compile-time diagnostic.
 
-### 10.8 `mut self` 与显式写入方案
+### 10.8 `mut self` and Explicit Write Mechanisms
 
-`mut` 是预留关键字。在标准模式中遇到 `mut` 方法参数必须产生编译诊断；实现扩展模式接受该语法时，必须文档化其启用方式和完整语义。
+`mut` is a reserved keyword. In standard mode, encountering a `mut` method parameter MUST produce a compile-time diagnostic. When an implementation extension mode accepts that syntax, the implementation MUST document how the mode is enabled and its complete semantics.
 
-模板方法的 `self` 按 View 值复制。需要写入外部对象时，程序必须使用以下显式方案之一：
+A template method receives `self` by View-value copy. To write an external object, a program MUST use one of the following explicit mechanisms:
 
-1. 赋值语句触发 `op =`，由 `op =` 第一个参数写入目标。
-2. 传入 `addr`，再通过 `[N]*addr`、`[P]*addr` 或 `[sizeof(Template)]*addr` 显式解引用写入。
-3. 返回新 View，由调用方赋值到目标。
+1. Use an assignment statement to trigger `op =`, allowing the first parameter of `op =` to write the target.
+2. Pass an `addr` and write through explicit dereference using `[N]*addr`, `[P]*addr`, or `[sizeof(Template)]*addr`.
+3. Return a new View and have the caller assign it to the target.
 
-示例：
+Example:
 
 ```hs
 new v as Vec2
 v = v.normalized()
 ```
 
-### 10.9 临时模板视图上的方法
+### 10.9 Methods on Temporary Template Views
 
-表达式级 `as` 可用于方法调用：
+Expression-level `as` MAY be used for a method call:
 
 ```hs
 new raw[16] as bytes
 new len as f64 = (raw as Vec2).length()
 ```
 
-固定长度模板要求 `raw` 长度与 `Vec2` 长度一致。
+A fixed-length template requires the length of `raw` to equal the length of `Vec2`.
 
-### 10.10 操作解析诊断
+### 10.10 Operation-Resolution Diagnostics
 
-以下情况必须产生诊断：
+The following conditions MUST produce a diagnostic:
 
-- `impl` 指向不存在的模板。
-- `op` 参数没有模板。
-- `op` 返回签名长度无法静态确定。
-- `op` 返回签名为 `-> ()`。
-- 用户 `op` 的参数数量与该操作符的标准 arity 不匹配。
-- `op format` 未使用标准格式签名。
-- `op =` 返回签名与第一个参数的模板或长度不一致。
-- 存在相同重载键且可能进入同一候选集的 `op` 定义。
-- 普通操作符存在多个适用候选。
-- 普通操作符没有适用候选。
-- 方法声明没有显式第一个参数，或第一个参数模板不等于所在 `impl` 模板。
-- 存在相同方法重载键的定义。
-- 方法调用左侧 View 没有模板。
-- 方法调用左侧模板中不存在目标方法，或存在多个适用方法候选。
-- 用户模板操作试图依赖运行时类型信息解析目标操作。
-- `op` 中使用隐式跨模板转换。
-- `op =` 第一个实参不是赋值目标的可写左值 View。
+- An `impl` refers to a nonexistent template.
+- An `op` parameter has no template.
+- The length of an `op` return signature cannot be determined statically.
+- An `op` return signature is `-> ()`.
+- The number of parameters of a user `op` does not match the standard arity of that operator.
+- `op format` does not use the standard-form signature.
+- The return signature of `op =` does not match the template or length of its first parameter.
+- `op` definitions have identical overload keys and can enter the same candidate set.
+- An ordinary operator has multiple applicable candidates.
+- An ordinary operator has no applicable candidate.
+- A method declaration lacks an explicit first parameter, or the first-parameter template does not equal the enclosing `impl` template.
+- Definitions have an identical method-overload key.
+- The View on the left of a method call has no template.
+- The template on the left of a method call contains no target method, or multiple method candidates are applicable.
+- A user-template operation attempts to resolve its target operation using runtime type information.
+- An `op` uses an implicit cross-template conversion.
+- The first argument of `op =` is not the writable lvalue View of the assignment target.
 
 ---
 
-## 11. 标准模板库
+## 11. Standard Template Library
 
-标准模板库是符合实现必须提供的模板集合。标准模板和用户模板共享同一套模板机制。实现可以通过源码库、编译器内建或二者组合提供标准模板。
+The standard template library is the set of templates that a conforming implementation MUST provide. Standard templates and user templates share the same template mechanism. An implementation MAY provide standard templates through a source library, compiler built-ins, or a combination of both.
 
-### 11.1 最低模板集合
+### 11.1 Minimum Template Set
 
-| 模板 | 长度 | 默认解释 |
+| Template | Length | Default interpretation |
 |---|---:|---|
-| `i8` | 1 | 8-bit 有符号整数 |
-| `i16` | 2 | 16-bit 有符号整数 |
-| `i32` | 4 | 32-bit 有符号整数 |
-| `i64` | 8 | 64-bit 有符号整数 |
-| `u8` | 1 | 8-bit 无符号整数 |
-| `u16` | 2 | 16-bit 无符号整数 |
-| `u32` | 4 | 32-bit 无符号整数 |
-| `u64` | 8 | 64-bit 无符号整数 |
+| `i8` | 1 | 8-bit signed integer |
+| `i16` | 2 | 16-bit signed integer |
+| `i32` | 4 | 32-bit signed integer |
+| `i64` | 8 | 64-bit signed integer |
+| `u8` | 1 | 8-bit unsigned integer |
+| `u16` | 2 | 16-bit unsigned integer |
+| `u32` | 4 | 32-bit unsigned integer |
+| `u64` | 8 | 64-bit unsigned integer |
 | `f16` | 2 | IEEE 754 binary16 |
 | `f32` | 4 | IEEE 754 binary32 |
 | `f64` | 8 | IEEE 754 binary64 |
-| `f128` | 16 | IEEE 754 binary128 或等价软件实现 |
-| `bool` | 1 | 布尔值 |
-| `addr` | `P` | 平台地址值 |
-| `handle` | `P` | 文件句柄不透明值 |
-| `cstr` | 任意正长度 | `0x00` 结尾字节串 |
-| `bytes` | 任意正长度 | 原始字节序列 |
+| `f128` | 16 | IEEE 754 binary128 or an equivalent software implementation |
+| `bool` | 1 | Boolean value |
+| `addr` | `P` | Platform address value |
+| `handle` | `P` | Opaque file-handle value |
+| `cstr` | Any positive length | `0x00`-terminated byte string |
+| `bytes` | Any positive length | Raw byte sequence |
 
-`i8/i16/i32/i64` 与 `u8/u16/u32/u64` 名称中的数字表示 bit 宽度；存储长度分别为 1、2、4、8 byte。标准文本中的 `iN`、`uN` 表示同族模板，`N` 为 bit 宽度。
+The digits in the names `i8/i16/i32/i64` and `u8/u16/u32/u64` denote bit width; their storage lengths are 1, 2, 4, and 8 bytes, respectively. In the normative text, `iN` and `uN` denote templates from the corresponding family, where `N` is the bit width.
 
-### 11.2 标准模板必须定义的语义
+### 11.2 Semantics Required for Every Standard Template
 
-每个标准模板必须定义：
+Every standard template MUST define:
 
-1. 名称。
-2. 长度或可变长度规则。
-3. 默认赋值语义。
-4. 默认运算语义。
-5. 比较语义。
-6. 格式化语义。
-7. 诊断规则。
-8. 与表达式级 `as` 的长度一致性规则。
+1. Its name.
+2. Its length or variable-length rule.
+3. Default-assignment semantics.
+4. Default-operation semantics.
+5. Comparison semantics.
+6. Formatting semantics.
+7. Diagnostic rules.
+8. Length-consistency rules for expression-level `as`.
 
-### 11.3 整数模板
+### 11.3 Integer Templates
 
-`iN` 使用 N-bit 二进制补码有符号整数语义。`uN` 使用 N-bit 无符号整数语义。整数模板支持默认赋值、算术、比较、位运算、移位、一元 `-`、一元 `~` 和格式化。
+`iN` uses N-bit two's-complement signed-integer semantics. `uN` uses N-bit unsigned-integer semantics. Integer templates support default assignment, arithmetic, comparison, bitwise operations, shifts, unary `-`, unary `~`, and formatting.
 
-整数运算结果按模板宽度取模。一元 `-` 返回同模板宽度下的二进制补码取负结果；一元 `~` 返回同模板宽度下的逐位取反结果。有符号整数除法向零截断，余数符号与被除数一致；有符号右移采用算术右移。整数除零、负移位和负指数在 unchecked 模式下属于未定义行为；static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可运行时检测时必须报告运行时错误。
+Integer-operation results are reduced modulo the template width. Unary `-` returns the two's-complement negation result at the same template width. Unary `~` returns the bitwise inversion result at the same template width. Signed integer division truncates toward zero, and the sign of the remainder matches the dividend. Signed right shift is arithmetic. In unchecked mode, integer division by zero, a negative shift count, and a negative exponent are undefined behavior. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected at runtime.
 
-同族混合整数运算的结果模板由标准库签名决定。最低要求如下：
+The result template of a mixed integer operation within the integer families is determined by the standard-library signature. The minimum requirements are:
 
-1. 同模板二元整数运算返回同模板。
-2. 同模板比较返回 `bool`。
-3. 跨宽度整数运算必须由标准库显式列出；未列出组合必须诊断。
-4. 有符号与无符号混合运算必须由标准库显式列出；未列出组合必须诊断。
+1. A same-template binary integer operation returns the same template.
+2. A same-template comparison returns `bool`.
+3. A cross-width integer operation MUST be listed explicitly by the standard library; an unlisted combination MUST produce a diagnostic.
+4. A mixed signed/unsigned operation MUST be listed explicitly by the standard library; an unlisted combination MUST produce a diagnostic.
 
-可移植程序应当只依赖本节列出的同模板整数操作和实现明确列入标准库签名表的混合操作。
+A portable program SHOULD depend only on the same-template integer operations listed in this section and on mixed operations that the implementation explicitly includes in its standard-library signature table.
 
-### 11.4 浮点模板
+### 11.4 Floating-Point Templates
 
-`f16`、`f32`、`f64`、`f128` 遵循 IEEE 754 语义，使用系统本地字节序。默认舍入模式为 `roundTiesToEven`。NaN payload 的保留与传播属于实现定义行为。
+`f16`, `f32`, `f64`, and `f128` follow IEEE 754 semantics and use the system's native byte order. The default rounding mode is `roundTiesToEven`. Preservation and propagation of NaN payloads are implementation-defined.
 
-浮点模板支持默认赋值、算术、比较、一元 `-` 和格式化。一元 `-` 返回同模板宽度下的 IEEE 754 符号取反结果。浮点除零、溢出、下溢、subnormal、`Inf` 和 `NaN` 按 IEEE 754 处理。
+Floating-point templates support default assignment, arithmetic, comparison, unary `-`, and formatting. Unary `-` returns the IEEE 754 sign-negated result at the same template width. Floating-point division by zero, overflow, underflow, subnormals, `Inf`, and `NaN` are handled according to IEEE 754.
 
-同模板浮点算术返回同模板。同模板比较返回 `bool`。跨宽度浮点赋值和运算必须由标准库显式列出；未列出组合必须产生编译诊断。
+Same-template floating-point arithmetic returns the same template. Same-template comparison returns `bool`. Cross-width floating-point assignment and operations MUST be listed explicitly by the standard library; an unlisted combination MUST produce a compile-time diagnostic.
 
 ### 11.5 `bool`
 
-`bool` 长度为 1 字节。默认赋值将任意源 View 归一化为 `0x00` 或 `0x01`。逻辑运算按 8.8 的内建布尔判断路径执行，结果模板为 `bool`。
+`bool` has a length of 1 byte. Default assignment normalizes any source View to `0x00` or `0x01`. Logical operations execute through the built-in Boolean-test path in Section 8.8 and produce template `bool`.
 
-`bool` 支持 `= == != format`。算术、位运算和移位操作必须产生编译诊断。
+`bool` supports `= == != format`. Arithmetic, bitwise, and shift operations MUST produce a compile-time diagnostic.
 
-### 11.6 `addr` 与 `handle`
+### 11.6 `addr` and `handle`
 
-`addr` 长度为 `P`。默认赋值可以接收 `addr`、整数字面量、携带整数解释属性的 `none` View、`iN`、`uN` 和 `bool`，并按地址值复制或按整数规则调整到 `P` 字节。`addr` 支持相等比较和格式化。地址算术不通过普通 `addr + integer` 隐式执行；程序应当使用 `?` 取得无符号整数视图，并通过 `addr` 目标赋值接收结果。
+`addr` has length `P`. Default assignment MAY accept `addr`, an integer literal, a `none` View carrying an integer-interpretation attribute, `iN`, `uN`, or `bool`, and either copies the address value or adjusts it to `P` bytes according to the integer rules. `addr` supports equality comparison and formatting. Address arithmetic is not performed implicitly through ordinary `addr + integer`; a program SHOULD use `?` to obtain an unsigned-integer View and then assign the result to an `addr` destination.
 
-`handle` 长度为 `P`，表示文件句柄不透明值。全零的 `P` 字节 `handle` 是空句柄。`handle` 支持同模板默认赋值、相等比较和格式化；普通算术、位运算、移位、解引用、`free()` 以及从普通整数构造句柄必须产生诊断或运行时错误。文件 I/O 函数按 `handle` 模板接收和返回文件句柄。
+`handle` has length `P` and represents an opaque file-handle value. An all-zero `P`-byte `handle` is a null handle. `handle` supports same-template default assignment, equality comparison, and formatting. Ordinary arithmetic, bitwise operations, shifts, dereference, `free()`, and construction of a handle from an ordinary integer MUST produce a diagnostic or runtime error. File-I/O functions accept and return file handles through the `handle` template.
 
-### 11.7 `cstr` 和 `bytes`
+### 11.7 `cstr` and `bytes`
 
-`cstr` 是以 `0x00` 结尾的字节字符串。默认赋值使用 `%s=` 语义。比较和格式化按 C 风格字符串语义执行。若 `cstr` View 的可见范围内没有 `0x00` 终止字节，static-checked 和 checked 模式下可静态证明时必须产生编译诊断；checked 模式下可运行时检测时必须报告运行时错误；unchecked 模式下属于未定义行为。
+`cstr` is a byte string terminated by `0x00`. Default assignment uses `%s=` semantics. Comparison and formatting use C-style string semantics. When no terminating `0x00` exists within the visible extent of a `cstr` View, a compile-time diagnostic MUST be produced in static-checked and checked modes when the condition can be proven statically; in checked mode, a runtime error MUST be reported when the condition can be detected at runtime; in unchecked mode, the behavior is undefined.
 
-`bytes` 是原始字节序列。默认赋值逐字节复制，源 View 长度必须等于目标长度。比较按字典序执行：先比较共有前缀中的第一个不同字节；共有前缀完全相同时，长度较短者更小；长度相同且所有字节相同则相等。格式化默认以实现定义的字节展示格式输出。
+`bytes` is a raw byte sequence. Default assignment copies byte for byte, and the source View length MUST equal the destination length. Comparison is lexicographic: compare the first differing byte in the common prefix; when the common prefix is identical, the shorter length compares as less; when the lengths are equal and every byte is identical, the values compare as equal. Formatting uses an implementation-defined byte-display format by default.
 
-### 11.8 编译器内建优化
+### 11.8 Compiler Built-In Optimization
 
-实现可以把标准模板识别为编译器内建 fast path。
+An implementation MAY recognize standard templates as compiler-built-in fast paths.
 
 ```hs
 new a as i32 = 1
@@ -1149,36 +1147,36 @@ new b as i32 = 2
 new c as i32 = a + b
 ```
 
-标准语义视角：查找 `i32` 的 `op =` 和 `op +`。实现视角可以直接生成 32-bit signed integer add IR。
+From the perspective of standard semantics, the implementation resolves `op =` and `op +` for `i32`. From the implementation perspective, it MAY directly generate 32-bit signed-integer addition IR.
 
-### 11.9 可观察行为等价要求
+### 11.9 Observable-Behavior Equivalence Requirement
 
-无论标准模板通过源码库、编译器内建或二者组合实现，可观察行为必须与标准模板库定义一致。等价范围包括：编译期诊断、表达式结果长度、结果模板、写入字节序列、运行时错误行为、格式化输出、溢出和截断、浮点舍入、static-checked 与 checked 模式检查。
+Regardless of whether standard templates are implemented through a source library, compiler built-ins, or a combination of both, observable behavior MUST remain consistent with the definitions of the standard template library. The required equivalence includes compile-time diagnostics, expression-result lengths, result templates, written byte sequences, runtime-error behavior, formatted output, overflow and truncation, floating-point rounding, and checks in static-checked and checked modes.
 
-### 11.10 标准模板默认赋值矩阵
+### 11.10 Standard-Template Default-Assignment Matrix
 
-| 目标模板 | 可接受源 View | 写入语义 |
+| Destination template | Accepted source View | Write semantics |
 |---|---|---|
-| `iN` | 整数字面量、模板为 `none` 的整数 View、`iM`、`uM`、`bool` | 按整数数值写入 N-bit 二进制补码，宽度变化按 7.3 |
-| `uN` | 整数字面量、模板为 `none` 的整数 View、`iM`、`uM`、`bool` | 按无符号整数写入 N-bit，宽度变化按 7.3 |
-| `fN` | 浮点字面量、`fM` | 按 IEEE 754 数值转换到 N-bit 浮点；整数到浮点需使用 `to_f16()`、`to_f32()`、`to_f64()` 或 `to_f128()` |
-| `bool` | 任意 View | 全零为 `false`，其他为 `true`，写入 `0x00` 或 `0x01` |
-| `addr` | `addr`、整数字面量、携带整数解释属性的 `none` View、`iN`、`uN`、`bool` | 按地址值复制或按整数规则调整到 `P` 字节 |
-| `none` | 整数字面量、携带整数解释属性的 `none` View、`iN`、`uN`、`bool`、`addr` | 按原始整数赋值语义写入目标长度，宽度变化按 7.3；其他源必须显式给出转换或解释路径 |
-| `handle` | `handle` | 按不透明句柄值复制 |
-| `cstr` | 字符串字面量、`cstr` | 按 `%s=` 复制、截断并保证终止字节 |
-| `bytes` | 任意等长 View | 逐字节复制；长度不同必须诊断或由显式 `resize_bytes()` 处理 |
-| 用户模板 | 同模板 View | 有 `op =` 时执行该操作；无 `op =` 时逐字节复制 |
+| `iN` | Integer literal, integer View with template `none`, `iM`, `uM`, `bool` | Write the integer value as N-bit two's complement; width changes follow Section 7.3 |
+| `uN` | Integer literal, integer View with template `none`, `iM`, `uM`, `bool` | Write the value as an N-bit unsigned integer; width changes follow Section 7.3 |
+| `fN` | Floating-point literal, `fM` | Convert numerically to N-bit floating point according to IEEE 754; integer-to-floating conversion requires `to_f16()`, `to_f32()`, `to_f64()`, or `to_f128()` |
+| `bool` | Any View | All zero is `false`; any other bit pattern is `true`; write `0x00` or `0x01` |
+| `addr` | `addr`, integer literal, `none` View carrying an integer-interpretation attribute, `iN`, `uN`, `bool` | Copy the address value or adjust it to `P` bytes according to the integer rules |
+| `none` | Integer literal, `none` View carrying an integer-interpretation attribute, `iN`, `uN`, `bool`, `addr` | Write using raw-integer assignment semantics at the destination length; width changes follow Section 7.3; every other source MUST be given an explicit conversion or interpretation path |
+| `handle` | `handle` | Copy the opaque handle value |
+| `cstr` | String literal, `cstr` | Copy or truncate according to `%s=` and guarantee a terminating byte |
+| `bytes` | Any equal-length View | Copy byte for byte; a differing length MUST be diagnosed or handled through explicit `resize_bytes()` |
+| User template | View of the same template | Execute `op =` when defined; otherwise copy byte for byte |
 
-标准模板赋值矩阵是规范性接收规则，并且优先于 8.2 中普通 `impl op` 的形参模板相等性过滤。标准整数和浮点模板的普通操作、比较以及标准函数参数接收字面量时，也按本矩阵对应的接收语义解释字面量或 `none` 数值 View。`bool` 的“任意 View”和 `bytes` 的“任意等长 View”属于标准库元接收集合，可以用 `view`、`same_len_view` 或等价实现内部形式表示。附录 21 的伪代码只展示代表性同模板主路径；完整实现必须展开本矩阵中的所有接收组合，并保持相同可观察行为。
+The standard-template assignment matrix is a normative set of acceptance rules and takes precedence over the ordinary `impl op` formal-parameter template-equality filter in Section 8.2. When ordinary operations, comparisons, and standard-function parameters for standard integer and floating-point templates accept literals, the literal or numeric `none` View is interpreted according to the corresponding acceptance semantics in this matrix. “Any View” for `bool` and “any equal-length View” for `bytes` are standard-library meta-acceptance sets and MAY be represented internally using `view`, `same_len_view`, or an equivalent implementation form. The pseudocode in Appendix 21 shows only representative same-template primary paths. A complete implementation MUST expand every accepted combination in this matrix while preserving identical observable behavior.
 
-`as` 不触发数值转换。需要跨类别数值转换时必须使用 `to_fN()`、`to_iN()` 或 `to_uN()`；需要纯字节长度调整时使用 `resize_bytes()`；需要指定赋值解释路径时使用显式带类型赋值操作。
+`as` does not trigger numeric conversion. Cross-category numeric conversion MUST use `to_fN()`, `to_iN()`, or `to_uN()`. Pure byte-length adjustment uses `resize_bytes()`. An explicit typed assignment operation is used when a specific assignment-interpretation path is required.
 
 ---
 
-## 12. 函数、返回值与调用约定
+## 12. Functions, Return Values, and Calling Conventions
 
-### 12.1 函数定义
+### 12.1 Function Definitions
 
 ```hs
 func name(param0 as i32, param1[P] as addr) -> result as i32 {
@@ -1187,15 +1185,15 @@ func name(param0 as i32, param1[P] as addr) -> result as i32 {
 }
 ```
 
-函数参数是局部存储对象。普通函数和模板方法的参数传递按 View 值复制，参数模板只影响函数体内默认解释和诊断。实现可以优化复制方式，但可观察行为必须等价。
+Function parameters are local storage objects. Parameters of ordinary functions and template methods are passed by View-value copy. A parameter template affects only default interpretation and diagnostics within the function body. An implementation MAY optimize the copy mechanism, but observable behavior MUST remain equivalent.
 
-普通函数、模板方法和核心 `extern` 的按值参数必须能静态确定长度。省略长度时，只能由固定长度标准模板或用户模板推断；`bytes`、`cstr`、`none` 或省略模板的参数必须显式写出静态长度，例如 `buf[256] as bytes`。标准库签名中的 `view`、`lview`、`mem_view`、`mem_lview`、`cstr_view`、`bytes_view` 是 14.0 的元记号，不是普通函数参数语法。
+By-value parameters of ordinary functions, template methods, and core `extern` declarations MUST have statically determinable lengths. When the length is omitted, it can be inferred only from a fixed-length standard template or a user template. A parameter using `bytes`, `cstr`, `none`, or an omitted template MUST state an explicit static length, for example `buf[256] as bytes`. The `view`, `lview`, `mem_view`, `mem_lview`, `cstr_view`, and `bytes_view` forms used in standard-library signatures are meta-notation from Section 14.0 and are not ordinary function-parameter syntax.
 
-`op =` 的第一个参数是赋值语义的专门入口，按 10.4 以可写左值 View 借用方式传入。该规则不推广到普通函数参数。
+The first parameter of `op =` is the dedicated entry point for assignment semantics and is passed by borrowing a writable lvalue View according to Section 10.4. This rule does not extend to ordinary function parameters.
 
-### 12.2 返回值
+### 12.2 Return Values
 
-返回签名可以是无返回、单返回或多返回。返回项可具名或匿名，可使用长度和模板标注，也可使用模板简写。
+A return signature MAY specify no return value, one return value, or multiple return values. A return item MAY be named or anonymous, MAY use length and template annotations, or MAY use template shorthand.
 
 ```hs
 func f() -> i32 { ... }
@@ -1203,29 +1201,29 @@ func g() -> (ok as bool, value as f64) { ... }
 func h() -> () { ... }
 ```
 
-省略返回签名等价于 `-> ()`。具名返回项在函数入口创建为局部返回存储对象，名称在函数体作用域内可见；未显式写入前处于未初始化状态。`return` 表达式按返回项顺序赋值到返回 View；无表达式 `return` 在存在具名返回项时返回当前返回存储内容，在匿名返回项函数中只能用于 `-> ()`。普通函数、模板方法和用户 `op` 的返回项必须能静态确定长度；`none`、`bytes` 和 `cstr` 作为返回模板时必须显式写出长度。返回值数量不匹配必须产生编译诊断；运行期无法静态判断的扩展按执行模式处理。标准库内建动态长度结果只按第 14 章元签名使用。
+Omitting the return signature is equivalent to `-> ()`. A named return item is created at function entry as a local return storage object, and its name is visible in the function-body scope. It remains uninitialized until explicitly written. `return` expressions are assigned to return Views in return-item order. A `return` statement with no expression returns the current contents of named return storage when named return items exist; in a function with anonymous return items, an expressionless `return` is permitted only for `-> ()`. Return items of ordinary functions, template methods, and user `op` definitions MUST have statically determinable lengths. When `none`, `bytes`, or `cstr` is used as a return template, an explicit length MUST be stated. A return-value-count mismatch MUST produce a compile-time diagnostic. An extension involving a condition that cannot be decided statically is handled according to the execution mode. Dynamic-length results of standard-library built-ins are used only through the meta-signatures in Chapter 14.
 
-### 12.3 函数调用
+### 12.3 Function Calls
 
-函数调用先求值所有参数，形成参数 View 序列；然后进入函数体。实参之间的求值顺序由实现选择并文档化，实参之间不形成序列点；所有参数求值完成后、函数体执行前形成序列点。参数数量、长度和模板约束必须满足函数签名。
+A function call first evaluates every argument to form a sequence of argument Views, then enters the function body. The implementation chooses and documents the evaluation order among arguments. Arguments do not establish sequence points with one another. A sequence point is established after all arguments have been evaluated and before execution of the function body. Argument count, length, and template constraints MUST satisfy the function signature.
 
 ### 12.4 `main`
 
-实现必须文档化 `main` 函数约定。可移植程序应当使用以下形式：
+An implementation MUST document its `main` function convention. A portable program SHOULD use the following form:
 
 ```hs
 func main() -> i32 { ... }
 ```
 
-返回值按宿主环境进程退出码处理。无返回 `main` 视为返回 0，除非实现文档化其他行为。
+The return value is treated as the process exit code by the host environment. A `main` with no return value is treated as returning 0 unless the implementation documents other behavior.
 
 ---
 
-## 13. 控制流与错误处理
+## 13. Control Flow and Error Handling
 
-### 13.1 条件语句
+### 13.1 Conditional Statements
 
-`if` 条件按布尔判断规则求值。`else if` 按书写顺序检查。
+An `if` condition is evaluated according to the Boolean-test rules. `else if` branches are tested in written order.
 
 ```hs
 if (condition) {
@@ -1235,9 +1233,9 @@ if (condition) {
 }
 ```
 
-### 13.2 循环语句
+### 13.2 Loop Statements
 
-`for` 语法：
+`for` syntax:
 
 ```hs
 for (init; condition; post) {
@@ -1245,21 +1243,21 @@ for (init; condition; post) {
 }
 ```
 
-`init`、`condition`、`post` 之间形成序列点。`for` 循环体内执行 `continue` 时，先按作用域规则处理离开的局部对象，再执行 `post`，随后进入下一轮 `condition` 求值。`while` 每轮先求值条件；`while` 循环体内执行 `continue` 时直接进入下一轮条件求值。
+Sequence points occur between `init`, `condition`, and `post`. When `continue` executes inside a `for` body, local objects in scopes being exited are processed according to the scope rules, then `post` executes, and the next evaluation of `condition` begins. A `while` loop evaluates its condition before every iteration. When `continue` executes inside a `while` body, control proceeds directly to the next condition evaluation.
 
-### 13.3 跳转语句
+### 13.3 Jump Statements
 
-`break` 终止最近一层循环。`continue` 进入最近一层循环的下一次迭代。`goto label` 跳转到同一函数内标签。跳转离开作用域时按作用域规则释放局部 `new` 对象。
+`break` terminates the nearest enclosing loop. `continue` begins the next iteration of the nearest enclosing loop. `goto label` jumps to a label within the same function. When a jump leaves a scope, local `new` objects are released according to the scope rules.
 
-`break` 或 `continue` 出现在循环外必须产生编译诊断。`goto` 目标标签必须位于同一函数内；未定义标签、重复标签或跨函数跳转必须产生编译诊断。`goto` 跳入尚未初始化的局部存储对象作用域必须产生编译诊断，或在无法静态判断时按执行模式处理。
+A `break` or `continue` outside a loop MUST produce a compile-time diagnostic. The target label of a `goto` MUST be in the same function. An undefined label, duplicate label, or cross-function jump MUST produce a compile-time diagnostic. A `goto` that enters the scope of a local storage object that has not yet been initialized MUST produce a compile-time diagnostic, or, when the condition cannot be decided statically, be handled according to the execution mode.
 
-### 13.4 自增自减
+### 13.4 Increment and Decrement
 
-`lvalue++` 和 `lvalue--` 是语句。带整数标准模板的左值按对应模板整数语义执行；模板为 `none` 的左值按当前长度执行整数加一或减一。对 `fN`、`bool`、`addr`、`cstr`、`bytes` 或用户模板左值使用 `++`、`--` 必须产生编译诊断。
+`lvalue++` and `lvalue--` are statements. An lvalue carrying an integer standard template uses the corresponding template's integer semantics. An lvalue whose template is `none` performs integer increment or decrement at its current length. Using `++` or `--` on an lvalue with template `fN`, `bool`, `addr`, `cstr`, `bytes`, or a user template MUST produce a compile-time diagnostic.
 
-### 13.5 错误处理
+### 13.5 Error Handling
 
-`try-catch-throw` 用于显式错误处理。错误值本质上是内存数据。
+`try-catch-throw` provides explicit error handling. An error value is fundamentally memory data.
 
 ```hs
 try {
@@ -1269,212 +1267,212 @@ try {
 }
 ```
 
-`throw expression` 将表达式结果赋值给最近的动态 `catch` 参数。`catch` 参数是局部存储对象，可带模板，长度按普通局部声明规则静态确定：固定长度标准模板和用户模板可推断长度；`bytes`、`cstr`、`none` 或省略模板时必须提供显式静态长度。长度无法静态确定时必须产生编译诊断。赋值失败按普通赋值诊断或运行时错误处理。每个 `try` 只能带一个 `catch`；嵌套 `try` 按动态最近原则匹配。传播 `throw` 时，离开作用域的局部 `new` 对象按 5.5 释放。没有匹配 `catch` 时，程序以实现定义的错误状态终止，并按实现文档执行运行时资源释放。unchecked 和 static-checked 模式下运行时未定义行为不会自动转换为 `throw`；checked 模式下已检测到的运行时错误可以按实现文档转化为 `throw`。
+`throw expression` assigns the expression result to the dynamically nearest `catch` parameter. A `catch` parameter is a local storage object and MAY carry a template. Its length is determined statically according to ordinary local-declaration rules: a fixed-length standard template or user template MAY infer the length; `bytes`, `cstr`, `none`, or an omitted template requires an explicit static length. Failure to determine the length statically MUST produce a compile-time diagnostic. Assignment failure is handled through ordinary assignment diagnostics or runtime errors. Each `try` can have only one `catch`; nested `try` statements match according to dynamic nearest-enclosing order. During `throw` propagation, local `new` objects in scopes being exited are released according to Section 5.5. When no matching `catch` exists, the program terminates with an implementation-defined error status and performs runtime resource release according to implementation documentation. Runtime undefined behavior in unchecked and static-checked modes is not automatically converted into `throw`. In checked mode, a detected runtime error MAY be converted into `throw` according to implementation documentation.
 
 ---
 
-## 14. 标准库函数
+## 14. Standard-Library Functions
 
-标准库函数使用 View 模型定义参数和返回值。实现可以提供内建实现，但必须保持可观察行为。标准函数不是语言原语：每次使用前必须显式 `$include` 所属的系统头文件；缺少头文件、包含错误头文件、手写 `extern` 声明标准函数或与官方声明冲突都必须产生编译诊断。头文件中的声明是用户接口，内建身份和任何优化都属于实现细节，不得改变本章可观察语义。
+Standard-library functions define their parameters and return values using the View model. An implementation MAY provide built-in implementations, but MUST preserve observable behavior. A standard function is not a language primitive: its owning system header MUST be explicitly included with `$include` before each use. A missing header, inclusion of the wrong header, a handwritten `extern` declaration for a standard function, or a declaration that conflicts with the official declaration MUST produce a compile-time diagnostic. Declarations in headers form the user interface. Built-in identity and optimization are implementation details and MUST NOT change the observable semantics in this chapter.
 
-| 系统头文件 | 提供能力 |
+| System header | Facilities provided |
 |---|---|
-| `stdlib.hsh` | 分配、长度与字节转换、数值转换、整数数学、随机数、进程控制 |
-| `string.hsh` | 内存复制与比较、C 字符串 |
-| `stdio.hsh` | 标准输入输出、格式化 I/O、文件 I/O |
-| `math.hsh` | `f16`、`f32`、`f64`、`f128` 数学函数 |
-| `ctype.hsh` | ASCII 字符分类和大小写转换 |
-| `time.hsh` | `time_ms()`、`clock_ms()` |
-| `assert.hsh` | `assert()`、`panic()` |
+| `stdlib.hsh` | Allocation, length and byte conversion, numeric conversion, integer mathematics, random numbers, process control |
+| `string.hsh` | Memory copy and comparison, C strings |
+| `stdio.hsh` | Standard input/output, formatted I/O, file I/O |
+| `math.hsh` | Mathematical functions for `f16`, `f32`, `f64`, and `f128` |
+| `ctype.hsh` | ASCII character classification and case conversion |
+| `time.hsh` | `time_ms()`, `clock_ms()` |
+| `assert.hsh` | `assert()`, `panic()` |
 
-### 14.0 签名记号
+### 14.0 Signature Notation
 
-本章使用以下元记号描述标准库签名。`view`、`lview`、`mem_view`、`mem_lview`、`cstr_view`、`bytes_view`、`T`、`...`、`left-context` 和 `none[len]` 不是核心语法中的模板名；`addr`、`handle`、`iN`、`uN`、`fN`、`u64`、`i32`、`bool` 表示对应标准模板或签名模式。
+This chapter uses the following meta-notation to describe standard-library signatures. `view`, `lview`, `mem_view`, `mem_lview`, `cstr_view`, `bytes_view`, `T`, `...`, `left-context`, and `none[len]` are not template names in core syntax. `addr`, `handle`, `iN`, `uN`, `fN`, `u64`, `i32`, and `bool` denote the corresponding standard templates or signature patterns.
 
-| 记号 | 含义 |
+| Notation | Meaning |
 |---|---|
-| `view` | 任意左值或右值 View |
-| `lview` | 可写左值 View |
-| `mem_view` | 内存操作数；`len > 0` 时等价可读 View，`len == 0` 时可以由可求值地址形成且不解引用 |
-| `mem_lview` | 可写内存操作数；`len > 0` 时等价可写左值 View，`len == 0` 时可以由可求值地址形成且不解引用 |
-| `same_len_view` | 标准库元形参，表示源 View 长度必须与对应目标 View 长度相同 |
-| `cstr_view` | 携带 `cstr` 模板且包含终止 `0x00` 的 View |
-| `bytes_view` | 任意字节序列 View；名称表示按字节读取能力，不要求携带 `bytes` 模板 |
-| `addr` | 长度为 `P` 且模板为 `addr` 的 View |
-| `handle` | 长度为 `P` 且模板为 `handle` 的文件句柄 View |
-| `iN` / `uN` | `i8/i16/i32/i64` 或 `u8/u16/u32/u64` 中的一个具体模板，`N` 表示 bit 宽度 |
-| `fN` | `f16/f32/f64/f128` 中的一个具体模板，`N` 表示 bit 宽度 |
-| `T` | 同一签名内反复出现时表示同一个已展开的具体标准模板 |
-| `u64` | 8 字节无符号整数模板 |
-| `i32` | 4 字节有符号整数模板 |
-| `bool` | 1 字节布尔模板 |
-| `...` | vararg 参数序列，参数数量和解释由格式字符串或实现 ABI 决定 |
-| `left-context` | 只能作为多重赋值整条右侧使用的内建结果形式，规则见 14.4 |
-| `none[len]` | 标准库元签名中的动态或静态长度 `none` 右值 View，`len` 由签名中的参数、源 View 长度或固定常量给出 |
+| `view` | Any lvalue or rvalue View |
+| `lview` | Writable lvalue View |
+| `mem_view` | Memory operand; when `len > 0`, equivalent to a readable View; when `len == 0`, MAY be formed from an evaluable address without dereference |
+| `mem_lview` | Writable memory operand; when `len > 0`, equivalent to a writable lvalue View; when `len == 0`, MAY be formed from an evaluable address without dereference |
+| `same_len_view` | Standard-library meta-parameter for which the source View length MUST equal the corresponding destination View length |
+| `cstr_view` | A View carrying template `cstr` and containing a terminating `0x00` |
+| `bytes_view` | Any byte-sequence View; the name denotes byte-reading capability and does not require the `bytes` template |
+| `addr` | A View of length `P` and template `addr` |
+| `handle` | A file-handle View of length `P` and template `handle` |
+| `iN` / `uN` | One concrete template among `i8/i16/i32/i64` or `u8/u16/u32/u64`, where `N` denotes bit width |
+| `fN` | One concrete template among `f16/f32/f64/f128`, where `N` denotes bit width |
+| `T` | Repeated occurrences within one signature denote the same expanded concrete standard template |
+| `u64` | 8-byte unsigned-integer template |
+| `i32` | 4-byte signed-integer template |
+| `bool` | 1-byte Boolean template |
+| `...` | Vararg sequence; argument count and interpretation are determined by the format string or implementation ABI |
+| `left-context` | Built-in result form that MAY be used only as the entire right-hand side of a multiple-assignment statement; see Section 14.4 |
+| `none[len]` | Dynamic- or static-length `none` rvalue View in a standard-library meta-signature, where `len` is supplied by a parameter, source-View length, or fixed constant in the signature |
 
-含 `iN`、`uN`、`fN` 或 `T` 的标准库签名是签名模式。实现必须把签名模式展开为具体标准模板组合；例如 `f_sqrt(x as fN) -> fN` 展开为 `f16/f32/f64/f128` 的同模板重载，`min(a as T, b as T) -> T` 展开为同一整数或浮点模板的重载。返回模板由展开后的具体签名确定，不得由返回值上下文反推。
+A standard-library signature containing `iN`, `uN`, `fN`, or `T` is a signature pattern. An implementation MUST expand a signature pattern into concrete combinations of standard templates. For example, `f_sqrt(x as fN) -> fN` expands into same-template overloads for `f16/f32/f64/f128`, and `min(a as T, b as T) -> T` expands into overloads in which both operands use the same integer or floating-point template. The return template is determined by the expanded concrete signature and MUST NOT be inferred backward from return-value context.
 
-`none[len]` 是标准库专用动态长度结果。结果进入声明省略长度、返回签名、`op` 返回签名等需要静态长度的位置时，其长度来源必须可静态求值。所有 `len`、`size`、`count` 参数按 `u64` 解释。涉及 `size * count` 的函数按执行模式规则处理乘法溢出。标准库普通函数只按函数调用解析，不自动参与模板方法调用。
+`none[len]` is a standard-library-specific dynamic-length result. When such a result enters a position that requires a static length, including a declaration with omitted length, a return signature, or an `op` return signature, its length source MUST be statically evaluable. Every `len`, `size`, and `count` parameter is interpreted as `u64`. A function involving `size * count` handles multiplication overflow according to the execution-mode rules. Ordinary standard-library functions are parsed only as function calls and do not automatically participate in template-method calls.
 
-本章表格写作“checked 模式必须报错”的标准库安全条件，在 static-checked 模式下只采用可静态证明子集，并产生编译期诊断。
+Where a table in this chapter states that a standard-library safety condition “MUST report an error in checked mode,” static-checked mode applies only the statically provable subset and produces a compile-time diagnostic.
 
-标准库签名中的 `lview` 和 `mem_lview` 表示对调用方可写 View 的借用，标准库函数写入直接作用于原 View 所定位的存储区域。该借用规则只适用于本章标准库元签名以及 `op =` 的目标参数；普通用户函数和模板方法参数仍按 12.1 的 View 值复制传递。`mem_view` 和 `mem_lview` 在 `len == 0` 时可以由地址值形成零长度内存操作数，形成过程中不得执行解引用。
+In standard-library signatures, `lview` and `mem_lview` denote borrowing of a caller-writable View; standard-library writes act directly on the storage region located by the original View. This borrowing rule applies only to the standard-library meta-signatures in this chapter and to the target parameter of `op =`. Parameters of ordinary user functions and template methods continue to be passed by View-value copy according to Section 12.1. When `len == 0`, `mem_view` and `mem_lview` MAY be formed from an address value as zero-length memory operands; their formation MUST NOT perform any dereference.
 
-例如 `memcpy(dst_addr as addr, src_addr as addr, 0)` 合法，函数不读取也不写入两端地址指向的内容。若同一调用的运行时 `len > 0`，`dst` 必须是可写内存 View，`src` 必须是可读内存 View，并按本章边界规则检查容量。只产生裸 `addr` 的实参在正长度内存操作中必须能关联到动态对象、静态对象、全局对象、切片或外部对象的边界元数据；无法证明或检测容量时，unchecked 模式行为属于未定义行为，static-checked 模式采用可静态证明子集，checked 模式必须报告运行时错误。
+For example, `memcpy(dst_addr as addr, src_addr as addr, 0)` is valid, and the function neither reads nor writes the content pointed to by either address. When runtime `len > 0` in the same call, `dst` MUST be a writable memory View and `src` MUST be a readable memory View, with capacity checked according to this chapter. A raw `addr` argument used in a positive-length memory operation MUST be associable with boundary metadata for a dynamic object, static object, global object, slice, or external object. When capacity cannot be proven or detected, unchecked-mode behavior is undefined, static-checked mode applies its statically provable subset, and checked mode MUST report a runtime error.
 
-### 14.1 内存管理与字节操作
+### 14.1 Memory Management and Byte Operations
 
-| 函数 | 签名 | 边界与失败规则 |
+| Function | Signature | Boundary and failure rules |
 |---|---|---|
-| `length` | `length(x as view) -> u64` | 返回 `x` 的 View 长度。 |
-| `alloc` | `alloc(size as u64) -> addr` | 分配 `size` 字节动态对象。`size == 0` 的返回值属于实现定义行为。分配失败返回空地址或按实现文档抛错。 |
-| `calloc` | `calloc(count as u64, size as u64) -> addr` | 分配 `count * size` 字节并填充 `0x00`。乘法溢出在 checked 模式下必须报错。 |
-| `realloc` | `realloc(ptr as addr, size as u64) -> addr` | `ptr` 为空地址时等价于 `alloc(size)`；非空时必须是当前有效动态对象基地址。`size == 0` 时释放对象并返回空地址或实现定义地址。失败时原对象保持有效。内部地址、切片地址、偏移地址、非动态地址、重复释放地址或释放后地址在 checked 模式下可检测时必须报错。 |
-| `free` | `free(ptr as addr) -> ()` | 空地址无效果。非空时必须是当前有效动态对象基地址；内部地址、切片地址、偏移地址、非动态地址、重复释放地址或释放后地址在 checked 模式下可检测时必须报错。 |
-| `memset` | `memset(dst as mem_lview, value as view, len as u64) -> addr` | 写入 `len` 字节；`value` 取最低 1 字节。`len > length(dst)` 时 checked 模式必须报错。返回目标起始地址。 |
-| `memcpy` | `memcpy(dst as mem_lview, src as mem_view, len as u64) -> addr` | 复制 `len` 字节；`len > length(dst)` 或 `len > length(src)` 时 checked 模式必须报错。源和目标重叠属于未定义行为；checked 模式下可检测重叠时必须报错。返回目标起始地址。 |
-| `memmove` | `memmove(dst as mem_lview, src as mem_view, len as u64) -> addr` | 复制 `len` 字节，支持重叠；`len > length(dst)` 或 `len > length(src)` 时 checked 模式必须报错。返回目标起始地址。 |
-| `memcmp` | `memcmp(a as mem_view, b as mem_view, len as u64) -> i32` | 比较前 `len` 字节；`len > length(a)` 或 `len > length(b)` 时 checked 模式必须报错。返回负数、0 或正数；非零返回值绝对值属于实现定义行为。 |
+| `length` | `length(x as view) -> u64` | Return the View length of `x`. |
+| `alloc` | `alloc(size as u64) -> addr` | Allocate a dynamic object of `size` bytes. The return value for `size == 0` is implementation-defined. On allocation failure, return the null address or throw according to implementation documentation. |
+| `calloc` | `calloc(count as u64, size as u64) -> addr` | Allocate `count * size` bytes and fill them with `0x00`. In checked mode, multiplication overflow MUST be reported as an error. |
+| `realloc` | `realloc(ptr as addr, size as u64) -> addr` | A null `ptr` is equivalent to `alloc(size)`; a non-null `ptr` MUST be the base address of a currently valid dynamic object. When `size == 0`, release the object and return the null address or an implementation-defined address. On failure, the original object remains valid. In checked mode, an error MUST be reported when an interior address, slice address, offset address, non-dynamic address, already-freed base address, or dangling address to a freed object is supplied and the condition is detectable. |
+| `free` | `free(ptr as addr) -> ()` | A null address has no effect. A non-null address MUST be the base address of a currently valid dynamic object. In checked mode, an error MUST be reported when an interior address, slice address, offset address, non-dynamic address, already-freed base address, or dangling address to a freed object is supplied and the condition is detectable. |
+| `memset` | `memset(dst as mem_lview, value as view, len as u64) -> addr` | Write `len` bytes; use the lowest 1 byte of `value`. When `len > length(dst)`, checked mode MUST report an error. Return the destination start address. |
+| `memcpy` | `memcpy(dst as mem_lview, src as mem_view, len as u64) -> addr` | Copy `len` bytes. When `len > length(dst)` or `len > length(src)`, checked mode MUST report an error. Overlap between source and destination is undefined behavior; checked mode MUST report an error when overlap can be detected. Return the destination start address. |
+| `memmove` | `memmove(dst as mem_lview, src as mem_view, len as u64) -> addr` | Copy `len` bytes with overlap supported. When `len > length(dst)` or `len > length(src)`, checked mode MUST report an error. Return the destination start address. |
+| `memcmp` | `memcmp(a as mem_view, b as mem_view, len as u64) -> i32` | Compare the first `len` bytes. When `len > length(a)` or `len > length(b)`, checked mode MUST report an error. Return a negative value, 0, or a positive value; the absolute magnitude of a nonzero result is implementation-defined. |
 
-`memset`、`memcpy`、`memmove`、`memcmp` 的 `len == 0` 合法；此时不访问源或目标内容，也不要求地址可解引用。参数表达式仍必须可求值为地址或 View；实现不得为了形成零长度内存操作数而执行空地址解引用。
+A `len` value of 0 is valid for `memset`, `memcpy`, `memmove`, and `memcmp`. In that case, source and destination content is not accessed, and the addresses need not be dereferenceable. Parameter expressions MUST still be evaluable as addresses or Views. An implementation MUST NOT dereference a null address merely to form a zero-length memory operand.
 
-示例：`memcpy(dst_addr as addr, src_addr as addr, 0)` 合法，`dst_addr` 和 `src_addr` 只需可求值为地址 View。运行时 `len > 0` 时，源参数必须形成可读 View，目标参数必须形成可写 View；裸 `addr` 实参只有在实现能取得对应对象边界时才满足正长度 `mem_view` / `mem_lview` 要求，并按本节规则完成边界检查。
+Example: `memcpy(dst_addr as addr, src_addr as addr, 0)` is valid. `dst_addr` and `src_addr` need only be evaluable as address Views. When runtime `len > 0`, the source argument MUST form a readable View and the destination argument MUST form a writable View. A raw `addr` argument satisfies the positive-length `mem_view`/`mem_lview` requirement only when the implementation can obtain the corresponding object boundaries, after which boundary checks are performed according to this section.
 
-### 14.2 转换函数
+### 14.2 Conversion Functions
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `to_f16` / `to_f32` / `to_f64` / `to_f128` | `(data as view) -> f16/f32/f64/f128` | 将整数或浮点 View 按数值转换为对应浮点模板。 |
-| `to_i8` / `to_i16` / `to_i32` / `to_i64` | `(data as view) -> i8/i16/i32/i64` | 将整数或浮点 View 按数值转换为对应有符号整数模板；越界处理按实现文档或 checked 模式错误规则执行。 |
-| `to_u8` / `to_u16` / `to_u32` / `to_u64` | `(data as view) -> u8/u16/u32/u64` | 将整数或浮点 View 按数值转换为对应无符号整数模板；越界处理按实现文档或 checked 模式错误规则执行。 |
-| `resize_bytes` | `resize_bytes(expr as view, length as u64) -> none[length]` | 按 7.8 调整字节长度，结果模板为 `none`，结果长度等于 `length`。出现在需要静态长度的位置时，`length` 必须可静态求值。 |
-| `byte_swap` | `byte_swap(expr as view) -> none[length(expr)]` | 返回字节顺序反转后的右值 View，长度与源相同，模板为 `none`。 |
+| `to_f16` / `to_f32` / `to_f64` / `to_f128` | `(data as view) -> f16/f32/f64/f128` | Convert an integer or floating-point View numerically to the corresponding floating-point template. |
+| `to_i8` / `to_i16` / `to_i32` / `to_i64` | `(data as view) -> i8/i16/i32/i64` | Convert an integer or floating-point View numerically to the corresponding signed-integer template; out-of-range handling follows implementation documentation or checked-mode error rules. |
+| `to_u8` / `to_u16` / `to_u32` / `to_u64` | `(data as view) -> u8/u16/u32/u64` | Convert an integer or floating-point View numerically to the corresponding unsigned-integer template; out-of-range handling follows implementation documentation or checked-mode error rules. |
+| `resize_bytes` | `resize_bytes(expr as view, length as u64) -> none[length]` | Adjust the byte length according to Section 7.8. The result template is `none`, and the result length equals `length`. At a position requiring a static length, `length` MUST be statically evaluable. |
+| `byte_swap` | `byte_swap(expr as view) -> none[length(expr)]` | Return an rvalue View with reversed byte order, the same length as the source, and template `none`. |
 
-转换函数读取规则：模板为 `iN`、`uN` 或 `none` 且携带整数解释属性的 View 按整数数值读取；模板为 `fN` 的 View 按 IEEE 754 数值读取；模板为 `bool` 的 View 按布尔值读取为 0 或 1；模板为 `addr` 的 View 可转为无符号整数；`bytes`、`cstr`、用户模板和无解释属性的 `none` View 作为转换输入时必须先用 `as`、`?` 或显式标准函数给出解释。
+Conversion-function read rules are as follows: a View with template `iN`, `uN`, or `none` carrying an integer-interpretation attribute is read as an integer value; a View with template `fN` is read as an IEEE 754 value; a View with template `bool` is read as Boolean value 0 or 1; a View with template `addr` MAY be converted to an unsigned integer. A `bytes`, `cstr`, user-template, or uninterpreted `none` View used as conversion input MUST first be given an interpretation through `as`, `?`, or an explicit standard function.
 
-### 14.3 字符串与缓冲区函数
+### 14.3 String and Buffer Functions
 
-| 函数 | 签名 | 边界与失败规则 |
+| Function | Signature | Boundary and failure rules |
 |---|---|---|
-| `strlen` | `strlen(s as cstr_view) -> u64` | 返回终止 `0x00` 之前的字节数。View 范围内没有终止字节时，checked 模式必须报错。 |
-| `strcmp` | `strcmp(a as cstr_view, b as cstr_view) -> i32` | 按 C 字符串字节序比较。 |
-| `strcpy` | `strcpy(dst as lview, src as cstr_view) -> addr` | 复制含终止字节的字符串。`length(dst)` 不足时 checked 模式必须报错。返回 `&dst`。 |
-| `strncpy` | `strncpy(dst as lview, src as cstr_view, n as u64) -> addr` | `n == 0` 时不写入。`n > length(dst)` 时 checked 模式必须报错。`n > 0` 时写入恰好 `n` 字节：若 `src` 的终止字节在前 `n` 字节内出现，则复制终止字节并用 `0x00` 填充剩余范围；若前 `n` 字节内没有终止字节，则不追加额外终止字节。返回 `&dst`。 |
-| `strcat` | `strcat(dst as lview, src as cstr_view) -> addr` | 在 `dst` 可见范围内查找现有终止字节，并在该位置追加 `src`。找不到终止字节或容量不足时，checked 模式必须报错。返回 `&dst`。 |
-| `strchr` | `strchr(s as cstr_view, ch as view) -> addr` | 查找 `ch` 的最低字节。找到时返回该字节地址；否则返回空地址。返回地址的有效期不超过 `s` 所定位存储的生命周期；`s` 为临时右值时，该地址只在当前完整表达式内有效。 |
+| `strlen` | `strlen(s as cstr_view) -> u64` | Return the number of bytes before the terminating `0x00`. When no terminating byte exists within the View extent, checked mode MUST report an error. |
+| `strcmp` | `strcmp(a as cstr_view, b as cstr_view) -> i32` | Compare according to C-string byte order. |
+| `strcpy` | `strcpy(dst as lview, src as cstr_view) -> addr` | Copy the string including its terminating byte. When `length(dst)` is insufficient, checked mode MUST report an error. Return `&dst`. |
+| `strncpy` | `strncpy(dst as lview, src as cstr_view, n as u64) -> addr` | When `n == 0`, write nothing. When `n > length(dst)`, checked mode MUST report an error. When `n > 0`, write exactly `n` bytes: when the terminating byte of `src` occurs among the first `n` bytes, copy the terminator and fill the remaining range with `0x00`; when no terminator occurs among the first `n` bytes, append no additional terminating byte. Return `&dst`. |
+| `strcat` | `strcat(dst as lview, src as cstr_view) -> addr` | Search the visible extent of `dst` for its existing terminator and append `src` at that position. When no terminator is found or capacity is insufficient, checked mode MUST report an error. Return `&dst`. |
+| `strchr` | `strchr(s as cstr_view, ch as view) -> addr` | Search for the lowest byte of `ch`. Return the address of the matching byte when found; otherwise return the null address. The returned address remains valid no longer than the lifetime of the storage located by `s`. When `s` is a temporary rvalue, the address is valid only within the current full expression. |
 
-### 14.4 标准输入输出
+### 14.4 Standard Input and Output
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `get` | `get() -> i32` | 从标准输入读取一个字节，返回 `[0,255]`；文件结束或错误返回实现定义负值。 |
-| `put` | `put(x as view) -> i32` | 将 `x` 的原始字节写入标准输出，返回写入字节数或负错误码。 |
-| `print` | `print(x as view) -> i32` | 模板为 `none` 的 View 使用实现定义字节格式；携带标准模板或用户模板的 View 必须存在匹配 `op format`，缺失时必须产生编译诊断。 |
-| `printf` | `printf(fmt as cstr_view, ...) -> i32` | 按格式字符串输出，返回写入字节数或负错误码。 |
-| `scanf` | `scanf(fmt as cstr_view) -> left-context` | 标准库内置左上下文输入函数，只能作为多重赋值语句的唯一右侧表达式。 |
+| `get` | `get() -> i32` | Read one byte from standard input and return a value in `[0,255]`; return an implementation-defined negative value at end of file or on error. |
+| `put` | `put(x as view) -> i32` | Write the raw bytes of `x` to standard output and return the number of bytes written or a negative error code. |
+| `print` | `print(x as view) -> i32` | A View whose template is `none` uses an implementation-defined byte format. A View carrying a standard or user template MUST have a matching `op format`; its absence MUST produce a compile-time diagnostic. |
+| `printf` | `printf(fmt as cstr_view, ...) -> i32` | Write according to the format string and return the number of bytes written or a negative error code. |
+| `scanf` | `scanf(fmt as cstr_view) -> left-context` | Built-in left-context input function that MAY appear only as the sole right-hand expression of a multiple-assignment statement. |
 
-`print()` 的模板格式化解析使用普通 `op format` 候选规则。标准模板的 `format` 由标准模板库提供；用户模板需要在对应 `impl` 中显式声明标准签名的 `op format`。模板为 `none` 的 View 不进入 `op format` 解析。
+Template formatting for `print()` uses the ordinary `op format` candidate rules. The standard template library provides `format` for standard templates. A user template requires an explicit standard-signature `op format` declaration in the corresponding `impl`. A View whose template is `none` does not enter `op format` resolution.
 
-当格式字符串是字面量时，转换项数量、左上下文目标数量、目标模板和 `%s` 容量必须静态检查。`%s` 输入目标容量由对应左侧目标长度决定，最多写入 `length(target)-1` 个 UTF-8 字节并追加 `0x00`。
+When the format string is a literal, the number of conversion specifications, the number of left-context targets, target templates, and `%s` capacities MUST be checked statically. The capacity of a `%s` input target is determined by the length of the corresponding left-hand target; at most `length(target)-1` UTF-8 bytes are written, followed by `0x00`.
 
-`scanf` 和 `fscanf` 的 `left-context` 协议只允许以下多重赋值形式：
+The `left-context` protocol of `scanf` and `fscanf` permits only the following multiple-assignment forms:
 
 ```hs
 count, target0, target1 = scanf(fmt)
 count, target0, target1 = fscanf(handle, fmt)
 ```
 
-若格式字符串包含 `K` 个会执行赋值的转换项，`K` 必须大于 0，左侧必须提供 `K + 1` 个目标。左侧第一个目标接收 `i32` 转换计数，可以写作 `_` 丢弃；其余目标按格式项顺序作为可写扫描目标传入，并且必须是普通可写左值。`_` 只用于丢弃转换计数。成功转换的目标立即写入；发生匹配失败、容量不足、输入结束或 I/O 错误时，失败项及其后续目标保持原值。返回计数为成功写入的扫描目标数量；输入结束或 I/O 错误发生在第一个转换前时返回 `-1`；匹配失败发生在第一个转换前时返回 `0`。字面量格式字符串没有赋值转换项时必须产生编译诊断；动态格式字符串在 checked 模式下必须运行时检查目标数量、目标模板、目标容量和 `K > 0`。
+When a format string contains `K` conversion specifications that perform assignment, `K` MUST be greater than 0, and the left-hand side MUST provide `K + 1` targets. The first left-hand target receives the `i32` conversion count and MAY be written as `_` to discard it. Remaining targets are passed as writable scan targets in format-specification order and MUST be ordinary writable lvalues. `_` can be used only to discard the conversion count. A successfully converted target is written immediately. On matching failure, insufficient capacity, end of input, or an I/O error, the failed target and all subsequent targets retain their original values. The return count is the number of scan targets written successfully. When end of input or an I/O error occurs before the first conversion, return `-1`. When matching failure occurs before the first conversion, return `0`. A literal format string containing no assigning conversion specification MUST produce a compile-time diagnostic. For a dynamic format string, checked mode MUST validate at runtime the number of targets, target templates, target capacities, and `K > 0`.
 
-### 14.5 文件 I/O
+### 14.5 File I/O
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `fopen` | `fopen(name as cstr_view, mode as cstr_view) -> handle` | 打开文件，失败返回空句柄（全零 `P` 字节 `handle`）或按实现文档抛错。 |
-| `fclose` | `fclose(fh as handle) -> i32` | 关闭文件，成功返回 0，失败返回负错误码或实现定义错误码。 |
-| `fget` | `fget(fh as handle) -> i32` | 读取一个字节，文件结束或错误返回实现定义负值。 |
-| `fput` | `fput(fh as handle, x as view) -> i32` | 写入 `x` 的原始字节，返回写入字节数或负错误码。 |
-| `fread` | `fread(dst as lview, size as u64, count as u64, fh as handle) -> u64` | 最多写入 `size * count` 字节，返回成功读取的元素数量。乘法溢出或目标容量不足在 checked 模式下必须报错。 |
-| `fwrite` | `fwrite(src as view, size as u64, count as u64, fh as handle) -> u64` | 最多读取 `size * count` 字节，返回成功写入的元素数量。乘法溢出或 `size * count > length(src)` 在 checked 模式下必须报错。 |
-| `fprintf` | `fprintf(fh as handle, fmt as cstr_view, ...) -> i32` | 文件格式化输出。 |
-| `fscanf` | `fscanf(fh as handle, fmt as cstr_view) -> left-context` | 文件格式化输入，左上下文、部分成功和失败规则同 `scanf`。 |
-| `fflush` | `fflush(fh as handle) -> i32` | 刷新流。 |
-| `fseek` | `fseek(fh as handle, offset as i64, whence as i32) -> i32` | 定位文件位置。`whence` 取值由实现文档定义；实现应当兼容 C 的 `SEEK_SET/SEEK_CUR/SEEK_END`。 |
-| `ftell` | `ftell(fh as handle) -> i64` | 返回当前位置；失败返回负错误码。 |
-| `feof` | `feof(fh as handle) -> bool` | 返回文件结束状态。 |
-| `ferror` | `ferror(fh as handle) -> i32` | 返回错误状态或错误码。 |
+| `fopen` | `fopen(name as cstr_view, mode as cstr_view) -> handle` | Open a file. On failure, return a null handle, represented by an all-zero `P`-byte `handle`, or throw according to implementation documentation. |
+| `fclose` | `fclose(fh as handle) -> i32` | Close a file. Return 0 on success and a negative or implementation-defined error code on failure. |
+| `fget` | `fget(fh as handle) -> i32` | Read one byte. Return an implementation-defined negative value at end of file or on error. |
+| `fput` | `fput(fh as handle, x as view) -> i32` | Write the raw bytes of `x` and return the number of bytes written or a negative error code. |
+| `fread` | `fread(dst as lview, size as u64, count as u64, fh as handle) -> u64` | Write at most `size * count` bytes and return the number of elements read successfully. In checked mode, multiplication overflow or insufficient destination capacity MUST be reported as an error. |
+| `fwrite` | `fwrite(src as view, size as u64, count as u64, fh as handle) -> u64` | Read at most `size * count` bytes and return the number of elements written successfully. In checked mode, multiplication overflow or `size * count > length(src)` MUST be reported as an error. |
+| `fprintf` | `fprintf(fh as handle, fmt as cstr_view, ...) -> i32` | Formatted file output. |
+| `fscanf` | `fscanf(fh as handle, fmt as cstr_view) -> left-context` | Formatted file input. Left-context, partial-success, and failure rules are the same as for `scanf`. |
+| `fflush` | `fflush(fh as handle) -> i32` | Flush the stream. |
+| `fseek` | `fseek(fh as handle, offset as i64, whence as i32) -> i32` | Reposition the file. Values of `whence` are defined by implementation documentation; an implementation SHOULD be compatible with C `SEEK_SET/SEEK_CUR/SEEK_END`. |
+| `ftell` | `ftell(fh as handle) -> i64` | Return the current position; return a negative error code on failure. |
+| `feof` | `feof(fh as handle) -> bool` | Return the end-of-file status. |
+| `ferror` | `ferror(fh as handle) -> i32` | Return the error status or error code. |
 
-### 14.6 数学函数
+### 14.6 Mathematical Functions
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `abs` | `abs(x as iN) -> iN` | 返回有符号绝对值；最小负数溢出在 checked 模式下必须报错。 |
-| `min` | `min(a as T, b as T) -> T` | `T` 为同一整数或浮点标准模板。 |
-| `max` | `max(a as T, b as T) -> T` | `T` 为同一整数或浮点标准模板。 |
-| `f_abs` | `f_abs(x as fN) -> fN` | 浮点绝对值。 |
-| `f_sqrt` | `f_sqrt(x as fN) -> fN` | 浮点平方根。 |
-| `f_pow` | `f_pow(x as fN, y as fN) -> fN` | 浮点乘方。 |
-| `f_sin` / `f_cos` / `f_tan` | `(x as fN) -> fN` | 三角函数。 |
-| `f_log` / `f_exp` | `(x as fN) -> fN` | 对数和指数函数。 |
-| `f_floor` / `f_ceil` / `f_round` | `(x as fN) -> fN` | 舍入函数。 |
+| `abs` | `abs(x as iN) -> iN` | Return the signed absolute value; in checked mode, overflow of the minimum negative value MUST be reported as an error. |
+| `min` | `min(a as T, b as T) -> T` | `T` is the same integer or floating-point standard template. |
+| `max` | `max(a as T, b as T) -> T` | `T` is the same integer or floating-point standard template. |
+| `f_abs` | `f_abs(x as fN) -> fN` | Floating-point absolute value. |
+| `f_sqrt` | `f_sqrt(x as fN) -> fN` | Floating-point square root. |
+| `f_pow` | `f_pow(x as fN, y as fN) -> fN` | Floating-point exponentiation. |
+| `f_sin` / `f_cos` / `f_tan` | `(x as fN) -> fN` | Trigonometric functions. |
+| `f_log` / `f_exp` | `(x as fN) -> fN` | Logarithmic and exponential functions. |
+| `f_floor` / `f_ceil` / `f_round` | `(x as fN) -> fN` | Rounding functions. |
 
-浮点函数按输入模板选择 2、4、8 或 16 字节浮点 lowering。最低模板集合中的 `f16` 和 `f128` 必须具有可观察行为；硬件缺失时实现可以使用软件模拟。平台 lowering 的精度限制、性能限制和异常标志支持属于实现定义行为，必须文档化。
+Floating-point functions select 2-, 4-, 8-, or 16-byte floating-point lowering according to the input template. `f16` and `f128` in the minimum template set MUST have observable behavior. An implementation MAY use software emulation when hardware support is absent. Precision limits, performance limits, and exception-flag support of platform lowering are implementation-defined and MUST be documented.
 
-### 14.7 字符分类函数
+### 14.7 Character-Classification Functions
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `is_digit` | `is_digit(ch as view) -> bool` | 取最低字节，判断 ASCII 数字。 |
-| `is_alpha` | `is_alpha(ch as view) -> bool` | 取最低字节，判断 ASCII 字母。 |
-| `is_alnum` | `is_alnum(ch as view) -> bool` | 取最低字节，判断 ASCII 字母或数字。 |
-| `is_space` | `is_space(ch as view) -> bool` | 取最低字节，判断 ASCII 空白。 |
-| `to_upper` | `to_upper(ch as view) -> u8` | ASCII 小写转大写，其余字节原样返回。 |
-| `to_lower` | `to_lower(ch as view) -> u8` | ASCII 大写转小写，其余字节原样返回。 |
+| `is_digit` | `is_digit(ch as view) -> bool` | Use the lowest byte and test for an ASCII digit. |
+| `is_alpha` | `is_alpha(ch as view) -> bool` | Use the lowest byte and test for an ASCII letter. |
+| `is_alnum` | `is_alnum(ch as view) -> bool` | Use the lowest byte and test for an ASCII letter or digit. |
+| `is_space` | `is_space(ch as view) -> bool` | Use the lowest byte and test for ASCII whitespace. |
+| `to_upper` | `to_upper(ch as view) -> u8` | Convert an ASCII lowercase letter to uppercase; return every other byte unchanged. |
+| `to_lower` | `to_lower(ch as view) -> u8` | Convert an ASCII uppercase letter to lowercase; return every other byte unchanged. |
 
-### 14.8 随机数、时间与进程
+### 14.8 Random Numbers, Time, and Process Control
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `srand` | `srand(seed as u32) -> ()` | 设置伪随机数种子。 |
-| `rand` | `rand() -> u32` | 返回 4 字节无符号伪随机整数。 |
-| `time_ms` | `time_ms() -> u64` | 返回 Unix epoch 以来毫秒数。 |
-| `clock_ms` | `clock_ms() -> u64` | 返回单调时钟毫秒数。 |
-| `exit` | `exit(code as i32) -> ()` | 正常终止程序。 |
-| `abort` | `abort() -> ()` | 异常终止程序。 |
+| `srand` | `srand(seed as u32) -> ()` | Set the pseudorandom-number seed. |
+| `rand` | `rand() -> u32` | Return a 4-byte unsigned pseudorandom integer. |
+| `time_ms` | `time_ms() -> u64` | Return milliseconds since the Unix epoch. |
+| `clock_ms` | `clock_ms() -> u64` | Return milliseconds from a monotonic clock. |
+| `exit` | `exit(code as i32) -> ()` | Terminate the program normally. |
+| `abort` | `abort() -> ()` | Terminate the program abnormally. |
 
-### 14.9 诊断辅助
+### 14.9 Diagnostic Assistance
 
-| 函数 | 签名 | 规则 |
+| Function | Signature | Rules |
 |---|---|---|
-| `assert` | `assert(condition as view, error_code as i32) -> ()` | 条件按布尔判断规则读取；为假时按实现文档抛出、报告错误或终止。 |
-| `panic` | `panic(error_code as i32) -> ()` | 立即按实现文档抛出、报告错误或终止。 |
+| `assert` | `assert(condition as view, error_code as i32) -> ()` | Read the condition according to the Boolean-test rules. When false, throw, report an error, or terminate according to implementation documentation. |
+| `panic` | `panic(error_code as i32) -> ()` | Immediately throw, report an error, or terminate according to implementation documentation. |
 
 ---
 
-## 15. 预处理器
+## 15. Preprocessor
 
-非规范性实现建议：实现可以使用基于 mcpp 的预处理器。预处理指令使用 `$` 前缀。宏展开、条件编译和文件包含语义以 C99/C11 预处理器为基础；实现提供的额外扩展必须文档化。预处理在核心语言解析前完成，预处理器指令可以出现在任意物理行；完成预处理后，核心解析器只接收展开后的核心语言词法单元。
+Non-normative implementation recommendation: an implementation MAY use an mcpp-based preprocessor. Preprocessor directives use the `$` prefix. Macro expansion, conditional compilation, and file-inclusion semantics are based on the C99/C11 preprocessor; additional implementation extensions MUST be documented. Preprocessing completes before core-language parsing. A preprocessor directive MAY appear on any physical line. After preprocessing, the core parser receives only expanded core-language lexical tokens.
 
-### 15.1 指令
+### 15.1 Directives
 
-| 指令 | 说明 |
+| Directive | Description |
 |---|---|
-| `$include` | 包含文件 |
-| `$define` | 定义宏 |
-| `$undef` | 取消宏 |
-| `$if` / `$elif` / `$else` / `$endif` | 条件编译 |
-| `$ifdef` / `$ifndef` | 宏存在性条件 |
-| `$error` | 产生错误诊断 |
-| `$warning` | 产生警告诊断 |
-| `$pragma` | 实现定义指令 |
+| `$include` | Include a file |
+| `$define` | Define a macro |
+| `$undef` | Undefine a macro |
+| `$if` / `$elif` / `$else` / `$endif` | Conditional compilation |
+| `$ifdef` / `$ifndef` | Condition on macro existence |
+| `$error` | Produce an error diagnostic |
+| `$warning` | Produce a warning diagnostic |
+| `$pragma` | Implementation-defined directive |
 
-`$` 与指令名之间可以加入非换行空白，因此 `$ include <stdio.hsh>` 与 `$include <stdio.hsh>` 等价。
+Non-line-breaking whitespace MAY appear between `$` and the directive name. Therefore, `$ include <stdio.hsh>` and `$include <stdio.hsh>` are equivalent.
 
-### 15.2 宏展开
+### 15.2 Macro Expansion
 
-支持对象式宏、函数式宏、可变参数宏、字符串化 `#` 和连接 `##`。`#` 与 `##` 只在宏替换列表中按预处理规则消费。宏不得直接或间接展开为自身。字符串字面量、字符字面量和注释内不展开宏。
+Object-like macros, function-like macros, variadic macros, stringification `#`, and token concatenation `##` are supported. `#` and `##` are consumed according to preprocessing rules only within macro replacement lists. A macro MUST NOT expand directly or indirectly to itself. Macros are not expanded inside string literals, character literals, or comments.
 
-### 15.3 文件包含
+### 15.3 File Inclusion
 
 ```hs
 $include "utils.hsh"
@@ -1487,19 +1485,19 @@ $include <time.hsh>
 $include <assert.hsh>
 ```
 
-引号形式优先搜索当前目录；尖括号形式搜索系统包含路径。官方系统头按上表分组。搜索路径和最大包含深度属于实现定义行为；实现应当支持至少 200 层包含深度。
+The quoted form searches the current directory first. The angle-bracket form searches system include paths. Official system headers are grouped as shown above. Search paths and maximum inclusion depth are implementation-defined. An implementation SHOULD support an inclusion depth of at least 200 levels.
 
-### 15.4 预定义宏
+### 15.4 Predefined Macros
 
-实现应当提供 `__HS_VERSION__`、`__HS_POINTER_SIZE__`、`__HS_BYTE_ORDER__`、`__HS_EXECUTION_MODE__`、`__HS_STATIC_CHECKED__`、`__HS_CHECKED__` 等预定义宏，并文档化其具体取值。
+An implementation SHOULD provide predefined macros including `__HS_VERSION__`, `__HS_POINTER_SIZE__`, `__HS_BYTE_ORDER__`, `__HS_EXECUTION_MODE__`, `__HS_STATIC_CHECKED__`, and `__HS_CHECKED__`, and SHOULD document their concrete values.
 
 ---
 
-## 16. C 兼容层
+## 16. C Compatibility Layer
 
-C 兼容层是等价语法层。兼容语法进入语义分析前必须翻译为 HitSimple 核心语法，后续行为全部引用核心语义。本标准只定义最小兼容子集；实现接受更多 C 语法时必须作为扩展文档化。
+The C compatibility layer is an equivalent syntax layer. Compatibility syntax MUST be translated into HitSimple core syntax before semantic analysis; all subsequent behavior is defined by reference to core semantics. This Standard defines only the minimum compatibility subset. An implementation that accepts additional C syntax MUST document it as an extension.
 
-### 16.1 最小兼容 EBNF
+### 16.1 Minimum Compatibility EBNF
 
 ```ebnf
 c_compat_decl      = c_func_decl | c_func_proto | c_extern_var_decl | c_var_decl | c_struct_decl | c_typedef_decl ;
@@ -1552,54 +1550,54 @@ c_arrow            = "->" IDENT ;
 c_primary_expr     = IDENT | literal | "sizeof" "(" (c_type | IDENT) ")" | "(" c_expression ")" ;
 ```
 
-`c_expression` 是兼容层表达式子集，只用于进入核心语义前的翻译。兼容层函数体以核心 `block` 和核心语句骨架为基础；凡核心语句、声明初始化、返回、条件、循环头、函数实参或赋值右侧需要 `expression` 的位置，兼容层可以先接收 `c_expression`，并在进入核心语义前翻译为核心 `expression`。实现接受自增自减、逗号表达式、复合字面量、函数指针调用或 GNU 扩展表达式时，必须作为扩展文档化。
+`c_expression` is the compatibility-layer expression subset and is used only for translation before entering core semantics. A compatibility-layer function body is based on the core `block` and core statement skeleton. At every position in a core statement, declaration initializer, return statement, condition, loop header, function argument, or assignment right-hand side that requires an `expression`, the compatibility layer MAY first accept a `c_expression` and MUST translate it into a core `expression` before entering core semantics. An implementation that accepts increment/decrement, comma expressions, compound literals, function-pointer calls, or GNU extension expressions MUST document them as extensions.
 
-`c_type` 中的裸 `IDENT` 必须解析为本兼容层已登记的 `typedef` 别名；未知别名必须产生编译诊断。`c_declarator` 同时包含 `*` 前缀和数组后缀时，最小兼容层按 C declarator 规则解释为“数组的元素是指针值”，例如 `int *a[4]` 翻译为包含 4 个 `addr` 元素的连续字节数组；指针层级保留为数组元素类型元数据。多维数组、带括号的复杂 declarator、函数指针和指向数组的指针不属于最小兼容子集，实现接受时必须作为扩展文档化。`c_func_declarator` 中 `IDENT` 前的 `*` 表示函数返回值的指针层数；例如 `char *f(void)` 翻译为返回 `[P] as addr` 的核心函数。兼容层解析时必须先区分函数 declarator 与变量 declarator；`extern` 变量声明只按 `c_extern_var_decl` 归约。带函数体声明和函数原型中的 `static` 产生 internal linkage 元数据，`extern` 产生 extern linkage 元数据；该元数据不是核心语法的一部分，表示方式由实现文档化。`const` 和 `volatile` 在最小兼容层中作为兼容修饰符接受，进入核心语义前必须转化为实现文档化的只读/易变元数据或被诊断为未启用扩展。C 兼容层声明可以使用分号或换行作为终止符；传统 C 写法中的分号按核心 `terminator` 处理。`typedef` 只在 C 兼容层建立翻译表项，不进入核心语法。`void` 只能作为函数返回、空参数列表标记或 `void*` 的基础类型；`void` 参数列表标记必须是唯一参数项；`void` 对象、字段、数组和按值参数必须产生编译诊断。
+A bare `IDENT` in `c_type` MUST resolve to a `typedef` alias registered by this compatibility layer. An unknown alias MUST produce a compile-time diagnostic. When a `c_declarator` contains both a `*` prefix and an array suffix, the minimum compatibility layer interprets it according to C declarator rules as “an array whose elements are pointer values.” For example, `int *a[4]` is translated into a contiguous byte array containing four `addr` elements; the pointer depth is retained as array-element type metadata. Multidimensional arrays, parenthesized complex declarators, function pointers, and pointers to arrays are outside the minimum compatibility subset. An implementation that accepts them MUST document them as extensions. In a `c_func_declarator`, the number of `*` tokens before `IDENT` denotes the pointer depth of the function return value. For example, `char *f(void)` is translated into a core function returning `[P] as addr`. During compatibility-layer parsing, function declarators MUST be distinguished from variable declarators before reduction. An `extern` variable declaration is reduced only as `c_extern_var_decl`. `static` in a definition with a function body or in a function prototype produces internal-linkage metadata, while `extern` produces external-linkage metadata. This metadata is not part of core syntax, and its representation is documented by the implementation. In the minimum compatibility layer, `const` and `volatile` are accepted as compatibility qualifiers. Before entering core semantics, they MUST either be translated into implementation-documented read-only/volatile metadata or be diagnosed as disabled extensions. C compatibility-layer declarations MAY use a semicolon or line break as a terminator; the semicolon in traditional C spelling is handled as the core `terminator`. `typedef` creates only a compatibility-layer translation-table entry and does not enter core syntax. `void` MAY be used only as a function return, an empty-parameter-list marker, or the base type of `void*`. A `void` parameter-list marker MUST be the sole parameter item. A `void` object, field, array, or by-value parameter MUST produce a compile-time diagnostic.
 
-### 16.2 类型翻译表
+### 16.2 Type Translation Table
 
-| C 兼容写法 | 核心模板/长度 | 说明 |
+| C compatibility spelling | Core template/length | Description |
 |---|---|---|
-| `char` | 标量为 `as u8`；数组为 `as bytes` 或字符串初始化时 `as cstr` | 字节字符 |
+| `char` | Scalar: `as u8`; array: `as bytes`, or `as cstr` with string initialization | Byte character |
 | `signed char` | `as i8` | 1 byte |
 | `unsigned char` | `as u8` | 1 byte |
-| `short` | `as i16` | 2 byte |
-| `unsigned short` | `as u16` | 2 byte |
-| `int` | `as i32` | 4 byte |
-| `unsigned int` | `as u32` | 4 byte |
-| `long` | `as i64` | 8 byte，其他 ABI 宽度属于扩展 |
-| `unsigned long` | `as u64` | 8 byte |
-| `float` | `as f32` | 4 byte |
-| `double` | `as f64` | 8 byte |
-| `void` 返回 | `-> ()` | 无返回 |
-| `T *` | `[P] as addr` | 指针值；用于函数返回时可写作返回模板 `addr` 或显式 `[P] as addr` |
-| `T name[N]` | `name[<N*sizeof(T)>] as bytes` | `N` 是元素个数，翻译器必须在进入核心语法前把总长度展开为静态字节整数字面量；`char` 数组可按 `bytes`，字符串初始化可设为 `cstr` |
-| `T *name[N]` | `name[<N*P>] as bytes` | 指针数组；每个元素是一个 `[P] as addr` 值，元素类型元数据用于兼容层下标和退化翻译 |
-| `struct S` | `as S` | 对应 `template S` |
+| `short` | `as i16` | 2 bytes |
+| `unsigned short` | `as u16` | 2 bytes |
+| `int` | `as i32` | 4 bytes |
+| `unsigned int` | `as u32` | 4 bytes |
+| `long` | `as i64` | 8 bytes; other ABI widths are extensions |
+| `unsigned long` | `as u64` | 8 bytes |
+| `float` | `as f32` | 4 bytes |
+| `double` | `as f64` | 8 bytes |
+| `void` return | `-> ()` | No return value |
+| `T *` | `[P] as addr` | Pointer value; for a function return, MAY be written as return template `addr` or explicit `[P] as addr` |
+| `T name[N]` | `name[<N*sizeof(T)>] as bytes` | `N` is the element count. Before entering core syntax, the translator MUST expand the total length into a static integer literal measured in bytes. A `char` array MAY use `bytes`, or `cstr` when initialized from a string. |
+| `T *name[N]` | `name[<N*P>] as bytes` | Pointer array. Each element is a `[P] as addr` value. Element-type metadata is used for compatibility-layer subscripting and decay translation. |
+| `struct S` | `as S` | Corresponds to `template S` |
 
-### 16.3 声明翻译表
+### 16.3 Declaration Translation Table
 
-| C 兼容语法 | 核心语法 |
+| C compatibility syntax | Core syntax |
 |---|---|
 | `int x` | `new x as i32` |
-| 文件作用域 `static int x` | `new x as i32` + internal linkage 元数据 |
-| 块作用域 `static int x` | `static x as i32` |
+| File-scope `static int x` | `new x as i32` + internal-linkage metadata |
+| Block-scope `static int x` | `static x as i32` |
 | `extern int errno` | `extern errno as i32` |
 | `double y = 1.0` | `new y as f64 = 1.0` |
 | `char buf[64]` | `new buf[64] as bytes` |
 | `char name[32] = "Kai"` | `new name[32] as cstr %s= "Kai"` |
 | `int arr[4]` | `new arr[16] as bytes` |
 | `int *p` | `new p[P] as addr` |
-| `int *a[4]` | `new a[<4*P>] as bytes` + 元素模板元数据为 `addr` |
+| `int *a[4]` | `new a[<4*P>] as bytes` + element-template metadata `addr` |
 | `int f(int a)` | `func f(a as i32) -> i32` |
-| `static int helper(void)` | `func helper() -> i32` + internal linkage 元数据 |
+| `static int helper(void)` | `func helper() -> i32` + internal-linkage metadata |
 | `char *next(char *s)` | `func next(s[P] as addr) -> addr` |
 | `extern char *getenv(char *name)` | `extern getenv(name[P] as addr) -> addr` |
 | `extern int puts(char *s)` | `extern puts(s[P] as addr) -> i32` |
 
-兼容层数组到地址的退化只允许在翻译阶段发生。核心语义中变量名不会隐式转换为地址。
+Array-to-address decay in the compatibility layer is permitted only during translation. In core semantics, a variable name does not implicitly convert to an address.
 
-### 16.4 `struct` 到 `template`
+### 16.4 `struct` to `template`
 
 ```c
 struct Point {
@@ -1608,7 +1606,7 @@ struct Point {
 }
 ```
 
-翻译为：
+is translated into:
 
 ```hs
 template Point {
@@ -1617,263 +1615,262 @@ template Point {
 }
 ```
 
-C 风格字段写法按 16.2 翻译为模板成员。成员按声明顺序紧密排列；C ABI 对齐和 padding 属于实现扩展，必须文档化。
+C-style field declarations are translated into template members according to Section 16.2. Members are packed in declaration order. C ABI alignment and padding are implementation extensions and MUST be documented.
 
-### 16.5 指针和数组翻译
+### 16.5 Pointer and Array Translation
 
-兼容层指针写法翻译为 `addr` 模板、显式无符号地址计算、核心切片和 `[N]*expr` 解引用。指针表达式必须携带元素模板、元素字节大小和地址来源元数据；缺少可静态确定元素大小时必须诊断。
+Compatibility-layer pointer syntax is translated into the `addr` template, explicit unsigned address calculation, core slices, and `[N]*expr` dereference. A pointer expression MUST carry element-template metadata, element byte-size metadata, and address-origin metadata. The absence of a statically determinable element size MUST produce a diagnostic.
 
 ```hs
-// C 兼容层：p + i，其中 p 的元素类型为 T
+// C compatibility layer: p + i, where the element type of p is T
 new __tmp_ptr as addr
 __tmp_ptr = (p as addr)? + (i? * sizeof(T))
 ```
 
-最小翻译规则如下：
+The minimum translation rules are as follows:
 
-| C 兼容表达式 | 核心翻译要求 |
+| C compatibility expression | Core translation requirement |
 |---|---|
-| `p + i` / `i + p` | 翻译为地址值 `p? + i? * sizeof(T)`，结果模板为 `addr`，元素元数据仍为 `T` |
-| `p - i` | 翻译为地址值 `p? - i? * sizeof(T)`，结果模板为 `addr`，元素元数据仍为 `T` |
-| `p - q` | 两侧必须具有相同元素元数据；翻译为 `(p? - q?) / sizeof(T)`，结果为实现选定的有符号整数模板；实现应当选择 `i64` |
-| `*p` | 翻译为 `[sizeof(T)]*p as T`；`T` 为 `void` 或大小未知时必须诊断 |
-| `&x` | 翻译为核心 `&x`，结果模板为 `addr`，并记录被取址对象的元素元数据 |
-| `a[i]` | 数组对象翻译为 `a[i * sizeof(T) : + sizeof(T)] as T`；数组表达式先退化为地址时按 `*(a + i)` 翻译 |
-| `p[i]` | 翻译为 `[sizeof(T)]*(p? + i? * sizeof(T)) as T` |
-| `s.m` | 翻译为核心成员访问 `s.m` |
-| `p->m` | 翻译为 `([sizeof(S)]*p as S).m`，其中 `p` 的元素元数据必须为 `struct S` |
-| `(T*)expr` | 翻译为 `expr as addr`，并把元素元数据设为 `T` |
-| `(T)expr` | 标量数值 cast 翻译为对应 `to_iN()`、`to_uN()`、`to_fN()` 或显式赋值路径；纯模板重解释必须使用 `as` 并满足长度一致 |
+| `p + i` / `i + p` | Translate to address value `p? + i? * sizeof(T)`; the result template is `addr`, and element metadata remains `T` |
+| `p - i` | Translate to address value `p? - i? * sizeof(T)`; the result template is `addr`, and element metadata remains `T` |
+| `p - q` | Both operands MUST have identical element metadata. Translate to `(p? - q?) / sizeof(T)`. The result uses an implementation-selected signed-integer template; the implementation SHOULD select `i64`. |
+| `*p` | Translate to `[sizeof(T)]*p as T`; when `T` is `void` or has unknown size, a diagnostic MUST be produced |
+| `&x` | Translate to core `&x`; the result template is `addr`, and element metadata for the addressed object is recorded |
+| `a[i]` | Translate an array object to `a[i * sizeof(T) : + sizeof(T)] as T`; when the array expression first decays to an address, translate according to `*(a + i)` |
+| `p[i]` | Translate to `[sizeof(T)]*(p? + i? * sizeof(T)) as T` |
+| `s.m` | Translate to core member access `s.m` |
+| `p->m` | Translate to `([sizeof(S)]*p as S).m`, where the element metadata of `p` MUST be `struct S` |
+| `(T*)expr` | Translate to `expr as addr` and set the element metadata to `T` |
+| `(T)expr` | Translate a scalar numeric cast into the corresponding `to_iN()`, `to_uN()`, `to_fN()`, or explicit assignment path. Pure template reinterpretation MUST use `as` and satisfy length consistency. |
 
-其中 `sizeof(T)` 必须在兼容层翻译阶段展开为静态字节整数字面量。数组下标 `a[i]` 在核心层仍是字节索引。兼容层若需要按元素大小索引，必须翻译为乘以元素大小后的核心切片或解引用。指针数组元素访问必须翻译为长度为 `P` 的切片或临时 View，并携带 `addr` 模板参与后续赋值、比较或函数实参匹配。所有 C 指针加减整数和数组下标翻译都必须使用元素大小。数组到地址的隐式退化只允许在兼容层翻译阶段发生。
+`sizeof(T)` MUST be expanded into a static integer literal measured in bytes during compatibility-layer translation. In the core layer, `a[i]` remains byte indexing. When the compatibility layer requires indexing by element size, it MUST translate the operation into a core slice or dereference after multiplying by the element size. Access to a pointer-array element MUST be translated into a slice or temporary View of length `P`, carrying template `addr` for subsequent assignment, comparison, or function-argument matching. Every translation of C pointer-plus/minus-integer and array subscripting MUST use the element size. Implicit array-to-address decay is permitted only during compatibility-layer translation.
 
-### 16.6 旧语法兼容模式
+### 16.6 Legacy-Syntax Compatibility Mode
 
-旧式 `;Template`、`;none`、`[sN]`、`reinterpret()`、`to_float()` 和 `to_int()` 不属于核心语法或 C 兼容层，标准模式下必须产生编译诊断。
+Legacy forms `;Template`, `;none`, `[sN]`, `reinterpret()`, `to_float()`, and `to_int()` are outside both core syntax and the C compatibility layer and MUST produce a compile-time diagnostic in standard mode.
 
-实现可以提供默认关闭、需要显式启用的旧语法兼容模式。该模式可以在进入核心语法前把 `;Template`、`;none` 翻译为 `as Template`、`as none`，并把 `[sN]` 翻译为 `[tN]`。实现必须文档化该模式的启用方式、接受的旧语法集合和翻译规则。`reinterpret()`、`to_float()` 和 `to_int()` 即使在旧语法兼容模式中也必须按第 7.9 节诊断，并给出对应替代名称。依赖该模式的程序不是标准模式程序。
+An implementation MAY provide a legacy-syntax compatibility mode that is disabled by default and requires explicit activation. Before entering core syntax, that mode MAY translate `;Template` and `;none` into `as Template` and `as none`, and MAY translate `[sN]` into `[tN]`. The implementation MUST document how the mode is enabled, the accepted legacy syntax set, and the translation rules. Even in legacy-syntax compatibility mode, `reinterpret()`, `to_float()`, and `to_int()` MUST be diagnosed according to Section 7.9, with the corresponding replacement names provided. A program that depends on this mode is not a standard-mode program.
 
-### 16.7 兼容层诊断
+### 16.7 Compatibility-Layer Diagnostics
 
-以下情况必须诊断：
+The following conditions MUST produce a diagnostic:
 
-- C 兼容类型无法映射到固定核心模板或长度。
-- `typedef` 名称未知、循环定义，或无法映射到固定核心模板或长度。
-- C 函数签名无法静态确定参数长度或返回 View。
-- C 函数 declarator 中的返回指针层级无法映射为 `addr` 返回 View。
-- 多维数组、带括号的复杂 declarator、函数指针或指向数组的指针在标准模式中出现。
-- 指针算术缺少元素大小或元素核心模板。
-- C 兼容表达式无法按 16.5 翻译为核心表达式。
-- 数组退化跨越兼容层进入核心语义。
-- `IDENT` 类型名无法解析为已登记的 `typedef` 别名。
-- `void` 被用作对象、字段、数组或按值参数。
-- 兼容层翻译结果违反核心语法或核心语义。
+- A C compatibility type cannot be mapped to a fixed core template or length.
+- A `typedef` name is unknown, cyclically defined, or cannot be mapped to a fixed core template or length.
+- A C function signature cannot determine parameter lengths or the return View statically.
+- The return pointer depth in a C function declarator cannot be mapped to an `addr` return View.
+- A multidimensional array, parenthesized complex declarator, function pointer, or pointer to an array appears in standard mode.
+- Pointer arithmetic lacks an element size or element core template.
+- A C compatibility expression cannot be translated into a core expression according to Section 16.5.
+- Array decay crosses the compatibility layer into core semantics.
+- An `IDENT` type name does not resolve to a registered `typedef` alias.
+- `void` is used as an object, field, array, or by-value parameter.
+- The compatibility-layer translation result violates core syntax or core semantics.
 
-## 17. FFI 与外部链接
+## 17. FFI and External Linkage
 
-### 17.1 `extern` 函数
+### 17.1 `extern` Functions
 
 ```hs
 extern puts(s[P] as addr) -> i32
 extern fread(dst[P] as addr, size as u64, count as u64, fh as handle) -> u64
 ```
 
-外部函数参数和返回签名必须静态确定长度。外部符号 ABI 属于实现定义行为。标准不要求与宿主 C ABI 二进制兼容；实现声称兼容时必须文档化细节。
+External-function parameters and return signatures MUST have statically determinable lengths. The ABI of external symbols is implementation-defined. This Standard does not require binary compatibility with the host C ABI. An implementation that claims such compatibility MUST document the details.
 
-可变长度模板 `cstr` 和 `bytes` 不得按值出现在核心 `extern` 函数签名中。需要传递 C 字符串或缓冲区时，应当使用 `[P] as addr`，并由 ABI 文档说明该地址指向的对象约束。兼容层可以把 `char*` 或 `cstr*` 翻译为 `[P] as addr`。
+The variable-length templates `cstr` and `bytes` MUST NOT appear by value in a core `extern` function signature. To pass a C string or buffer, a program SHOULD use `[P] as addr`, and the ABI documentation SHOULD describe the constraints on the object referenced by that address. The compatibility layer MAY translate `char*` or `cstr*` into `[P] as addr`.
 
-### 17.2 `extern` 变量
+### 17.2 `extern` Variables
 
 ```hs
 extern errno as i32
 extern global_buf[256] as bytes
 ```
 
-`extern` 变量声明可省略长度；省略长度时按模板推断。使用 `bytes`、`cstr` 等可变长度模板时必须显式给出长度。外部变量是可定位左值 View。其生命周期、线程局部性、对齐、可写性和初始化状态属于实现定义行为。
+An `extern` variable declaration MAY omit its length; when omitted, the length is inferred from the template. A variable-length template such as `bytes` or `cstr` MUST have an explicit length. An external variable is a locatable lvalue View. Its lifetime, thread locality, alignment, writability, and initialization state are implementation-defined.
 
-### 17.3 FFI 地址和文件句柄
+### 17.3 FFI Addresses and File Handles
 
-FFI 传入地址、裸地址和文件句柄的边界检查能力属于实现定义行为。文件句柄以 `handle` View 传递，标准语言层定义的行为包括文件 I/O 函数传递与返回、同模板默认赋值、相等比较和格式化。对不可验证地址执行解引用、释放或重绑定时，static-checked 模式只处理可静态证明的错误；checked 模式下实现应当在可检测范围内报告错误，并文档化无法检测的情况。
+Boundary-checking capability for addresses received through FFI, raw addresses, and file handles is implementation-defined. A file handle is passed as a `handle` View. Behavior defined by the standard language layer includes passing and returning handles through file-I/O functions, same-template default assignment, equality comparison, and formatting. When an unverifiable address is dereferenced, freed, or rebound, static-checked mode handles only statically provable errors. In checked mode, the implementation SHOULD report errors within its detection capability and MUST document the cases it cannot detect.
 
-### 17.4 ABI 文档最低项
+### 17.4 Minimum ABI Documentation Items
 
-实现提供外部链接时，必须文档化：
+An implementation that provides external linkage MUST document:
 
-1. 符号名编码。
-2. 调用约定。
-3. 参数传递方式。
-4. 返回值存储方式。
-5. 多返回 ABI。
-6. vararg ABI。
-7. `addr`、文件句柄和外部对象地址的表示。
-8. 与宿主 C ABI 的兼容范围。
-
----
-
-## 18. 执行模式、诊断与安全检查要求
-
-### 18.1 通用要求
-
-实现能够静态证明违反标准的程序必须产生编译诊断。第 18.2 节列出的语法、名称、模板、返回签名、重载和兼容层诊断不受执行模式影响。
-
-执行模式只影响安全检查策略：unchecked 模式保留底层自由，许多运行期错误属于未定义行为；static-checked 模式必须把可静态证明的安全错误报告为编译期诊断，并且不得插入运行时检查代码；checked 模式必须报告可静态证明的安全错误，并把可运行时检测的安全错误报告为运行时错误。
-
-### 18.2 必须诊断项
-
-符合实现必须诊断以下情况：
-
-1. 非法 UTF-8、非法字面量、非法转义。
-2. 使用支持关键字、保留关键字、单独 `_` 或保留形态 `t[0-9]+` 作为普通标识符或宏名。
-3. 声明长度为 0、模板实例声明计数为 0、解引用长度为 0。
-4. 固定长度模板与 View 长度不一致。
-5. `as` 指向未知模板。
-6. 用户模板或标准模板名称被重定义。
-7. `impl` 指向未知模板。
-8. `op` 参数缺少模板。
-9. 用户 `op` 参数数量不匹配该操作符的标准 arity，或 `op format` 不符合标准格式化签名。
-10. `op` 返回签名长度无法静态确定，或普通函数/方法返回项缺少静态长度。
-11. `op` 返回签名为 `-> ()`。
-12. 相同重载键的 `op` 定义，包括参数模板序列相同但返回签名不同的定义。
-13. 普通操作符无适用候选或存在多个适用候选。
-14. 方法调用左侧无模板或模板中无对应方法。
-15. 隐式跨模板转换。
-16. `mut self` 或任意 `mut` 参数在标准模式中使用。
-17. 对右值赋值、取址或自增自减。
-18. `&=` 左侧不是单个 `IDENT`。
-19. `set` 目标不是名称或成员链，或成员链不能静态定位到固定长度区域。
-20. `goto` 跳入未初始化局部对象作用域。
-21. 函数调用参数数量或返回数量不匹配。
-22. 字面量格式字符串的转换项数量不匹配。
-23. 标准库字面量格式字符串与参数模板不匹配。
-24. `extern` 函数签名包含按值可变长度模板。
-25. `extern` 变量使用可变长度模板但省略长度。
-26. C 兼容层翻译结果无法映射到核心语义。
-27. `sizeof(bytes)` 或 `sizeof(cstr)`。
-28. 用户模板成员使用 `[tN]`。
-29. 模板实例声明 `[tN]` 缺少用户模板，模板实例访问 `[tK]` 缺少模板实例数组 View、索引越界，或 `[tN]` 出现在非 `new` / `static` 模板实例声明和模板实例访问的位置。
-30. 三元 `? :` 与后缀 `?` 解析违反 4.8。
-31. 标准模板赋值矩阵外的默认赋值。
-32. 显式带类型操作符宽度非法，或 `%f` 非字面量操作数长度不是 2、4、8 或 16。
-33. 标准库 `left-context` 函数出现在非标准多重赋值形式中，或 `scanf/fscanf` 字面量格式字符串没有赋值转换项。
-34. 核心语言中出现预处理器专用记号 `#` 或 `##`。
-35. C 兼容层 `IDENT` 类型名无法解析为已登记的 `typedef` 别名。
-36. C 兼容层非 `char` 数组未按 `N * sizeof(T)` 翻译。
-37. C 兼容层指针算术未按元素大小计算字节偏移。
-38. 普通函数、模板方法或核心 `extern` 的按值参数使用 `bytes`、`cstr` 或 `none` 但省略长度。
-39. 返回签名写作 `-> none`、`-> as none`、`-> bytes`、`-> cstr` 或其他无法确定长度的形式。
-40. C 兼容层把 `void` 用作对象、字段、数组或按值参数。
-41. 模板布局中的 `sizeof(Template)` 依赖形成循环。
-42. 标准库元签名 `none[len]` 出现在核心函数、模板方法、`op` 或 `extern` 签名中。
-43. 对 `handle` 执行标准允许行为之外的普通操作。
-44. 未知变量、未知函数、未知成员、未知标签或未知模板名称。
-45. 同一词法作用域内重复声明名称，或同一函数内重复定义标签。
-46. `break` 或 `continue` 出现在循环外。
-47. `goto` 目标跨函数、未定义，或标签重复。
-48. 分号只能出现在语句终结符、`for` 头部分隔符或 C 兼容层对应位置；其他表达式内部裸分号必须产生语法诊断。
-49. 模板为 `none` 的目标接收不可解释为整数的源 View。
-50. C 兼容层函数返回指针无法映射为 `addr` 返回 View。
-51. C 兼容层文件作用域 `static` 函数或变量无法附带 internal linkage 元数据。
-52. 模板方法没有显式第一个参数，或第一个参数模板不等于所在 `impl` 模板。
-53. 相同方法重载键的定义，或方法调用存在多个适用候选。
-54. `catch` 参数长度无法静态确定。
-55. `scanf/fscanf` 左上下文中除第一个计数目标外使用 `_`，或扫描目标不是可写左值。
-56. 三元 `? :` 两个分支的结果 View 模板或长度不一致。
-57. 携带标准模板或用户模板的 View 调用 `print()` 时缺少匹配 `op format`。
-58. C 兼容层多维数组、带括号的复杂 declarator、函数指针或指向数组的指针出现在标准模式中。
-59. C 兼容层表达式子集外的表达式在标准模式中出现，或兼容表达式无法翻译为核心语义。
-60. 函数内 `static` 初始化期间可静态证明递归进入同一声明。
-
-
-### 18.3 static-checked 模式安全诊断
-
-static-checked 模式下，以下安全错误只要能静态证明，必须产生编译期诊断：
-
-1. 静态索引、静态切片或静态解引用长度越界。
-2. 编译期常量除零、负移位或负指数。
-3. 编译期可确定的空地址解引用。
-4. 编译期可确定的非法释放、重复释放或释放后访问。
-5. 编译期可确定的动态长度不匹配或模板 View 长度不一致。
-6. 字面量格式项或静态可知格式项导致的目标数量、目标模板或目标容量不匹配。
-7. 编译期可确定的标准库目标容量不足。
-8. 编译期可确定的 `size * count` 溢出。
-9. 编译期可确定的 `cstr` View 可见范围内缺少终止 `0x00`。
-10. 编译期可确定的正长度 `mem_view` / `mem_lview` 裸地址容量不足或缺少边界。
-11. 编译期可确定的函数内 `static` 初始化递归进入。
-
-static-checked 模式不得为了上述检查插入运行时检查代码。无法静态证明安全性的动态行为，按 unchecked 模式对应条款处理。
-
-### 18.4 checked 模式运行时错误
-
-checked 模式下，以下错误可静态证明时必须产生编译诊断；可运行时检测时必须报告运行时错误：
-
-1. 越界访问。
-2. 动态内存非法释放、重复释放、释放后访问。
-3. 空地址解引用。
-4. 整数除零。
-5. 负移位、负指数。
-6. 动态长度不匹配。
-7. 动态格式项不匹配。
-8. 运行时可确定的模板 View 长度不一致。
-9. `cstr` View 可见范围内缺少终止 `0x00`。
-10. 标准库函数目标容量不足。
-11. `size * count` 溢出。
-12. `memcpy` 可检测的重叠复制。
-13. `abs(iN_min)` 溢出。
-14. 文件句柄无效且实现可检测。
-15. `memcpy`、`memmove`、`memcmp` 的源或目标长度不足。
-16. `fwrite` 的源 View 长度不足。
-17. `scanf/fscanf` 动态格式项与左上下文目标不匹配，或动态格式字符串没有赋值转换项。
-18. 正长度 `mem_view` / `mem_lview` 裸地址容量不足、缺少边界或无法形成所需读写 View。
-19. 函数内 `static` 初始化期间递归进入同一声明。
+1. Symbol-name encoding.
+2. Calling convention.
+3. Argument-passing mechanism.
+4. Return-value storage mechanism.
+5. Multiple-return ABI.
+6. Vararg ABI.
+7. Representation of `addr`, file handles, and external-object addresses.
+8. The extent of compatibility with the host C ABI.
 
 ---
 
-## 19. 实现定义行为清单
+## 18. Execution Modes, Diagnostics, and Safety-Check Requirements
 
-符合实现必须文档化以下行为：
+### 18.1 General Requirements
 
-1. 目标平台指针长度 `P`。
-2. 字节序。
-3. 标准模板 fast path 的实现方式。
-4. `f16`、`f128` 的支持方式和限制。
-5. NaN payload 的传播规则。
-6. 外部链接 ABI、符号名编码、调用约定、参数和返回值存储。
-7. 多返回 ABI 和 vararg ABI。
-8. 非空文件句柄表示和错误码；空句柄的全零字节表示由本标准固定。
-9. 对齐保证。
-10. static-checked 和 checked 模式启用方式；checked 模式错误码和错误转化为 `throw` 的策略。
-11. 裸地址、FFI 地址、文件句柄边界检测能力。
-12. 动态内存分配失败行为。
-13. `alloc(0)` 和 `realloc(ptr, 0)` 行为。
-14. 预处理器搜索路径、预定义宏和扩展指令。
-15. 标准库扩展函数命名和行为。
-16. C 兼容层启用方式、扩展语法和扩展翻译规则。
-17. C 兼容层扩展指针元素大小推断策略。
-18. 旧语法兼容模式的启用方式、接受语法、翻译规则和诊断策略。
-19. 进程终止、I/O 刷新和运行时资源释放策略。
-20. 伪随机数算法。
-21. 无系统时间支持时 `time_ms()` 和 `clock_ms()` 的替代行为。
-22. `bytes` 格式化展示格式。
-23. `memcmp`、`strcmp` 非零返回值绝对值。
-24. `get()`、`fget()` 文件结束和错误返回值。
-25. `printf`、`fprintf`、`scanf`、`fscanf` 支持的格式项集合。
-26. C 文件作用域 `static` 的 internal linkage 元数据表示。
-27. `fseek()` 的 `whence` 取值集合和错误码。
-28. `put()`、`fput()`、`fflush()`、`printf()`、`fprintf()` 等 I/O 函数的负错误码含义。
-29. `assert()` 与 `panic()` 的抛错、报告或终止策略。
-30. 浮点数学函数在目标平台缺少硬件 lowering、精度存在限制或异常标志支持受限时的软件模拟和文档化策略。
-31. 未捕获 `throw` 的退出码、错误报告形式和 I/O 刷新策略。
-32. `to_iN()` / `to_uN()` 遇到溢出、负值、无穷和 NaN 时的 unchecked 行为。
-33. 标准库旧名 `to_float()`、`to_int()` 和 `reinterpret()` 必须拒绝，诊断中应当给出对应的替代名称。
-34. 函数实参表达式之间的具体求值顺序。
-35. 提供并发执行扩展时，函数内 `static` 初始化的同步策略。
-36. C 兼容层指针差值结果采用的具体有符号整数模板。
+An implementation MUST produce a compile-time diagnostic for any violation of this Standard that it can prove statically. The syntax, name, template, return-signature, overload, and compatibility-layer diagnostics listed in Section 18.2 are independent of execution mode.
+
+Execution mode affects only the safety-checking policy. Unchecked mode preserves low-level freedom, and many runtime errors are undefined behavior. Static-checked mode MUST report every statically provable safety error as a compile-time diagnostic and MUST NOT insert runtime-checking code. Checked mode MUST report statically provable safety errors and MUST report runtime-detectable safety errors as runtime errors.
+
+### 18.2 Required Diagnostic Conditions
+
+A conforming implementation MUST diagnose the following conditions:
+
+1. Invalid UTF-8, an invalid literal, or an invalid escape sequence.
+2. Use of a supported keyword, reserved keyword, standalone `_`, or reserved shape `t[0-9]+` as an ordinary identifier or macro name.
+3. A declaration length of 0, a template-instance declaration count of 0, or a dereference length of 0.
+4. A mismatch between a fixed-length template and a View length.
+5. `as` refers to an unknown template.
+6. A user-template or standard-template name is redefined.
+7. An `impl` refers to an unknown template.
+8. An `op` parameter lacks a template.
+9. The parameter count of a user `op` does not match the standard arity of the operator, or `op format` does not conform to the standard formatting signature.
+10. The length of an `op` return signature cannot be determined statically, or an ordinary function/method return item lacks a static length.
+11. An `op` return signature is `-> ()`.
+12. `op` definitions have the same overload key, including definitions with identical parameter-template sequences but different return signatures.
+13. An ordinary operator has no applicable candidate or multiple applicable candidates.
+14. The left side of a method call has no template, or the template contains no corresponding method.
+15. An implicit cross-template conversion occurs.
+16. `mut self` or any `mut` parameter is used in standard mode.
+17. An rvalue is assigned to, has its address taken, or is incremented or decremented.
+18. The left-hand side of `&=` is not a single `IDENT`.
+19. A `set` target is not a name or member chain, or the member chain cannot be located statically as a fixed-length region.
+20. A `goto` enters the scope of an uninitialized local object.
+21. A function-call argument count or return-value count does not match.
+22. The number of conversion specifications in a literal format string does not match.
+23. A literal standard-library format string does not match the argument templates.
+24. An `extern` function signature contains a variable-length template by value.
+25. An `extern` variable uses a variable-length template and omits its length.
+26. A C compatibility-layer translation result cannot be mapped into core semantics.
+27. `sizeof(bytes)` or `sizeof(cstr)` is used.
+28. A user-template member uses `[tN]`.
+29. A template-instance declaration `[tN]` lacks a user template; a template-instance access `[tK]` lacks a template-instance-array View or has an out-of-range index; or `[tN]` appears outside a `new`/`static` template-instance declaration or template-instance access.
+30. Parsing of ternary `? :` and postfix `?` violates Section 4.8.
+31. Default assignment occurs outside the standard-template assignment matrix.
+32. An explicit typed-operator width is invalid, or a nonliteral operand of `%f` has a length other than 2, 4, 8, or 16.
+33. A standard-library `left-context` function appears outside the standard multiple-assignment form, or a literal `scanf`/`fscanf` format string contains no assigning conversion specification.
+34. A preprocessor-only token `#` or `##` appears in the core language.
+35. A C compatibility-layer `IDENT` type name does not resolve to a registered `typedef` alias.
+36. A non-`char` array in the C compatibility layer is not translated according to `N * sizeof(T)`.
+37. C compatibility-layer pointer arithmetic does not compute its byte offset using the element size.
+38. A by-value parameter of an ordinary function, template method, or core `extern` uses `bytes`, `cstr`, or `none` and omits its length.
+39. A return signature uses `-> none`, `-> as none`, `-> bytes`, `-> cstr`, or another form whose length cannot be determined.
+40. The C compatibility layer uses `void` as an object, field, array, or by-value parameter.
+41. `sizeof(Template)` dependencies in template layouts form a cycle.
+42. The standard-library meta-signature form `none[len]` appears in a core function, template method, `op`, or `extern` signature.
+43. An ordinary operation outside the standard-permitted behavior is performed on `handle`.
+44. An unknown variable, function, member, label, or template name is used.
+45. A name is redeclared in the same lexical scope, or a label is defined more than once in the same function.
+46. `break` or `continue` appears outside a loop.
+47. A `goto` target is cross-function, undefined, or duplicated.
+48. A semicolon appears outside a statement terminator, `for`-header separator, or corresponding C compatibility-layer position; a bare semicolon inside any other expression position MUST produce a syntax diagnostic.
+49. A destination whose template is `none` receives a source View that cannot be interpreted as an integer.
+50. A C compatibility-layer function return pointer cannot be mapped to an `addr` return View.
+51. A file-scope `static` function or variable in the C compatibility layer cannot be supplied with internal-linkage metadata.
+52. A template method lacks an explicit first parameter, or the first-parameter template does not equal the enclosing `impl` template.
+53. Definitions have the same method-overload key, or a method call has multiple applicable candidates.
+54. The length of a `catch` parameter cannot be determined statically.
+55. `_` is used in a `scanf`/`fscanf` left context for any target other than the first count target, or a scan target is not a writable lvalue.
+56. The result Views of the two branches of ternary `? :` differ in template or length.
+57. A View carrying a standard or user template is passed to `print()` without a matching `op format`.
+58. A multidimensional array, parenthesized complex declarator, function pointer, or pointer to an array appears in the C compatibility layer in standard mode.
+59. An expression outside the C compatibility-layer expression subset appears in standard mode, or a compatibility expression cannot be translated into core semantics.
+60. Recursive entry into the same function-local `static` declaration during initialization can be proven statically.
+
+### 18.3 Safety Diagnostics in Static-Checked Mode
+
+In static-checked mode, each of the following safety errors MUST produce a compile-time diagnostic whenever it can be proven statically:
+
+1. A static index, static slice, or static dereference length is out of bounds.
+2. Compile-time constant division by zero, a negative shift count, or a negative exponent.
+3. A null-address dereference determinable at compile time.
+4. An invalid free, double free, or use after free determinable at compile time.
+5. A dynamic-length mismatch or template-View length inconsistency determinable at compile time.
+6. A target-count, target-template, or target-capacity mismatch caused by a literal or statically known format specification.
+7. Insufficient standard-library destination capacity determinable at compile time.
+8. `size * count` overflow determinable at compile time.
+9. Absence of a terminating `0x00` within the visible extent of a `cstr` View determinable at compile time.
+10. Insufficient capacity or absent boundaries for a raw address used as a positive-length `mem_view`/`mem_lview`, when determinable at compile time.
+11. Recursive entry into a function-local `static` initializer determinable at compile time.
+
+Static-checked mode MUST NOT insert runtime-checking code for the checks above. Dynamic behavior whose safety cannot be proven statically follows the corresponding unchecked-mode clause.
+
+### 18.4 Runtime Errors in Checked Mode
+
+In checked mode, each of the following conditions MUST produce a compile-time diagnostic when statically provable and MUST report a runtime error when detectable at runtime:
+
+1. Out-of-bounds access.
+2. Invalid dynamic-memory free, double free, or use after free.
+3. Null-address dereference.
+4. Integer division by zero.
+5. A negative shift count or negative exponent.
+6. A dynamic-length mismatch.
+7. A dynamic-format-specification mismatch.
+8. A template-View length inconsistency determinable only at runtime.
+9. Absence of a terminating `0x00` within the visible extent of a `cstr` View.
+10. Insufficient destination capacity in a standard-library function.
+11. `size * count` overflow.
+12. Detectable overlap in `memcpy`.
+13. Overflow of `abs(iN_min)`.
+14. An invalid file handle, when detectable by the implementation.
+15. Insufficient source or destination length for `memcpy`, `memmove`, or `memcmp`.
+16. Insufficient source-View length for `fwrite`.
+17. A mismatch between a dynamic `scanf`/`fscanf` format specification and left-context targets, or a dynamic format string containing no assigning conversion specification.
+18. Insufficient capacity, missing boundaries, or inability to form the required readable/writable View for a raw address used as a positive-length `mem_view`/`mem_lview`.
+19. Recursive entry into the same function-local `static` declaration during initialization.
 
 ---
 
-## 20. 附录：完整 EBNF
+## 19. Implementation-Defined Behavior Checklist
 
-本 EBNF 描述核心语法形状。`preprocessor_directive` 只描述预处理前的源文件行形状；预处理指令可出现在任意物理行，预处理完成后不进入核心语法。`?` 的后缀/三元消解以 4.8 为准；`return_item` 中只写 `length_spec` 且省略 `template_mark` 的语义以 4.4 为准，返回模板为 `none`。实现可以使用等价 parser 技术。
+A conforming implementation MUST document the following behavior:
+
+1. Target-platform pointer length `P`.
+2. Byte order.
+3. The implementation mechanism for standard-template fast paths.
+4. Support mechanisms and limitations for `f16` and `f128`.
+5. NaN-payload propagation rules.
+6. External-linkage ABI, symbol-name encoding, calling convention, and argument/return-value storage.
+7. Multiple-return ABI and vararg ABI.
+8. Representation and error codes for non-null file handles; the all-zero representation of a null handle is fixed by this Standard.
+9. Alignment guarantees.
+10. How static-checked and checked modes are enabled; checked-mode error codes and the policy for converting errors into `throw`.
+11. Boundary-detection capability for raw addresses, FFI addresses, and file handles.
+12. Dynamic-memory allocation-failure behavior.
+13. Behavior of `alloc(0)` and `realloc(ptr, 0)`.
+14. Preprocessor search paths, predefined macros, and extension directives.
+15. Names and behavior of standard-library extension functions.
+16. How the C compatibility layer is enabled, its extension syntax, and extension translation rules.
+17. The element-size inference policy for compatibility-layer pointer extensions.
+18. How legacy-syntax compatibility mode is enabled, its accepted syntax, translation rules, and diagnostic policy.
+19. Process termination, I/O flushing, and runtime-resource release policy.
+20. Pseudorandom-number algorithm.
+21. Alternative behavior of `time_ms()` and `clock_ms()` when system time support is unavailable.
+22. The display format used to format `bytes`.
+23. Absolute magnitudes of nonzero return values from `memcmp` and `strcmp`.
+24. End-of-file and error return values from `get()` and `fget()`.
+25. The set of format specifications supported by `printf`, `fprintf`, `scanf`, and `fscanf`.
+26. Representation of internal-linkage metadata for C file-scope `static`.
+27. The set of `whence` values and error codes for `fseek()`.
+28. Meanings of negative error codes returned by I/O functions including `put()`, `fput()`, `fflush()`, `printf()`, and `fprintf()`.
+29. The throw, reporting, or termination policy of `assert()` and `panic()`.
+30. Software-emulation and documentation policy for floating-point mathematical functions when the target platform lacks hardware lowering, has precision limitations, or has limited exception-flag support.
+31. Exit code, error-reporting form, and I/O-flushing policy for an uncaught `throw`.
+32. Unchecked-mode behavior of `to_iN()` / `to_uN()` for overflow, negative values, infinity, and NaN.
+33. The legacy standard-library names `to_float()`, `to_int()`, and `reinterpret()` MUST be rejected, and diagnostics SHOULD provide the corresponding replacement names.
+34. The concrete evaluation order among function-argument expressions.
+35. The synchronization policy for function-local `static` initialization when a concurrent-execution extension is provided.
+36. The concrete signed-integer template used for pointer differences in the C compatibility layer.
+
+---
+
+## 20. Appendix: Complete EBNF
+
+This EBNF describes the syntactic shape of the core language. `preprocessor_directive` describes only the shape of source-file lines before preprocessing. A preprocessing directive MAY appear on any physical line and does not enter core syntax after preprocessing. Disambiguation between postfix `?` and ternary `? :` follows Section 4.8. The semantics of a `return_item` containing only `length_spec` and omitting `template_mark` follow Section 4.4; its return template is `none`. An implementation MAY use an equivalent parser technology.
 
 ```ebnf
 program             = { external_decl | preprocessor_directive | terminator } ;
@@ -2061,13 +2058,13 @@ TYPED_FLOAT_MUL     = "%f*" | "%f/" | "%" FLOAT_WIDTH "f*" | "%" FLOAT_WIDTH "f/
 TYPED_FLOAT_POWER   = "%f**" | "%" FLOAT_WIDTH "f**" ;
 ```
 
-附录 EBNF 的后缀消解规则：当 `.` 后的 `IDENT` 后接 `(` 时，必须选择 `method_suffix`；其他 `.` 后缀选择 `member_suffix`。`TEMPLATE_COUNT_LITERAL` 的词形保留给 `[tN]`/`[tK]`，普通标识符不得使用该形态；声明计数语义要求 `N > 0`，实例访问语义允许 `K = 0` 且要求 `K` 小于实例数量。整数带类型操作符的 `INT_WIDTH` 在词法层接收十进制数字，语义层要求数值大于 0；浮点带类型操作符的 `FLOAT_WIDTH` 在词法层接收十进制数字，语义层按 8.3 限定为 2、4、8 或 16。
+The suffix-disambiguation rules for the Appendix EBNF are as follows: when the `IDENT` after `.` is followed by `(`, `method_suffix` MUST be selected; every other `.` suffix selects `member_suffix`. The lexical shape `TEMPLATE_COUNT_LITERAL` is reserved for `[tN]`/`[tK]` and MUST NOT be used by an ordinary identifier. Declaration-count semantics require `N > 0`; instance-access semantics permit `K = 0` and require `K` to be less than the instance count. At the lexical level, `INT_WIDTH` for integer typed operators accepts decimal digits, and at the semantic level its value is required to be greater than 0. At the lexical level, `FLOAT_WIDTH` for floating-point typed operators accepts decimal digits, and at the semantic level Section 8.3 restricts it to 2, 4, 8, or 16.
 
 ---
 
-## 21. 附录：标准模板库规范性伪代码
+## 21. Appendix: Normative Standard-Template-Library Pseudocode
 
-标准模板库伪代码用于说明语义。实现可以内建提供等价行为。本章中的 `read_*`、`write_*`、`format_*`、`make_bool` 是规范性辅助函数，不是核心语法函数。下列 `op =` 只展示同模板主路径；每个标准模板还必须按 11.10 的默认赋值矩阵展开接收重载。动态长度模板伪代码中出现的 `-> cstr`、`-> bytes` 表示返回赋值目标长度的右值副本，属于标准模板库伪签名，不是核心函数返回签名。
+The standard-template-library pseudocode illustrates semantics. An implementation MAY provide equivalent behavior through built-ins. In this chapter, `read_*`, `write_*`, `format_*`, and `make_bool` are normative helper functions rather than core-syntax functions. The `op =` definitions below show only the primary same-template paths; every standard template MUST additionally expand its accepted overloads according to the default-assignment matrix in Section 11.10. In pseudocode for dynamic-length templates, `-> cstr` and `-> bytes` denote an rvalue copy having the length of the assignment target. These are standard-template-library pseudo-signatures rather than core-function return signatures.
 
 ```hs
 template i32 { __size[4] as bytes }
@@ -2181,4 +2178,4 @@ impl bytes {
 }
 ```
 
-`i8`、`i16`、`i64`、`u8`、`u16`、`u32`、`u64`、`f16`、`f32`、`f128` 按同族模板规则定义。动态长度模板的伪字段 `__size[dynamic]` 只用于说明，不是核心语法。
+`i8`, `i16`, `i64`, `u8`, `u16`, `u32`, `u64`, `f16`, `f32`, and `f128` are defined according to the rules of their respective template families. The pseudo-field `__size[dynamic]` in dynamic-length templates is illustrative only and is not core syntax.

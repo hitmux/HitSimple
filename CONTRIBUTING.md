@@ -1,6 +1,6 @@
 # Contributing to HitSimple
 
-HitSimple is a C++20 compiler for a language whose semantics are based on memory data and explicit interpretation. [`Standard.md`](Standard.md) is the authority for language behaviour. Do not infer language semantics from a convenient LLVM lowering or from a single test alone.
+HitSimple is an experimental programming language whose semantics are based on data in memory and explicit interpretation. This repository contains its compiler, implemented in C++20. [`Standard.md`](Standard.md) is the authority for language behaviour. Do not infer language semantics from a convenient LLVM lowering or from a single test alone.
 
 ## Development Setup
 
@@ -77,4 +77,3 @@ ctest --test-dir build --output-on-failure
 ```
 
 If a required check cannot run, state the command, failure, and unverified scope clearly.
-
