@@ -99,8 +99,27 @@ struct AbiOverride final {
   std::optional<FunctionAbiSignature> functionSignature;
 };
 
+class ConstructionSourceRangeScope final {
+public:
+  explicit ConstructionSourceRangeScope(
+      std::optional<diagnostic::SourceRange> range);
+  ~ConstructionSourceRangeScope();
+
+  ConstructionSourceRangeScope(const ConstructionSourceRangeScope &) = delete;
+  ConstructionSourceRangeScope &operator=(
+      const ConstructionSourceRangeScope &) = delete;
+
+private:
+  std::optional<diagnostic::SourceRange> previous_;
+};
+
+std::optional<diagnostic::SourceRange> currentConstructionSourceRange();
+
 struct Expr {
+  Expr();
   virtual ~Expr() = default;
+
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct IntegerLiteral final : Expr {
@@ -308,7 +327,8 @@ struct CallExpr final : Expr {
   CallExpr(std::string callee, std::vector<std::unique_ptr<Expr>> arguments,
            std::size_t byteLength, bool isFloating = false,
            stdlib::BuiltinId builtin = stdlib::BuiltinId::None,
-           std::vector<FormatArgKind> formatArgumentKinds = {});
+           std::vector<FormatArgKind> formatArgumentKinds = {},
+           std::string resultTemplateName = {});
 
   std::string callee;
   std::vector<std::unique_ptr<Expr>> arguments;
@@ -316,6 +336,7 @@ struct CallExpr final : Expr {
   bool isFloating = false;
   stdlib::BuiltinId builtin = stdlib::BuiltinId::None;
   std::vector<FormatArgKind> formatArgumentKinds;
+  std::string resultTemplateName;
 };
 
 enum class DynamicByteViewOperation : std::uint8_t {
@@ -348,7 +369,10 @@ struct ByteSwapExpr final : Expr {
 };
 
 struct Stmt {
+  Stmt();
   virtual ~Stmt() = default;
+
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct AssignmentExpr final : Expr {
@@ -379,6 +403,8 @@ struct GlobalMemory final {
   bool isExtern = false;
   Linkage linkage = Linkage::External;
   std::optional<AbiType> abiType;
+  std::string templateName;
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct StructMemberLayout final {
@@ -397,6 +423,7 @@ struct StructLayout final {
   std::string name;
   std::vector<StructMemberLayout> members;
   std::size_t byteLength = 0;
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct ViewMember final {
@@ -416,6 +443,7 @@ struct ViewTemplate final {
   std::string name;
   std::vector<ViewMember> members;
   std::size_t byteLength = 0;
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct ImplOpParam final {
@@ -444,6 +472,37 @@ struct Parameter final {
   std::string name;
   std::string bindingName;
   std::size_t byteLength = 0;
+  std::string templateName;
+};
+
+enum class EffectAccess : std::uint8_t {
+  Read,
+  Write,
+};
+
+enum EffectFlag : std::uint32_t {
+  EffectNone = 0,
+  EffectPure = 1U << 0U,
+  EffectReadonly = 1U << 1U,
+  EffectAllocates = 1U << 2U,
+  EffectFrees = 1U << 3U,
+  EffectThrows = 1U << 4U,
+  EffectNothrow = 1U << 5U,
+  EffectIo = 1U << 6U,
+  EffectUnknown = 1U << 7U,
+};
+
+struct EffectRange final {
+  std::string object;
+  std::string range;
+  EffectAccess access = EffectAccess::Read;
+};
+
+struct EffectContract final {
+  bool isExplicit = false;
+  std::uint32_t flags = EffectNone;
+  std::vector<EffectRange> ranges;
+  std::vector<std::pair<std::string, std::string>> noAlias;
 };
 
 struct ExternFunction final {
@@ -451,9 +510,14 @@ struct ExternFunction final {
                  std::vector<std::size_t> returnByteLengths);
 
   std::string name;
+  std::vector<std::string> parameterNames;
   std::vector<std::size_t> parameterByteLengths;
   std::vector<std::size_t> returnByteLengths;
+  std::vector<std::string> parameterTemplateNames;
+  std::vector<std::string> returnTemplateNames;
+  EffectContract effectContract;
   std::optional<FunctionAbiSignature> abiSignature;
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct LocalMemory final : Stmt {
@@ -731,6 +795,7 @@ struct Block final {
   explicit Block(std::vector<std::unique_ptr<Stmt>> statements);
 
   std::vector<std::unique_ptr<Stmt>> statements;
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct Function final {
@@ -742,12 +807,15 @@ struct Function final {
   std::string name;
   std::vector<Parameter> parameters;
   std::vector<std::size_t> returnByteLengths;
+  std::vector<std::string> returnTemplateNames;
   std::unique_ptr<Block> body;
   Linkage linkage = Linkage::External;
   std::optional<FunctionAbiSignature> abiSignature;
   bool usesViewAbi = false;
   std::size_t viewResultByteLength = 0;
   bool viewParametersAreCopies = false;
+  EffectContract effectContract;
+  std::optional<diagnostic::SourceRange> sourceRange;
 };
 
 struct TranslationUnit final {

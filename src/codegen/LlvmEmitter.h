@@ -218,6 +218,15 @@ private:
   void registerStaticObject(llvm::Value *storage, std::size_t byteLength);
   void emitRuntimeFrameEnter();
   void emitRuntimeFrameExit();
+  void emitEffectContractEnter(const hir::Function &function);
+  void emitEffectContractExit();
+  void emitEffectRead(llvm::Value *pointer, llvm::Value *byteLength);
+  void emitEffectWrite(llvm::Value *pointer, llvm::Value *byteLength);
+  void emitEffectEvent(std::uint32_t event);
+  llvm::Value *effectObjectPointer(const hir::Function &function,
+                                   std::string_view object);
+  llvm::Value *effectRangeLength(const hir::Function &function,
+                                 const hir::EffectRange &range);
   llvm::FunctionCallee declarePrintf();
   llvm::FunctionCallee declareMalloc();
   llvm::FunctionCallee declareCalloc();
@@ -235,6 +244,13 @@ private:
   llvm::FunctionCallee declareRegisterStaticObject();
   llvm::FunctionCallee declareRuntimeFrameEnter();
   llvm::FunctionCallee declareRuntimeFrameExit();
+  llvm::FunctionCallee declareEffectContractEnter();
+  llvm::FunctionCallee declareEffectContractExit();
+  llvm::FunctionCallee declareEffectContractAddRange();
+  llvm::FunctionCallee declareEffectNoAliasCheck();
+  llvm::FunctionCallee declareEffectReadCheck();
+  llvm::FunctionCallee declareEffectWriteCheck();
+  llvm::FunctionCallee declareEffectEventCheck();
   llvm::FunctionCallee declareCFunction(std::string_view name,
                                         llvm::Type *returnType,
                                         std::vector<llvm::Type *> parameters,
@@ -270,6 +286,7 @@ private:
   llvm::Value *viewAbiResultStorage_ = nullptr;
   std::size_t viewAbiResultByteLength_ = 0;
   bool runtimeFrameActive_ = false;
+  bool effectContractActive_ = false;
   std::vector<diagnostic::Diagnostic> diagnostics_;
 };
 

@@ -7,6 +7,30 @@
 #include <utility>
 
 namespace hitsimple::hir {
+namespace {
+
+thread_local std::optional<diagnostic::SourceRange> constructionSourceRange;
+
+} // namespace
+
+ConstructionSourceRangeScope::ConstructionSourceRangeScope(
+    std::optional<diagnostic::SourceRange> range)
+    : previous_(std::move(constructionSourceRange)) {
+  constructionSourceRange = std::move(range);
+}
+
+ConstructionSourceRangeScope::~ConstructionSourceRangeScope() {
+  constructionSourceRange = std::move(previous_);
+}
+
+std::optional<diagnostic::SourceRange> currentConstructionSourceRange() {
+  return constructionSourceRange;
+}
+
+Expr::Expr() : sourceRange(currentConstructionSourceRange()) {}
+
+Stmt::Stmt() : sourceRange(currentConstructionSourceRange()) {}
+
 std::string_view toString(MemoryStorage storage) {
   switch (storage) {
   case MemoryStorage::Global:
@@ -163,10 +187,12 @@ CallExpr::CallExpr(std::string callee,
                    std::vector<std::unique_ptr<Expr>> arguments,
                    std::size_t byteLength, bool isFloating,
                    stdlib::BuiltinId builtin,
-                   std::vector<FormatArgKind> formatArgumentKinds)
+                   std::vector<FormatArgKind> formatArgumentKinds,
+                   std::string resultTemplateName)
     : callee(std::move(callee)), arguments(std::move(arguments)),
       byteLength(byteLength), isFloating(isFloating), builtin(builtin),
-      formatArgumentKinds(std::move(formatArgumentKinds)) {}
+      formatArgumentKinds(std::move(formatArgumentKinds)),
+      resultTemplateName(std::move(resultTemplateName)) {}
 
 UserTemplateFormatCallExpr::UserTemplateFormatCallExpr(
     std::string callee, std::unique_ptr<Expr> value, FormatOutputSink sink,
@@ -208,12 +234,13 @@ StatementList::StatementList(std::vector<std::unique_ptr<Stmt>> statements)
 GlobalMemory::GlobalMemory(std::string name, std::string bindingName,
                            std::size_t byteLength)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength) {}
+      byteLength(byteLength), sourceRange(currentConstructionSourceRange()) {}
 
 GlobalMemory::GlobalMemory(std::string name, std::string bindingName,
                            std::size_t byteLength, bool isExtern)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength), isExtern(isExtern) {}
+      byteLength(byteLength), isExtern(isExtern),
+      sourceRange(currentConstructionSourceRange()) {}
 
 StructMemberLayout::StructMemberLayout(std::string name,
                                        std::size_t byteLength,
@@ -224,7 +251,7 @@ StructLayout::StructLayout(std::string name,
                            std::vector<StructMemberLayout> members,
                            std::size_t byteLength)
     : name(std::move(name)), members(std::move(members)),
-      byteLength(byteLength) {}
+      byteLength(byteLength), sourceRange(currentConstructionSourceRange()) {}
 
 ViewMember::ViewMember(std::string name, std::size_t byteLength,
                        std::size_t offset, std::string templateName)
@@ -234,7 +261,7 @@ ViewMember::ViewMember(std::string name, std::size_t byteLength,
 ViewTemplate::ViewTemplate(std::string name, std::vector<ViewMember> members,
                            std::size_t byteLength)
     : name(std::move(name)), members(std::move(members)),
-      byteLength(byteLength) {}
+      byteLength(byteLength), sourceRange(currentConstructionSourceRange()) {}
 
 ImplOpParam::ImplOpParam(std::string name, std::string templateName,
                          bool isMutable)
@@ -260,7 +287,8 @@ ExternFunction::ExternFunction(std::string name,
                                std::vector<std::size_t> returnByteLengths)
     : name(std::move(name)),
       parameterByteLengths(std::move(parameterByteLengths)),
-      returnByteLengths(std::move(returnByteLengths)) {}
+      returnByteLengths(std::move(returnByteLengths)),
+      sourceRange(currentConstructionSourceRange()) {}
 
 LocalMemory::LocalMemory(std::string name, std::size_t byteLength)
     : name(std::move(name)), bindingName(this->name), byteLength(byteLength) {}
@@ -437,16 +465,19 @@ TryCatch::TryCatch(std::unique_ptr<Block> tryBlock, std::string errorName,
       errorByteLength(errorByteLength), catchBlock(std::move(catchBlock)) {}
 
 Block::Block(std::vector<std::unique_ptr<Stmt>> statements)
-    : statements(std::move(statements)) {}
+    : statements(std::move(statements)),
+      sourceRange(currentConstructionSourceRange()) {}
 
 Function::Function(std::string name, std::unique_ptr<Block> body)
-    : name(std::move(name)), body(std::move(body)) {}
+    : name(std::move(name)), body(std::move(body)),
+      sourceRange(currentConstructionSourceRange()) {}
 
 Function::Function(std::string name, std::vector<Parameter> parameters,
                    std::vector<std::size_t> returnByteLengths,
                    std::unique_ptr<Block> body)
     : name(std::move(name)), parameters(std::move(parameters)),
-      returnByteLengths(std::move(returnByteLengths)), body(std::move(body)) {}
+      returnByteLengths(std::move(returnByteLengths)), body(std::move(body)),
+      sourceRange(currentConstructionSourceRange()) {}
 
 TranslationUnit::TranslationUnit(
     std::vector<std::unique_ptr<Function>> functions)

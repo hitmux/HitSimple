@@ -385,6 +385,12 @@ bool Analyzer::collectFunctionSignatures(
       signature.parameterByteLengths.push_back(*length);
       signature.parameterTemplateNames.push_back(param.templateName);
     }
+    const auto effectContract = validateEffectContract(
+        externFunction->effects, externFunction->params, true);
+    if (!effectContract) {
+      continue;
+    }
+    signature.effectContract = *effectContract;
     auto returns = parseReturnSignature(externFunction->returns,
                                         externFunction->name);
     if (!returns) {
@@ -409,6 +415,13 @@ bool Analyzer::collectFunctionSignatures(
     }
     externs.emplace_back(signature.name, signature.parameterByteLengths,
                          signature.returnByteLengths);
+    externs.back().parameterNames.reserve(externFunction->params.size());
+    for (const auto& param : externFunction->params) {
+      externs.back().parameterNames.push_back(param.name);
+    }
+    externs.back().parameterTemplateNames = signature.parameterTemplateNames;
+    externs.back().returnTemplateNames = signature.returnTemplateNames;
+    externs.back().effectContract = signature.effectContract;
     if (const auto abi = floatingAbiSignature(signature)) {
       externs.back().abiSignature = *abi;
     }
@@ -456,6 +469,12 @@ bool Analyzer::collectFunctionSignatures(
       signature.parameterByteLengths.push_back(*length);
       signature.parameterTemplateNames.push_back(param.templateName);
     }
+    const auto effectContract = validateEffectContract(
+        function->effects, function->params, false);
+    if (!effectContract) {
+      continue;
+    }
+    signature.effectContract = *effectContract;
     if (!function->returns.empty()) {
       auto returns = parseReturnSignature(function->returns, function->name);
       if (!returns) {

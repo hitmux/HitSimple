@@ -356,15 +356,31 @@ struct ReturnItem final {
   std::string templateName;
 };
 
+struct EffectItem final {
+  EffectItem() = default;
+  EffectItem(std::string name, std::string object = {},
+             std::string range = {});
+
+  std::string name;
+  std::string object;
+  std::string range;
+};
+
+struct EffectClause final {
+  std::vector<EffectItem> items;
+};
+
 struct FunctionDecl final : TopLevelDecl {
   FunctionDecl(std::string name, std::vector<Param> params,
                std::vector<ReturnItem> returns,
-               std::unique_ptr<BlockStmt> body);
+               std::unique_ptr<BlockStmt> body,
+               std::optional<EffectClause> effects = std::nullopt);
 
   std::string name;
   std::vector<Param> params;
   std::vector<ReturnItem> returns;
   std::unique_ptr<BlockStmt> body;
+  std::optional<EffectClause> effects;
 };
 
 struct GlobalNewDecl final : TopLevelDecl {
@@ -390,11 +406,13 @@ struct ExternVarDecl final : TopLevelDecl {
 
 struct ExternFunctionDecl final : TopLevelDecl {
   ExternFunctionDecl(std::string name, std::vector<Param> params,
-                     std::vector<ReturnItem> returns);
+                     std::vector<ReturnItem> returns,
+                     std::optional<EffectClause> effects = std::nullopt);
 
   std::string name;
   std::vector<Param> params;
   std::vector<ReturnItem> returns;
+  std::optional<EffectClause> effects;
 };
 
 struct StructMember final {
@@ -441,7 +459,8 @@ struct ImplOpParam final {
 struct ImplOpDecl final {
   ImplOpDecl() = default;
   ImplOpDecl(std::string op, std::vector<ImplOpParam> params,
-             std::vector<ReturnItem> returns, std::unique_ptr<BlockStmt> body);
+             std::vector<ReturnItem> returns, std::unique_ptr<BlockStmt> body,
+             std::optional<EffectClause> effects = std::nullopt);
 
   ImplOpDecl(ImplOpDecl &&) noexcept = default;
   ImplOpDecl &operator=(ImplOpDecl &&) noexcept = default;
@@ -452,6 +471,7 @@ struct ImplOpDecl final {
   std::vector<ImplOpParam> params;
   std::vector<ReturnItem> returns;
   std::unique_ptr<BlockStmt> body;
+  std::optional<EffectClause> effects;
 };
 
 struct ImplDecl final : TopLevelDecl {

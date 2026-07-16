@@ -92,6 +92,8 @@
         return BisonParser::make_NONE(location);
       case TokenKind::KeywordSizeof:
         return BisonParser::make_SIZEOF(location);
+      case TokenKind::KeywordEffects:
+        return BisonParser::make_EFFECTS(location);
       case TokenKind::KeywordSwitch:
       case TokenKind::KeywordCase:
       case TokenKind::KeywordDefault:

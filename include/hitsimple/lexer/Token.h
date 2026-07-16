@@ -43,6 +43,7 @@ enum class TokenKind {
   KeywordSet,
   KeywordNone,
   KeywordSizeof,
+  KeywordEffects,
   KeywordSwitch,
   KeywordCase,
   KeywordDefault,

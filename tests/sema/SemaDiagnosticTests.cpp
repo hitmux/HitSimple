@@ -12,6 +12,110 @@ using hitsimple::testing::sema::allStandardHeaders;
 using hitsimple::testing::sema::analyzeSource;
 using hitsimple::testing::sema::minimalProgram;
 
+HS_TEST(Sema_RejectsInvalidEffectContracts) {
+  auto result = analyzeSource(
+      "extern copy(dst[P] as addr, src[P] as addr, len as u64) -> () "
+      "effects(unknown, nothrow)\n"
+      "func main() -> i32 {\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics[0].find("unknown") != std::string::npos);
+}
+
+HS_TEST(Sema_RejectsReadonlyWriteEffectContract) {
+  auto result = analyzeSource(
+      "extern update(dst[P] as addr, len as u64) -> () "
+      "effects(readonly, write(dst, len), nothrow)\n"
+      "func main() -> i32 {\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics.back().find("readonly") != std::string::npos);
+}
+
+HS_TEST(Sema_RejectsFunctionBodyEffectContractViolations) {
+  auto result = analyzeSource(
+      "func announce() -> () effects(pure) {\n"
+      "    print(\"unexpected\\n\")\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics.back().find("pure") != std::string::npos);
+}
+
+HS_TEST(Sema_PropagatesEffectContractsAcrossCalls) {
+  auto result = analyzeSource(
+      "func write_byte(dst[P] as addr) -> () effects(write(dst, 1), nothrow) {\n"
+      "    [1]*dst = 1\n"
+      "}\n"
+      "func read_only(dst[P] as addr) -> () effects(read(dst, 1), nothrow) {\n"
+      "    write_byte(dst)\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics.back().find("external write") !=
+                 std::string::npos);
+}
+
+HS_TEST(Sema_AcceptsCoveredAddressRangeEffect) {
+  auto result = analyzeSource(
+      "func load_byte(src[P] as addr) -> [1] effects(read(src, 1), nothrow) {\n"
+      "    return [1]*src\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+}
+
+HS_TEST(Sema_AcceptsPureLocalAddressAccess) {
+  auto result = analyzeSource(
+      "func local_write() -> () effects(pure) {\n"
+      "    new data[1]\n"
+      "    new pointer as addr = &data\n"
+      "    [1]*pointer = 1\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    local_write()\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+}
+
+HS_TEST(Sema_RejectsStaticallyAliasedNoAliasCall) {
+  auto result = analyzeSource(
+      "func copy_byte(dst[P] as addr, src[P] as addr) -> () effects(read(src, 1), "
+      "write(dst, 1), noalias(dst, src), nothrow) {\n"
+      "    [1]*dst = [1]*src\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new data[1]\n"
+      "    copy_byte(&data, &data)\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics.back().find("noalias") != std::string::npos);
+}
+
 HS_TEST(Sema_RejectsUnsupportedCompoundAssignmentWidth) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[1]\n"

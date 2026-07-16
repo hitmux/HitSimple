@@ -720,11 +720,16 @@ ReturnItem::ReturnItem(std::string name, std::string length,
     : name(std::move(name)), length(std::move(length)),
       templateName(std::move(templateName)) {}
 
+EffectItem::EffectItem(std::string name, std::string object, std::string range)
+    : name(std::move(name)), object(std::move(object)), range(std::move(range)) {}
+
 FunctionDecl::FunctionDecl(std::string name, std::vector<Param> params,
                            std::vector<ReturnItem> returns,
-                           std::unique_ptr<BlockStmt> body)
+                           std::unique_ptr<BlockStmt> body,
+                           std::optional<EffectClause> effects)
     : name(std::move(name)), params(std::move(params)),
-      returns(std::move(returns)), body(std::move(body)) {}
+      returns(std::move(returns)), body(std::move(body)),
+      effects(std::move(effects)) {}
 
 GlobalNewDecl::GlobalNewDecl(std::string name, std::string length,
                              std::string templateName, std::string assignmentOp,
@@ -741,9 +746,10 @@ ExternVarDecl::ExternVarDecl(std::string name, std::string length,
 
 ExternFunctionDecl::ExternFunctionDecl(std::string name,
                                        std::vector<Param> params,
-                                       std::vector<ReturnItem> returns)
+                                       std::vector<ReturnItem> returns,
+                                       std::optional<EffectClause> effects)
     : name(std::move(name)), params(std::move(params)),
-      returns(std::move(returns)) {}
+      returns(std::move(returns)), effects(std::move(effects)) {}
 
 StructMember::StructMember(std::string name, std::string length)
     : name(std::move(name)), length(std::move(length)) {}
@@ -767,9 +773,10 @@ ImplOpParam::ImplOpParam(std::string name, std::string templateName,
 
 ImplOpDecl::ImplOpDecl(std::string op, std::vector<ImplOpParam> params,
                        std::vector<ReturnItem> returns,
-                       std::unique_ptr<BlockStmt> body)
+                       std::unique_ptr<BlockStmt> body,
+                       std::optional<EffectClause> effects)
     : op(std::move(op)), params(std::move(params)), returns(std::move(returns)),
-      body(std::move(body)) {}
+      body(std::move(body)), effects(std::move(effects)) {}
 
 ImplDecl::ImplDecl(std::string name, std::vector<ImplOpDecl> ops,
                    std::vector<std::unique_ptr<FunctionDecl>> methods)

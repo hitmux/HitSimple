@@ -832,7 +832,11 @@ std::unique_ptr<hir::Expr> Analyzer::analyzeCallExpr(const ast::CallExpr &call) 
       isFloatTemplate(signature.returnTemplateNames.front());
   return std::make_unique<hir::CallExpr>(call.callee, std::move(arguments),
                                          signature.returnByteLengths.front(),
-                                         isFloating, signature.builtin);
+                                         isFloating, signature.builtin,
+                                         std::vector<hir::FormatArgKind>{},
+                                         signature.returnTemplateNames.empty()
+                                             ? std::string{}
+                                             : signature.returnTemplateNames.front());
 }
 
 std::optional<MethodCallLowering>

@@ -73,7 +73,7 @@ HS_TEST(Lexer_TokenizesControlFlowKeywords) {
   const auto tokens = lexAll(
       "new static extern func return if else for while continue break goto "
       "try catch throw true false struct template impl op as self mut set none "
-      "sizeof\n");
+      "sizeof effects\n");
 
   HS_EXPECT_EQ(tokens[0].kind, TokenKind::KeywordNew);
   HS_EXPECT_EQ(tokens[1].kind, TokenKind::KeywordStatic);
@@ -102,6 +102,7 @@ HS_TEST(Lexer_TokenizesControlFlowKeywords) {
   HS_EXPECT_EQ(tokens[24].kind, TokenKind::KeywordSet);
   HS_EXPECT_EQ(tokens[25].kind, TokenKind::KeywordNone);
   HS_EXPECT_EQ(tokens[26].kind, TokenKind::KeywordSizeof);
+  HS_EXPECT_EQ(tokens[27].kind, TokenKind::KeywordEffects);
 }
 
 HS_TEST(Lexer_TokenizesReservedKeywords) {

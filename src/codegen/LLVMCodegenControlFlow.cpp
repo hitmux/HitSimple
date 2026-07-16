@@ -140,6 +140,7 @@ void LlvmEmitter::emit(const hir::Label &label) {
 }
 
 void LlvmEmitter::emit(const hir::Throw &throwStmt) {
+  emitEffectEvent(8U);
   if (catchTargets_.empty()) {
     auto *trapType = llvm::FunctionType::get(builder_.getVoidTy(), false);
     auto trap = module_->getOrInsertFunction("llvm.trap", trapType);

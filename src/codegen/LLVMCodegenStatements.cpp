@@ -418,6 +418,7 @@ void LlvmEmitter::emit(const hir::PointerStore &store) {
   }
   auto *pointer = builder_.CreateIntToPtr(addressValue, builder_.getPtrTy(),
                                           "deref.store.addr");
+  emitEffectWrite(pointer, builder_.getInt64(store.targetByteLength));
   if (hasRuntimeSafetyChecks() &&
       !hasKnownStaticAddressRange(*store.address, store.targetByteLength)) {
     builder_.CreateCall(declareCheckStore(),
@@ -430,6 +431,7 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
     const std::vector<std::unique_ptr<hir::Expr>> &arguments,
     const std::vector<hir::FormatArgKind> &formatArgumentKinds,
     stdlib::BuiltinId builtin, std::string_view calleeName) {
+  emitEffectEvent(4U);
   const bool hasFile = builtin == stdlib::BuiltinId::Fprintf;
   const std::size_t formatIndex = hasFile ? 1U : 0U;
   if (arguments.size() <= formatIndex) {
@@ -595,6 +597,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     }
     auto *pointer = builder_.CreateIntToPtr(address, builder_.getPtrTy(),
                                             "free.ptr");
+    emitEffectEvent(2U);
     builder_.CreateCall(
         hasRuntimeSafetyChecks() ? declareCheckedFree() : declareFree(),
         {pointer});
@@ -608,6 +611,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     if (!address || !value || !length) {
       return;
     }
+    emitEffectWrite(address, length);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memset"
                                                              : "memset",
                                    ptrTy, {ptrTy, i32Ty, i64Ty});
@@ -620,6 +624,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     if (source.data == nullptr || source.length == nullptr) {
       return;
     }
+    emitEffectEvent(4U);
     if (hasRuntimeSafetyChecks()) {
       auto callee = declareCFunction("hs_put", i32Ty, {ptrTy, i64Ty});
       builder_.CreateCall(callee, {source.data, source.length});
@@ -637,6 +642,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     if (!seed) {
       return;
     }
+    emitEffectEvent(4U);
     auto callee = declareCFunction("srand", builder_.getVoidTy(), {i32Ty});
     builder_.CreateCall(callee, {seed});
     return;
@@ -647,6 +653,8 @@ void LlvmEmitter::emit(const hir::Call &call) {
     if (!code) {
       return;
     }
+    emitEffectEvent(8U);
+    emitEffectEvent(4U);
     auto callee = declareCFunction("exit", builder_.getVoidTy(), {i32Ty});
     builder_.CreateCall(callee, {code});
     builder_.CreateUnreachable();
@@ -786,6 +794,7 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
   auto *i32Ty = builder_.getInt32Ty();
   auto *i64Ty = builder_.getInt64Ty();
   llvm::Value *file = llvm::ConstantPointerNull::get(builder_.getPtrTy());
+  emitEffectEvent(4U);
 
   if (call.builtin == stdlib::BuiltinId::Fscanf) {
     if (!call.file) {
@@ -913,6 +922,7 @@ void LlvmEmitter::emit(const hir::Return &ret) {
     }
     builder_.CreateMemCpy(viewAbiResultStorage_, llvm::Align(1), value.data,
                           llvm::Align(1), viewAbiResultByteLength_);
+    emitEffectContractExit();
     emitRuntimeFrameExit();
     builder_.CreateRetVoid();
     return;
@@ -928,6 +938,7 @@ void LlvmEmitter::emit(const hir::Return &ret) {
       return;
     }
     builder_.CreateStore(value, cAbiSRetStorage_);
+    emitEffectContractExit();
     emitRuntimeFrameExit();
     builder_.CreateRetVoid();
     return;
@@ -962,6 +973,7 @@ void LlvmEmitter::emit(const hir::Return &ret) {
     if (physical == nullptr) {
       return;
     }
+    emitEffectContractExit();
     emitRuntimeFrameExit();
     builder_.CreateRet(physical);
     return;
@@ -969,10 +981,12 @@ void LlvmEmitter::emit(const hir::Return &ret) {
   if (ret.values.empty()) {
     auto *returnType = function->getFunctionType()->getReturnType();
     if (returnType->isVoidTy()) {
+      emitEffectContractExit();
       emitRuntimeFrameExit();
       builder_.CreateRetVoid();
     } else if (function->getName() == "main" &&
                returnType->isIntegerTy(32)) {
+      emitEffectContractExit();
       emitRuntimeFrameExit();
       builder_.CreateRet(builder_.getInt32(0));
     } else {
@@ -986,6 +1000,7 @@ void LlvmEmitter::emit(const hir::Return &ret) {
     if (!value) {
       return;
     }
+    emitEffectContractExit();
     emitRuntimeFrameExit();
     builder_.CreateRet(value);
     return;
@@ -1007,6 +1022,7 @@ void LlvmEmitter::emit(const hir::Return &ret) {
     aggregate = builder_.CreateInsertValue(
         aggregate, value, {static_cast<unsigned>(index)}, "ret.aggregate");
   }
+  emitEffectContractExit();
   emitRuntimeFrameExit();
   builder_.CreateRet(aggregate);
 }

@@ -94,6 +94,7 @@ struct FunctionSignature {
   bool returnsKnown = false;
   bool returnsExplicit = false;
   bool isExtern = false;
+  hir::EffectContract effectContract;
   stdlib::BuiltinId builtin = stdlib::BuiltinId::None;
 };
 
@@ -156,7 +157,8 @@ private:
   class CurrentRangeGuard final {
   public:
     CurrentRangeGuard(Analyzer &analyzer, const ast::Node &node)
-        : analyzer_(analyzer), previous_(std::move(analyzer.currentRange_)) {
+        : analyzer_(analyzer), previous_(std::move(analyzer.currentRange_)),
+          hirRangeScope_(node.range) {
       analyzer_.currentRange_ = node.range;
     }
 
@@ -170,6 +172,7 @@ private:
   private:
     Analyzer &analyzer_;
     std::optional<diagnostic::SourceRange> previous_;
+    hir::ConstructionSourceRangeScope hirRangeScope_;
   };
 
   std::unique_ptr<hir::Function> analyze(const ast::FunctionDecl &function);
@@ -298,6 +301,13 @@ private:
   std::optional<std::size_t> inferByteLength(const ast::Expr &expression);
   bool collectFunctionSignatures(const ast::TranslationUnit &unit,
                                  std::vector<hir::ExternFunction> &externs);
+  std::optional<hir::EffectContract> validateEffectContract(
+      const std::optional<ast::EffectClause>& clause,
+      const std::vector<ast::Param>& params, bool isExtern);
+  std::optional<hir::EffectContract> validateEffectContract(
+      const std::optional<ast::EffectClause>& clause,
+      const std::vector<ast::ImplOpParam>& params, bool isExtern);
+  void verifyEffectContracts(const hir::TranslationUnit& unit);
   std::unique_ptr<hir::Block>
   lowerGlobalInitializers(const ast::TranslationUnit &unit);
   std::optional<std::vector<std::size_t>>

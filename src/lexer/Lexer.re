@@ -577,6 +577,11 @@ Token Lexer::next() {
         advanceLocation(tokenBegin, cursor_);
         return token;
       }
+      "effects" {
+        Token token = makeToken(TokenKind::KeywordEffects, tokenBegin, cursor_);
+        advanceLocation(tokenBegin, cursor_);
+        return token;
+      }
       "switch" {
         Token token = makeToken(TokenKind::KeywordSwitch, tokenBegin, cursor_);
         advanceLocation(tokenBegin, cursor_);

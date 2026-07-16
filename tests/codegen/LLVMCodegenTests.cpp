@@ -98,6 +98,33 @@ HS_TEST(LLVMCodegen_EmitsMinimalProgramIr) {
   HS_EXPECT_TRUE(result.llvmIr.find("ret i32 0") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_CheckedEmitsEffectContractRuntimeChecks) {
+  constexpr std::string_view source =
+      "func store_byte(dst[P] as addr) -> () effects(write(dst, 1), nothrow) {\n"
+      "    [1]*dst = 7\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new byte[1]\n"
+      "    store_byte(&byte)\n"
+      "    return 0\n"
+      "}\n";
+
+  auto checked = emitSource(source, optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(checked.diagnostics.empty());
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_effect_enter") != std::string::npos);
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_effect_add_range") != std::string::npos);
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_effect_check_write") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_effect_exit") != std::string::npos);
+
+  auto staticChecked =
+      emitSource(source, optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+  HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
+  HS_EXPECT_TRUE(staticChecked.llvmIr.find("@hs_effect_enter") == std::string::npos);
+  HS_EXPECT_TRUE(staticChecked.llvmIr.find("@hs_effect_check_write") ==
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_LowersUserTemplateOperatorWithInternalViewAbi) {
   auto result = emitSource("template Vec2 {\n"
                            "    x[8] as f64\n"

@@ -37,7 +37,12 @@ _Static_assert(sizeof(HsFloat128) == 16,
 
 #endif
 
-enum { HS_MAX_OBJECTS = 1024, HS_RUNTIME_ERROR = 120 };
+enum {
+  HS_MAX_OBJECTS = 1024,
+  HS_MAX_EFFECT_CONTEXTS = 64,
+  HS_MAX_EFFECT_RANGES = 64,
+  HS_RUNTIME_ERROR = 120,
+};
 
 typedef enum {
   HS_OBJECT_HEAP,
@@ -52,6 +57,19 @@ typedef struct {
   HsObjectKind kind;
   int freed;
 } HsAlloc;
+
+typedef struct {
+  void *base;
+  uint64_t size;
+  uint32_t access;
+} HsEffectRange;
+
+typedef struct {
+  uint64_t frame;
+  uint32_t flags;
+  uint64_t range_count;
+  HsEffectRange ranges[HS_MAX_EFFECT_RANGES];
+} HsEffectContext;
 
 typedef struct {
   const void *data;
@@ -80,8 +98,24 @@ enum {
 
 static HsAlloc hs_allocs[HS_MAX_OBJECTS];
 static uint64_t hs_current_frame;
+static HsEffectContext hs_effect_contexts[HS_MAX_EFFECT_CONTEXTS];
+static uint64_t hs_effect_depth;
+
+static int hs_effect_nothrow_active(void) {
+  for (uint64_t index = 0; index < hs_effect_depth; ++index) {
+    if ((hs_effect_contexts[index].flags & (1U << 2U)) != 0U) {
+      return 1;
+    }
+  }
+  return 0;
+}
 
 static void hs_fail(const char *message) {
+  if (hs_effect_nothrow_active()) {
+    fprintf(stderr, "hitsimple runtime error: nothrow effect contract violated: %s\n",
+            message);
+    exit(HS_RUNTIME_ERROR);
+  }
   fprintf(stderr, "hitsimple runtime error: %s\n", message);
   exit(HS_RUNTIME_ERROR);
 }
@@ -98,6 +132,135 @@ static HsAlloc *hs_find(void *ptr) {
     }
   }
   return NULL;
+}
+
+static int hs_effect_is_local(void *ptr, const HsEffectContext *context) {
+  HsAlloc *entry = hs_find(ptr);
+  return entry != NULL && !entry->freed && entry->kind == HS_OBJECT_LOCAL &&
+         entry->frame >= context->frame;
+}
+
+static int hs_effect_range_contains(const HsEffectRange *range, void *ptr,
+                                    uint64_t size) {
+  if (size == 0) {
+    return 1;
+  }
+  if (range->base == NULL || ptr == NULL || size > range->size) {
+    return 0;
+  }
+  const uintptr_t base = (uintptr_t)range->base;
+  const uintptr_t address = (uintptr_t)ptr;
+  if (address < base) {
+    return 0;
+  }
+  return address - base <= range->size - size;
+}
+
+void hs_effect_enter(uint32_t flags) {
+  if (hs_effect_depth == HS_MAX_EFFECT_CONTEXTS) {
+    hs_fail("effect contract nesting is too deep");
+  }
+  HsEffectContext *context = &hs_effect_contexts[hs_effect_depth++];
+  context->frame = hs_current_frame;
+  context->flags = flags;
+  context->range_count = 0;
+}
+
+void hs_effect_exit(void) {
+  if (hs_effect_depth == 0) {
+    hs_fail("effect contract stack underflow");
+  }
+  --hs_effect_depth;
+}
+
+void hs_effect_add_range(void *base, uint64_t size, uint32_t access) {
+  if (hs_effect_depth == 0) {
+    hs_fail("effect range added without an active contract");
+  }
+  HsEffectContext *context = &hs_effect_contexts[hs_effect_depth - 1U];
+  if (context->range_count == HS_MAX_EFFECT_RANGES) {
+    hs_fail("effect contract has too many ranges");
+  }
+  context->ranges[context->range_count++] =
+      (HsEffectRange){base, size, access};
+}
+
+void hs_effect_check_noalias(void *left, uint64_t left_size, void *right,
+                              uint64_t right_size) {
+  if (left_size == 0 || right_size == 0) {
+    return;
+  }
+  if (left == NULL || right == NULL) {
+    hs_fail("noalias effect contract has a null range");
+  }
+  const uintptr_t left_begin = (uintptr_t)left;
+  const uintptr_t right_begin = (uintptr_t)right;
+  if (left_size > UINTPTR_MAX - left_begin ||
+      right_size > UINTPTR_MAX - right_begin) {
+    hs_fail("noalias effect contract range overflows address space");
+  }
+  const uintptr_t left_end = left_begin + (uintptr_t)left_size;
+  const uintptr_t right_end = right_begin + (uintptr_t)right_size;
+  if (left_begin < right_end && right_begin < left_end) {
+    hs_fail("noalias effect contract violated");
+  }
+}
+
+static void hs_effect_check_access(void *ptr, uint64_t size, uint32_t access) {
+  if (size == 0) {
+    return;
+  }
+  for (uint64_t index = 0; index < hs_effect_depth; ++index) {
+    const HsEffectContext *context = &hs_effect_contexts[index];
+    if (hs_effect_is_local(ptr, context)) {
+      continue;
+    }
+    if ((context->flags & (1U << 0U)) != 0U) {
+      hs_fail("pure effect contract accessed external storage");
+    }
+    if (access == 1U && (context->flags & (1U << 1U)) != 0U) {
+      hs_fail("readonly effect contract wrote external storage");
+    }
+    if ((context->flags & (1U << 3U)) == 0U) {
+      continue;
+    }
+    int allowed = 0;
+    for (uint64_t range = 0; range < context->range_count; ++range) {
+      const HsEffectRange *declared = &context->ranges[range];
+      if (declared->access == access &&
+          hs_effect_range_contains(declared, ptr, size)) {
+        allowed = 1;
+        break;
+      }
+    }
+    if (!allowed) {
+      hs_fail(access == 0U ? "effect contract read range violated"
+                           : "effect contract write range violated");
+    }
+  }
+}
+
+void hs_effect_check_read(void *ptr, uint64_t size) {
+  hs_effect_check_access(ptr, size, 0U);
+}
+
+void hs_effect_check_write(void *ptr, uint64_t size) {
+  hs_effect_check_access(ptr, size, 1U);
+}
+
+void hs_effect_event(uint32_t event) {
+  for (uint64_t index = 0; index < hs_effect_depth; ++index) {
+    const uint32_t flags = hs_effect_contexts[index].flags;
+    if ((flags & (1U << 0U)) != 0U) {
+      hs_fail("pure effect contract observed an external effect");
+    }
+    if ((flags & (1U << 1U)) != 0U && (event & (1U | 2U | 4U)) != 0U) {
+      hs_fail("readonly effect contract observed a write-like effect");
+    }
+    if ((flags & (1U << 2U)) != 0U && (event & 8U) != 0U) {
+      hs_fail("nothrow effect contract observed a throw");
+    }
+  }
 }
 
 static HsAlloc *hs_slot(void) {

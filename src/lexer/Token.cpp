@@ -74,6 +74,8 @@ std::string_view tokenKindName(TokenKind kind) {
     return "KeywordNone";
   case TokenKind::KeywordSizeof:
     return "KeywordSizeof";
+  case TokenKind::KeywordEffects:
+    return "KeywordEffects";
   case TokenKind::KeywordSwitch:
     return "KeywordSwitch";
   case TokenKind::KeywordCase:

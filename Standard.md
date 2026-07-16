@@ -1,4 +1,4 @@
-# HitSimple Standard 1.0.0-Beta.21
+# HitSimple Standard 1.0.0-Beta.22 Draft
 
 ## 1. Introduction, Normative Terminology, and Design Boundaries
 
@@ -17,7 +17,7 @@ Interpretation templates are the default units that carry semantics. The standar
 - **Undefined behavior**: behavior for which this Standard specifies no result; a program MUST NOT depend on its manifestation.
 - **Implementation-defined behavior**: behavior that an implementation MUST document.
 - **Diagnostic**: an error or warning that a compiler, interpreter, or runtime MUST report.
-- **Observable behavior**: compile-time diagnostics, runtime errors, expression-result lengths, expression-result templates, byte sequences written to memory, formatted output, return values, and process termination status that a program can observe.
+- **Observable behavior**: compile-time diagnostics, runtime errors, expression-result lengths, expression-result templates, byte sequences written to memory, formatted output, return values, and process termination status that a program can observe. Elapsed execution time, implementation resource consumption, and the identity, number, or scheduling of execution agents are not observable behavior by themselves. Values returned by `time_ms()`, `clock_ms()`, `rand()`, or another standard-defined operation, and all specified I/O effects, remain observable behavior.
 
 ### 1.2 Design Boundaries
 
@@ -68,6 +68,14 @@ source bytes and UTF-8 validation
 ```
 
 After preprocessing, the resulting text MUST satisfy the lexical rules of either the core language or the C compatibility layer. Translation of the C compatibility layer MUST occur before core semantic analysis. Legacy syntax, C declarators, C expressions, and linkage metadata in the translation result MUST NOT cross into the core semantic layer.
+
+### 1.5 General As-If Rule
+
+A conforming implementation MAY transform evaluation by reordering, combining, duplicating, eliminating, vectorizing, or executing computations concurrently. The resulting observable behavior MUST be equivalent to at least one abstract execution that obeys every requirement of this Standard, including required diagnostics, sequence points, selected control-flow paths, runtime errors, View lengths and templates, byte writes, I/O, return values, and termination.
+
+An implementation MUST NOT use a transformation to suppress a required compile-time diagnostic or checked-mode runtime error, to execute an unselected short-circuit or ternary branch, or to introduce an observable effect that no permitted abstract execution performs. A write, allocation, deallocation, or computation whose result cannot be observed by a defined execution MAY be deferred or omitted.
+
+This rule does not make elapsed time, scheduling, or execution-agent identity observable. It does not permit moving a standard-defined time, random, I/O, allocation, deallocation, throw, or other external effect across a sequence point when doing so changes the observable behavior of every permitted abstract execution.
 
 ---
 
@@ -143,6 +151,7 @@ The supported keywords are as follows:
 | `set` | Set a persistent default interpretation template |
 | `none` | Clear an interpretation template |
 | `as` | Specify an interpretation template |
+| `effects` | Attach an effect contract to a function, method, operation, or `extern` declaration |
 | `sizeof` | Query template size at compile time |
 | `self` | Reserved name for the first parameter of a method |
 
@@ -159,7 +168,7 @@ The reserved keywords are as follows:
 | `union` | Union layout |
 | `const` / `volatile` | Compatibility qualifiers |
 
-`self` is a reserved name in method declarations. The first parameter of a method MAY be written as `self as Template`. This Standard provides no implicit `self`. Writable behavior is expressed through assignment targets, target borrowing by `op =`, or explicit address dereference.
+`self` is a reserved name in method declarations. The first parameter of a method MAY be written as `self as Template`. This Standard provides no implicit `self`. Writable behavior is expressed through assignment targets, target borrowing by `op =`, or explicit address dereference. Within an `effects(...)` clause only, `pure`, `readonly`, `read`, `write`, `allocates`, `frees`, `throws`, `nothrow`, `noalias`, `io`, `unknown`, and `all` are contextual effect words; outside that clause they remain ordinary identifiers.
 
 ### 3.4 Lexical Rules for Preprocessor Directives
 
@@ -285,8 +294,8 @@ template_member = IDENT length_spec [ template_mark ] ;
 
 impl_def        = "impl" IDENT "{" separator { impl_item [ terminator ] } "}" [ terminator ] ;
 impl_item       = op_def | method_def ;
-op_def          = "op" overloadable_operator "(" op_param_list ")" return_sig block ;
-method_def      = "func" IDENT "(" [ method_param_list ] ")" [ return_sig ] block ;
+op_def          = "op" overloadable_operator "(" op_param_list ")" return_sig [ newline_gap effect_clause ] newline_gap block ;
+method_def      = "func" IDENT "(" [ method_param_list ] ")" [ return_sig ] [ newline_gap effect_clause ] newline_gap block ;
 ```
 
 After top-level name collection, `Name` in `impl Name` MUST resolve to a known template. In an ordinary user translation unit, an `impl` MAY refer only to a user template; a standard-template-library unit MAY provide normative `impl` definitions for standard templates. Both `op` resolution and method resolution are static.
@@ -310,6 +319,20 @@ return_template_name   = IDENT | "none" ;
 Both `-> f64` and `-> as f64` denote an anonymous return value whose template is `f64`. `-> ok as bool` denotes a named return value `ok` whose template is `bool`. When a return item begins with `IDENT` followed by `as` or a length specification, it MUST be parsed as a named return item. Only a standalone `IDENT` is parsed as template shorthand. Omitting a function or method return signature is equivalent to `-> ()`.
 
 The length of every return item MUST be statically determinable. Template shorthand MAY refer only to a fixed-length standard template or a user template. `bytes`, `cstr`, and `none` MUST be accompanied by an explicit length, for example `-> [16] as none`. When a return item consists only of `length_spec` and omits `as`, its return template is `none`; therefore, `-> [16]` is equivalent to `-> [16] as none`, and `-> name[16]` is equivalent to `-> name[16] as none`. A parser MAY initially accept a return-template shape involving `none` and subsequently issue the semantic diagnostic required by this section. Signatures that omit the return length, including `-> none`, `-> as none`, `-> bytes`, `-> cstr`, and `-> name as none`, MUST produce a compile-time diagnostic. Dynamic-length results of standard-library built-ins are handled only through the meta-signatures in Chapter 14.
+
+### 4.4.1 Effect-Clause Syntax
+
+```ebnf
+effect_clause  = "effects" "(" effect_item { "," effect_item } ")" ;
+effect_item    = "pure" | "readonly" | "allocates" | "frees" | "throws" | "nothrow" | "io" | "unknown"
+               | ( "read" | "write" ) "(" effect_object "," effect_range ")"
+               | "noalias" "(" effect_param "," effect_param ")" ;
+effect_object  = IDENT ;
+effect_param   = IDENT ;
+effect_range   = INTEGER_LITERAL | IDENT | "all" ;
+```
+
+An effect clause is permitted only in the declaration positions specified in Chapter 20. Its detailed meaning, validation, and execution-mode rules are defined by Section 12.5.
 
 ### 4.5 Expressions and Method Calls
 
@@ -798,7 +821,7 @@ new y[4] = x? + 1
 
 ### 8.10 Evaluation Order and Sequence Points
 
-Operator precedence and associativity determine expression grouping. In the absence of a sequence-point constraint, the implementation chooses the evaluation order of peer subexpressions, and a program MUST NOT depend on that order.
+Operator precedence and associativity determine expression grouping. In the absence of a sequence-point constraint, peer subexpressions are unsequenced: an implementation MAY evaluate them in any order, overlap their execution, or execute them concurrently. The resulting observable behavior MUST be equivalent to one serial order permitted by this Standard. A program MUST NOT depend on a particular unsequenced evaluation order, timing, or degree of parallelism.
 
 Sequence points occur:
 
@@ -810,7 +833,9 @@ Sequence points occur:
 - Between comma-separated `expr_stmt` entries in `for_post`.
 - At the end of a full expression.
 
-When two unsequenced side effects write the same overlapping memory region, or when one unsequenced side effect writes a region while another unsequenced evaluation reads that region, the behavior is undefined. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, an error MUST be reported when the condition can be detected.
+Two unsequenced evaluations MAY execute concurrently only when their effects are nonconflicting: they neither write the same overlapping memory region nor combine a write with a read of an overlapping region; neither ends, transfers, or invalidates the lifetime required by the other; and their external effects can be serialized into a permitted observable result. Reads of the same region are nonconflicting. The effect contract of Section 12.5 MAY prove nonconflict; an unannotated or `unknown` call is conservatively treated as conflicting with every reachable external memory access and external effect.
+
+When two unsequenced side effects write the same overlapping memory region, or when one unsequenced side effect writes a region while another unsequenced evaluation reads that region, the behavior is undefined. The same rule applies when their lifetime or external effects cannot be serialized into a permitted observable result. In static-checked and checked modes, a compile-time diagnostic MUST be produced when the condition can be proven statically; in checked mode, an error MUST be reported when the condition can be detected.
 
 ---
 
@@ -1205,7 +1230,7 @@ Omitting the return signature is equivalent to `-> ()`. A named return item is c
 
 ### 12.3 Function Calls
 
-A function call first evaluates every argument to form a sequence of argument Views, then enters the function body. The implementation chooses and documents the evaluation order among arguments. Arguments do not establish sequence points with one another. A sequence point is established after all arguments have been evaluated and before execution of the function body. Argument count, length, and template constraints MUST satisfy the function signature.
+A function call first evaluates every argument to form a sequence of argument Views, then enters the function body. Arguments do not establish sequence points with one another and follow the unsequenced-evaluation rules of Section 8.10. A sequence point is established after all arguments have been evaluated and before execution of the function body. Argument count, length, and template constraints MUST satisfy the function signature.
 
 ### 12.4 `main`
 
@@ -1216,6 +1241,30 @@ func main() -> i32 { ... }
 ```
 
 The return value is treated as the process exit code by the host environment. A `main` with no return value is treated as returning 0 unless the implementation documents other behavior.
+
+### 12.5 Effect Contracts
+
+An effect contract is an optional `effects(...)` clause on an ordinary function, template method, `impl op`, or `extern` function declaration. It describes the complete upper bound of effects performed during one invocation, including effects of calls made by its body. It does not change parameter passing: ordinary function and method parameters remain View-value copies, and the dedicated borrowed target parameter of `op =` retains the rule in Section 10.4.
+
+```hs
+func checksum(src[P] as addr, len as u64) -> u64
+effects(read(src, len), nothrow) {
+    // ...
+}
+
+extern copy(dst[P] as addr, src[P] as addr, len as u64) -> ()
+effects(read(src, len), write(dst, len), noalias(dst, src), nothrow)
+```
+
+`read(object, range)` and `write(object, range)` describe the bytes that an invocation may read or write. `object` MUST name either an `addr` parameter or a statically sized storage object with static storage duration. For an `addr` parameter, `range` MUST be a nonnegative integer literal or an integer-like parameter and denotes the half-open region beginning at that address. For a static-storage object, `all` denotes its full byte extent; an integer literal or integer-like parameter denotes a prefix of that extent. A zero range permits no access. An implementation MAY use a coarser internal region representation, but it MUST preserve this contract when proving overlap or reporting a violation.
+
+`pure` promises no read or write outside local storage, no `io`, allocation, deallocation, throw, checked-mode runtime error, or unknown effect; it implies `nothrow`. `readonly` promises no `write`, `allocates`, `frees`, `io`, or `unknown` effect, but may contain declared `read` effects and may throw unless paired with `nothrow`. `allocates` and `frees` permit dynamic-allocation and deallocation effects. `io` permits standard I/O, time observation, pseudorandom-state access, process control, or another interaction with the host environment. `throws` permits a `throw` or a checked-mode runtime error that transfers control or prevents normal completion; `nothrow` promises neither. `throws` and `nothrow` are mutually exclusive, and a non-`pure`, non-`unknown` contract MUST state exactly one of them.
+
+`noalias(a, b)` requires `a` and `b` to be distinct `addr` parameters. It promises that the regions reached through those parameters by every declared `read` or `write` effect are disjoint for the invocation. A `noalias` item is valid only when each named parameter has at least one declared `read` or `write` range. `unknown` is the top effect: it permits every external-memory, allocation, deallocation, throw, I/O, and host interaction effect, and MUST NOT appear with any other effect item. Duplicate items, contradictory items, and duplicate `read` or `write` ranges for the same object MUST be diagnosed.
+
+An explicit contract on a defined function, method, or operation is a verified promise: every effect proven from its body and callees MUST be covered by the contract. A declaration without an effect clause makes no source-level promise; an implementation MAY infer a conservative summary for internal analysis. An `extern` declaration without an effect clause is exactly `effects(unknown)`. An explicit `extern` contract is a promise about the linked external implementation; a program whose external implementation exceeds that contract has undefined behavior.
+
+Every statically provable contract violation MUST produce a compile-time diagnostic in every execution mode. Static-checked mode MUST NOT insert effect-contract checks. In checked mode, an implementation MUST report a runtime error when it can detect a violation of a declared range, `noalias`, lifetime, `pure`, `readonly`, or `nothrow` promise. In unchecked mode, a violation that is not proven statically has undefined behavior. Checked-mode detection for raw and external addresses remains limited by the documented boundary-tracking capability of the implementation.
 
 ---
 
@@ -1678,6 +1727,8 @@ extern fread(dst[P] as addr, size as u64, count as u64, fh as handle) -> u64
 
 External-function parameters and return signatures MUST have statically determinable lengths. The ABI of external symbols is implementation-defined. This Standard does not require binary compatibility with the host C ABI. An implementation that claims such compatibility MUST document the details.
 
+An `extern` function MAY carry an effect clause according to Section 12.5. Without one, it has `effects(unknown)`. An implementation MAY rely on an explicit `extern` contract for optimization, analysis, or checked-mode instrumentation only under the assumption that the linked implementation satisfies that contract.
+
 The variable-length templates `cstr` and `bytes` MUST NOT appear by value in a core `extern` function signature. To pass a C string or buffer, a program SHOULD use `[P] as addr`, and the ABI documentation SHOULD describe the constraints on the object referenced by that address. The compatibility layer MAY translate `char*` or `cstr*` into `[P] as addr`.
 
 ### 17.2 `extern` Variables
@@ -1780,6 +1831,7 @@ A conforming implementation MUST diagnose the following conditions:
 58. A multidimensional array, parenthesized complex declarator, function pointer, or pointer to an array appears in the C compatibility layer in standard mode.
 59. An expression outside the C compatibility-layer expression subset appears in standard mode, or a compatibility expression cannot be translated into core semantics.
 60. Recursive entry into the same function-local `static` declaration during initialization can be proven statically.
+61. An effect clause has invalid syntax; contains a duplicate, contradictory, or otherwise invalid item; names an invalid effect object, range, or `noalias` parameter; or a defined body has a statically provable effect not covered by its explicit contract.
 
 ### 18.3 Safety Diagnostics in Static-Checked Mode
 
@@ -1796,6 +1848,7 @@ In static-checked mode, each of the following safety errors MUST produce a compi
 9. Absence of a terminating `0x00` within the visible extent of a `cstr` View determinable at compile time.
 10. Insufficient capacity or absent boundaries for a raw address used as a positive-length `mem_view`/`mem_lview`, when determinable at compile time.
 11. Recursive entry into a function-local `static` initializer determinable at compile time.
+12. A declared effect range, `noalias` pair, lifetime promise, or `pure`, `readonly`, or `nothrow` contract violation determinable at compile time.
 
 Static-checked mode MUST NOT insert runtime-checking code for the checks above. Dynamic behavior whose safety cannot be proven statically follows the corresponding unchecked-mode clause.
 
@@ -1822,6 +1875,7 @@ In checked mode, each of the following conditions MUST produce a compile-time di
 17. A mismatch between a dynamic `scanf`/`fscanf` format specification and left-context targets, or a dynamic format string containing no assigning conversion specification.
 18. Insufficient capacity, missing boundaries, or inability to form the required readable/writable View for a raw address used as a positive-length `mem_view`/`mem_lview`.
 19. Recursive entry into the same function-local `static` declaration during initialization.
+20. A detectable declared effect-range, `noalias`, lifetime, `pure`, `readonly`, or `nothrow` contract violation.
 
 ---
 
@@ -1862,7 +1916,7 @@ A conforming implementation MUST document the following behavior:
 31. Exit code, error-reporting form, and I/O-flushing policy for an uncaught `throw`.
 32. Unchecked-mode behavior of `to_iN()` / `to_uN()` for overflow, negative values, infinity, and NaN.
 33. The legacy standard-library names `to_float()`, `to_int()`, and `reinterpret()` MUST be rejected, and diagnostics SHOULD provide the corresponding replacement names.
-34. The concrete evaluation order among function-argument expressions.
+34. The precision of inferred effect summaries and the checked-mode detection limits for effect contracts involving raw addresses, external addresses, and `extern` implementations.
 35. The synchronization policy for function-local `static` initialization when a concurrent-execution extension is provided.
 36. The concrete signed-integer template used for pointer differences in the C compatibility layer.
 
@@ -1906,11 +1960,11 @@ normal_assign_op    = "=" | "%d=" | "%f=" | "%s=" | "%b=" ;
 
 extern_decl         = extern_func_decl | extern_var_decl ;
 extern_var_decl     = "extern" IDENT [ length_spec ] [ template_mark ] terminator ;
-extern_func_decl    = "extern" IDENT "(" [ extern_param_list ] ")" return_sig terminator ;
+extern_func_decl    = "extern" IDENT "(" [ extern_param_list ] ")" return_sig [ newline_gap effect_clause ] terminator ;
 extern_param_list   = extern_param { "," extern_param } ;
 extern_param        = IDENT [ length_spec ] [ template_mark ] ;
 
-function_def        = "func" IDENT "(" [ param_list ] ")" [ return_sig ] block [ terminator ] ;
+function_def        = "func" IDENT "(" [ param_list ] ")" [ return_sig ] [ newline_gap effect_clause ] newline_gap block [ terminator ] ;
 param_list          = param { "," param } ;
 param               = IDENT [ length_spec ] [ template_mark ] ;
 return_sig          = "->" "()"
@@ -1927,6 +1981,13 @@ return_template_mark
                     = "as" return_template_name ;
 return_template_name
                     = IDENT | "none" ;
+effect_clause       = "effects" "(" effect_item { "," effect_item } ")" ;
+effect_item         = "pure" | "readonly" | "allocates" | "frees" | "throws" | "nothrow" | "io" | "unknown"
+                    | ( "read" | "write" ) "(" effect_object "," effect_range ")"
+                    | "noalias" "(" effect_param "," effect_param ")" ;
+effect_object       = IDENT ;
+effect_param        = IDENT ;
+effect_range        = INTEGER_LITERAL | IDENT | "all" ;
 block               = "{" separator { statement | terminator } "}" ;
 
 template_def        = "template" IDENT "{" separator { template_member terminator } "}" [ terminator ] ;
@@ -1934,10 +1995,10 @@ template_member     = IDENT length_spec [ template_mark ] ;
 
 impl_def            = "impl" IDENT "{" separator { impl_item [ terminator ] } "}" [ terminator ] ;
 impl_item           = op_def | method_def ;
-op_def              = "op" overloadable_operator "(" op_param_list ")" return_sig block ;
+op_def              = "op" overloadable_operator "(" op_param_list ")" return_sig [ newline_gap effect_clause ] newline_gap block ;
 op_param_list       = op_param { "," op_param } ;
 op_param            = IDENT [ length_spec ] template_mark ;
-method_def          = "func" IDENT "(" [ method_param_list ] ")" [ return_sig ] block ;
+method_def          = "func" IDENT "(" [ method_param_list ] ")" [ return_sig ] [ newline_gap effect_clause ] newline_gap block ;
 method_param_list   = method_param { "," method_param } ;
 method_param        = method_param_name [ length_spec ] template_mark ;
 method_param_name   = IDENT | "self" ;

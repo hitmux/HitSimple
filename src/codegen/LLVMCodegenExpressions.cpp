@@ -367,6 +367,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     }
     auto *pointer = builder_.CreateIntToPtr(addressValue, builder_.getPtrTy(),
                                             "deref.addr");
+    emitEffectRead(pointer, builder_.getInt64(deref->byteLength));
     if (hasRuntimeSafetyChecks() &&
         !hasKnownStaticAddressRange(*deref->address, deref->byteLength)) {
       builder_.CreateCall(declareCheckLoad(),
@@ -976,8 +977,10 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     if (address == nullptr) {
       return {};
     }
-    return ViewValue{builder_.CreateIntToPtr(address, builder_.getPtrTy(),
-                                              "deref.view"),
+    auto *pointer = builder_.CreateIntToPtr(address, builder_.getPtrTy(),
+                                            "deref.view");
+    emitEffectRead(pointer, builder_.getInt64(deref->byteLength));
+    return ViewValue{pointer,
                      builder_.getInt64(deref->byteLength), deref->byteLength};
   }
 
@@ -1235,6 +1238,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (address == nullptr || value == nullptr || length == nullptr) {
       return nullptr;
     }
+    emitEffectWrite(address, length);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memset"
                                                              : "memset",
                                    ptrTy, {ptrTy, i32Ty, i64Ty});
@@ -1247,6 +1251,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (source.data == nullptr || source.length == nullptr) {
       return nullptr;
     }
+    emitEffectEvent(4U);
     if (hasRuntimeSafetyChecks()) {
       auto callee = declareCFunction("hs_put", i32Ty, {ptrTy, i64Ty});
       return builder_.CreateCall(callee, {source.data, source.length}, "put.ret");
@@ -1278,6 +1283,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!size) {
       return nullptr;
     }
+    emitEffectEvent(1U);
     auto *pointer = builder_.CreateCall(
         hasRuntimeSafetyChecks() ? declareCheckedAlloc() : declareMalloc(),
         {size}, "alloc.ptr");
@@ -1289,6 +1295,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!count || !size) {
       return nullptr;
     }
+    emitEffectEvent(1U);
     auto *pointer =
         hasRuntimeSafetyChecks()
             ? builder_.CreateCall(declareCheckedCalloc(), {count, size},
@@ -1304,6 +1311,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!address || !size) {
       return nullptr;
     }
+    emitEffectEvent(1U);
+    emitEffectEvent(2U);
     auto *pointer =
         builder_.CreateIntToPtr(address, builder_.getPtrTy(), "realloc.in");
     auto *result = builder_.CreateCall(
@@ -1320,6 +1329,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!dst || !src || !length) {
       return nullptr;
     }
+    emitEffectWrite(dst, length);
+    emitEffectRead(src, length);
     const auto calleeName = hasRuntimeSafetyChecks()
                                 ? "hs_" + call.callee
                                 : call.callee;
@@ -1335,6 +1346,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!left || !right || !length) {
       return nullptr;
     }
+    emitEffectRead(left, length);
+    emitEffectRead(right, length);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memcmp"
                                                              : "memcmp",
                                    i32Ty, {ptrTy, ptrTy, i64Ty});

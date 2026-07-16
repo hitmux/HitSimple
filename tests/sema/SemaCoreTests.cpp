@@ -59,6 +59,28 @@ HS_TEST(Sema_LowersCompoundAssignmentToReadModifyWrite) {
                  std::string::npos);
 }
 
+HS_TEST(Sema_LowersValidatedEffectContractsToHir) {
+  auto result = analyzeSource(
+      "extern copy(dst[P] as addr, src[P] as addr, len as u64) -> () "
+      "effects(read(src, len), write(dst, len), noalias(dst, src), nothrow)\n"
+      "func checksum(src[P] as addr, len as u64) -> u64 "
+      "effects(read(src, len), nothrow) {\n"
+      "    return 0\n"
+      "}\n"
+      "func main() -> i32 effects(pure) {\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_EQ(result.unit->externFunctions.size(), 1U);
+  HS_EXPECT_TRUE(result.unit->externFunctions.front().effectContract.isExplicit);
+  HS_EXPECT_TRUE(result.unit->externFunctions.front().effectContract.noAlias.size() == 1U);
+  HS_EXPECT_TRUE(result.unit->functions[0]->effectContract.isExplicit);
+  HS_EXPECT_TRUE((result.unit->functions[0]->effectContract.flags &
+                  hitsimple::hir::EffectNothrow) != 0U);
+}
+
 HS_TEST(Sema_LowersControlFlowToHir) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[1]\n"

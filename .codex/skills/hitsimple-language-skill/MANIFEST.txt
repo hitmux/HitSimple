@@ -1,0 +1,14 @@
+README.md
+SKILL.md
+examples/hello.hs
+examples/memory.hs
+examples/vec2.hs
+examples/views-and-conversion.hs
+references/advanced/01-writing-programs.md
+references/advanced/02-data-views-and-conversion.md
+references/advanced/03-templates-operations-and-methods.md
+references/advanced/04-memory-addresses-and-safety.md
+references/advanced/05-library-preprocessor-and-interop.md
+references/advanced/06-diagnostics-portability-and-review.md
+references/standard/HitSimple-Standard-1.0.0-Beta.21.md
+references/standard/INDEX.md

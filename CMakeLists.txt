@@ -120,10 +120,25 @@ add_library(hitsimple_frontend STATIC
   src/codegen/LLVMCodegenRuntime.cpp
   src/codegen/LLVMCodegenStatements.cpp
   src/diagnostic/Diagnostic.cpp
+  src/flowir/Analysis.cpp
+  src/flowir/AnalysisEffects.cpp
+  src/flowir/AnalysisSerialization.cpp
+  src/flowir/Builder.cpp
+  src/flowir/Dump.cpp
+  src/flowir/FlowIR.cpp
+  src/flowir/Serialization.cpp
+  src/flowir/Verifier.cpp
+  src/gpu/OpenClBackend.cpp
+  src/gpu/OpenClDriver.cpp
+  src/gpu/OpenClKernels.cpp
+  src/gpu/GpuAnalysis.cpp
+  src/gpu/GpuAnalysisPacking.cpp
+  src/gpu/GpuAnalysisReport.cpp
   src/hir/HIR.cpp
   src/hir/HIRDumper.cpp
   src/lexer/Token.cpp
   src/literal/Literal.cpp
+  src/metrics/CompilationMetrics.cpp
   src/preprocessor/Preprocessor.cpp
   src/sema/Sema.cpp
   src/sema/SemaAnalysis.cpp
@@ -131,6 +146,8 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaAssignments.cpp
   src/sema/SemaCalls.cpp
   src/sema/SemaExpressions.cpp
+  src/sema/SemaEffects.cpp
+  src/sema/SemaEffectVerification.cpp
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
   src/stdlib/StandardLibrary.cpp
@@ -208,6 +225,10 @@ add_executable(hsc
   src/main.cpp
 )
 
+add_executable(hsc_flowir_gpu_benchmark
+  tools/FlowIrGpuResidentBenchmark.cpp
+)
+
 if(WIN32)
   target_sources(hsc_mcpp PRIVATE cmake/windows-utf8.manifest)
   target_sources(hsc PRIVATE cmake/windows-utf8.manifest)
@@ -237,11 +258,32 @@ target_link_libraries(hsc
   PRIVATE
     hitsimple_frontend
     ${LLVM_LIBS}
+    ${CMAKE_DL_LIBS}
+)
+
+target_include_directories(hsc_flowir_gpu_benchmark
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+
+if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+  target_compile_options(hsc_flowir_gpu_benchmark PRIVATE /W4)
+else()
+  target_compile_options(hsc_flowir_gpu_benchmark PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+target_link_libraries(hsc_flowir_gpu_benchmark
+  PRIVATE
+    hitsimple_frontend
+    ${LLVM_LIBS}
+    ${CMAKE_DL_LIBS}
 )
 
 add_dependencies(hsc hsc_mcpp)
+add_dependencies(hsc_flowir_gpu_benchmark hsc_mcpp)
 if(NOT HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
   add_dependencies(hsc hitsimple_runtime)
+  add_dependencies(hsc_flowir_gpu_benchmark hitsimple_runtime)
 endif()
 
 install(TARGETS hsc
@@ -311,6 +353,8 @@ if(BUILD_TESTING)
   add_executable(hsc_unit_tests
     tests/test_main.cpp
     tests/diagnostic/SourceLocationTests.cpp
+    tests/flowir/FlowIRTests.cpp
+    tests/gpu/GpuAnalysisTests.cpp
     tests/codegen/LLVMCodegenTests.cpp
     tests/compat/CCompatTests.cpp
     tests/lexer/LexerTests.cpp
@@ -343,6 +387,7 @@ target_link_libraries(hsc_unit_tests
   PRIVATE
     hitsimple_frontend
     ${LLVM_LIBS}
+    ${CMAKE_DL_LIBS}
 )
 
   add_dependencies(hsc_unit_tests hsc_mcpp)
@@ -377,8 +422,33 @@ target_link_libraries(hsc_unit_tests
   add_test(NAME hsc_help COMMAND hsc --help)
   add_test(NAME hsc_version COMMAND hsc --version)
   add_test(NAME hsc_target_info COMMAND hsc --target-info)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME hsc_cpu_baseline_runner_smoke
+      COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/run_cpu_baseline.py
+              --project-root ${PROJECT_SOURCE_DIR}
+              --hsc $<TARGET_FILE:hsc>
+              --output ${CMAKE_CURRENT_BINARY_DIR}/cpu-baseline-runner-smoke.json
+              --runs 1 --warmups 0 --workload stdlib_core_fixture
+    )
+    add_hsc_shell_test(hsc_synthetic_workload_generator_smoke
+      "${CMAKE_COMMAND} -E rm -rf generated-a generated-b && ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/generate_synthetic_workloads.py --profile smoke --output-dir generated-a && ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/generate_synthetic_workloads.py --profile smoke --output-dir generated-b && diff -ru generated-a generated-b && grep -Fq 'hitsimple_synthetic_source_workloads' generated-a/manifest.json && grep -Fq 'short_function_count\": 8' generated-a/manifest.json && grep -Fq 'long_operations_per_function\": 32' generated-a/manifest.json && $<TARGET_FILE:hsc> generated-a/scalar/short_functions.hs -o short-program && ./short-program && $<TARGET_FILE:hsc> generated-a/multi_tu/library_000.hs generated-a/multi_tu/library_001.hs generated-a/multi_tu/main.hs -o multifile-program && ./multifile-program && $<TARGET_FILE:hsc> --checked generated-a/checked_failure/oob.hs -o checked-oob && $<TARGET_FILE:hsc> --emit-llvm generated-a/shapes/unknown_external.hs -o unknown-external.ll && test -s unknown-external.ll"
+    )
+  endif()
   add_hsc_shell_test(hsc_target_info_documents_main_abi
     "$<TARGET_FILE:hsc> --target-info | grep -Fx 'abi.main: unannotated main uses i32, fallthrough returns 0'"
+  )
+  add_hsc_shell_test(hsc_checked_effect_noalias_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_effect_noalias.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'noalias effect contract violated' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_effect_range_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_effect_range.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_effect_contract_covered_range
+    "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/effect_covered_range.hs -o module.ll && test -s module.ll"
+  )
+  add_hsc_shell_test(hsc_effect_contract_static_noalias
+    "! $<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/effect_static_noalias.hs -o module.ll >stdout 2>stderr && grep -Fq 'violates its noalias contract' stderr"
   )
   if(WIN32 OR APPLE)
     set(HITSIMPLE_EXPECTED_F128_BACKEND
@@ -395,6 +465,18 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_emit_llvm_does_not_require_clang
     "$<TARGET_FILE:hsc> --clang ${CMAKE_CURRENT_BINARY_DIR}/missing-clang --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll && test -s module.ll"
+  )
+  add_hsc_shell_test(hsc_timing_json_compile
+    "$<TARGET_FILE:hsc> --timing-json=timing.json ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program >stdout 2>stderr && test ! -s stdout && test ! -s stderr && test -x program && grep -Fq 'schema_version' timing.json && grep -Fq 'preprocess' timing.json && grep -Fq 'parse' timing.json && grep -Fq 'sema' timing.json && grep -Fq 'llvm_emission' timing.json && grep -Fq 'temporary_ll_write' timing.json && grep -Fq 'clang_backend_link' timing.json && grep -Fq 'estimated_host_bytes' timing.json"
+  )
+  add_hsc_shell_test(hsc_timing_json_multifile
+    "$<TARGET_FILE:hsc> --timing-json=timing.json ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/main.hs -o program && ./program && grep -Fq 'translation_unit_count\":2' timing.json && grep -Fq 'lib.hs' timing.json && grep -Fq 'main.hs' timing.json"
+  )
+  add_hsc_shell_test(hsc_timing_json_emit_llvm
+    "$<TARGET_FILE:hsc> --timing-json=timing.json --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll && test -s module.ll && grep -Fq 'llvm_emission' timing.json && ! grep -Fq 'clang_backend_link' timing.json"
+  )
+  add_hsc_shell_test(hsc_timing_json_c_compat
+    "$<TARGET_FILE:hsc> --timing-json=timing.json --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_runtime_double.c -o program && ./program && grep -Fq 'c_compat_parse' timing.json && grep -Fq 'c_compat_lowering' timing.json && ! grep -Fq '\"parse\"' timing.json"
   )
   add_hsc_shell_test(hsc_reports_missing_clang_before_link
     "! env PATH= $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program >stdout 2>stderr && grep -Fq 'no compatible Clang toolchain found' stderr"
@@ -431,6 +513,24 @@ target_link_libraries(hsc_unit_tests
   )
   add_test(NAME hsc_emit_llvm
     COMMAND hsc ${PROJECT_SOURCE_DIR}/examples/hello.hs --emit-llvm
+  )
+  add_hsc_shell_test(hsc_dump_flow_ir
+    "$<TARGET_FILE:hsc> --dump-flow-ir ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_float_view.hs > flowir.txt && grep -Fq 'FlowIR schema=2' flowir.txt && grep -Fq 'kind=exceptional' flowir.txt"
+  )
+  add_hsc_shell_test(hsc_flow_ir_stats
+    "$<TARGET_FILE:hsc> --flow-ir-stats ${PROJECT_SOURCE_DIR}/tests/cases/run/user_template_ops.hs > stats.txt && grep -Eq '^functions=[1-9][0-9]*$' stats.txt && grep -Eq '^instructions=[1-9][0-9]*$' stats.txt"
+  )
+  add_hsc_shell_test(hsc_flow_ir_cpu_reference_analysis
+    "$<TARGET_FILE:hsc> --dump-flow-ir-analysis=4 ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_float_view.hs > analysis.txt && grep -Fq 'FlowIRAnalysis schema=1' analysis.txt && grep -Fq 'Reachability' analysis.txt && grep -Fq 'Liveness' analysis.txt && grep -Fq 'Convergence' analysis.txt"
+  )
+  add_hsc_shell_test(hsc_flow_ir_cpu_reference_baseline_runner
+    "${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_BINARY_DIR}/analysis-baseline.json && ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/run_flowir_analysis_baseline.py --project-root ${PROJECT_SOURCE_DIR} --hsc $<TARGET_FILE:hsc> --input ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_float_view.hs --output ${CMAKE_CURRENT_BINARY_DIR}/analysis-baseline.json --runs 1 --warmups 0 --threads 2 && grep -Fq 'hitsimple_flowir_cpu_reference_baseline' ${CMAKE_CURRENT_BINARY_DIR}/analysis-baseline.json && grep -Fq 'parallel_workers' ${CMAKE_CURRENT_BINARY_DIR}/analysis-baseline.json"
+  )
+  add_hsc_shell_test(hsc_flow_ir_gpu_analysis_fallback
+    "$<TARGET_FILE:hsc> --dump-flow-ir-gpu-analysis=auto --flow-ir-gpu-report=report.json ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_float_view.hs > analysis.txt && grep -Fq 'FlowIRAnalysis schema=1' analysis.txt && grep -Fq 'hitsimple_flowir_gpu_analysis' report.json && grep -Fq 'fallback_reason' report.json"
+  )
+  add_hsc_shell_test(hsc_flow_ir_gpu_differential_baseline_runner
+    "${CMAKE_COMMAND} -E rm -f ${CMAKE_CURRENT_BINARY_DIR}/gpu-analysis-baseline.json && ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/run_flowir_gpu_analysis_baseline.py --project-root ${PROJECT_SOURCE_DIR} --hsc $<TARGET_FILE:hsc> --input ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_float_view.hs --output ${CMAKE_CURRENT_BINARY_DIR}/gpu-analysis-baseline.json --runs 1 --warmups 0 --cpu-threads 2 && grep -Fq 'hitsimple_flowir_gpu_differential_baseline' ${CMAKE_CURRENT_BINARY_DIR}/gpu-analysis-baseline.json && grep -Fq 'fallback_is_not_gpu_measurement' ${CMAKE_CURRENT_BINARY_DIR}/gpu-analysis-baseline.json"
   )
   add_hsc_shell_test(hsc_c_compat_double_abi_emit_llvm
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_double_abi.c > module.ll && grep -Fq 'declare double @host_value()' module.ll && grep -Fq 'define double @add(double' module.ll && grep -Fq 'call double @host_value()' module.ll && grep -Fq 'call double @add(double' module.ll"

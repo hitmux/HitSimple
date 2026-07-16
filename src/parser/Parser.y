@@ -13,6 +13,7 @@
   #include "hitsimple/ast/AST.h"
 
   #include <memory>
+  #include <optional>
   #include <string>
   #include <vector>
 
@@ -145,6 +146,7 @@
 %token SET "set"
 %token NONE "none"
 %token SIZEOF "sizeof"
+%token EFFECTS "effects"
 %token <std::string> TYPED_ASSIGN_OPERATOR "typed assignment operator"
 %token <std::string> TYPED_ADDITIVE_OPERATOR "typed additive operator"
 %token <std::string> TYPED_MULTIPLICATIVE_OPERATOR "typed multiplicative operator"
@@ -199,6 +201,10 @@
 %type <std::vector<hitsimple::ast::Param>> optional_param_list param_list optional_impl_method_param_list impl_method_param_list
 %type <hitsimple::ast::ReturnItem> return_item
 %type <std::vector<hitsimple::ast::ReturnItem>> optional_return_sig return_sig return_item_list
+%type <hitsimple::ast::EffectClause> effect_clause
+%type <hitsimple::ast::EffectItem> effect_item
+%type <std::optional<hitsimple::ast::EffectClause>> optional_effect_clause
+%type <std::vector<hitsimple::ast::EffectItem>> effect_item_list
 %type <hitsimple::ast::StructMember> struct_member
 %type <std::vector<hitsimple::ast::StructMember>> struct_member_list
 %type <hitsimple::ast::TemplateMember> template_member
@@ -212,7 +218,7 @@
 %type <hitsimple::ast::AssignmentTarget> assignment_target
 %type <std::vector<hitsimple::ast::DeclItem>> decl_list batch_decl_list
 %type <std::vector<hitsimple::ast::AssignmentTarget>> assignment_target_list
-%type <std::string> optional_length_spec length_spec
+%type <std::string> optional_length_spec length_spec effect_range
 %type <std::string> decl_storage assignment_operator template_name optional_template_mark optional_as_template overloadable_operator param_name template_param_name
 %type <std::unique_ptr<hitsimple::ast::BlockStmt>> block
 %type <std::vector<std::unique_ptr<hitsimple::ast::Stmt>>> statement_list
@@ -296,11 +302,11 @@ extern_decl:
               std::move($2), std::move($3), std::move($4)),
           @$);
     }
-| EXTERN IDENTIFIER LPAREN optional_param_list RPAREN return_sig
+| EXTERN IDENTIFIER LPAREN optional_param_list RPAREN return_sig optional_effect_clause
     {
       $$ = withSourceRange(
           std::make_unique<hitsimple::ast::ExternFunctionDecl>(
-              std::move($2), std::move($4), std::move($6)),
+              std::move($2), std::move($4), std::move($6), std::move($7)),
           @$);
     }
 ;
@@ -390,10 +396,10 @@ impl_item_list:
 ;
 
 op_decl:
-  OP overloadable_operator LPAREN optional_op_param_list RPAREN optional_return_sig block
+  OP overloadable_operator LPAREN optional_op_param_list RPAREN optional_return_sig optional_effect_clause block
     {
       $$ = std::make_unique<hitsimple::ast::ImplOpDecl>(
-          std::move($2), std::move($4), std::move($6), std::move($7));
+          std::move($2), std::move($4), std::move($6), std::move($8), std::move($7));
     }
 ;
 
@@ -472,21 +478,21 @@ template_param_name:
 ;
 
 function:
-  FUNC IDENTIFIER LPAREN optional_param_list RPAREN optional_return_sig block
+  FUNC IDENTIFIER LPAREN optional_param_list RPAREN optional_return_sig optional_effect_clause block
     {
       $$ = withSourceRange(
           std::make_unique<hitsimple::ast::FunctionDecl>(
-              std::move($2), std::move($4), std::move($6), std::move($7)),
+              std::move($2), std::move($4), std::move($6), std::move($8), std::move($7)),
           @$);
     }
 ;
 
 impl_method:
-  FUNC IDENTIFIER LPAREN optional_impl_method_param_list RPAREN optional_return_sig block
+  FUNC IDENTIFIER LPAREN optional_impl_method_param_list RPAREN optional_return_sig optional_effect_clause block
     {
       $$ = withSourceRange(
           std::make_unique<hitsimple::ast::FunctionDecl>(
-              std::move($2), std::move($4), std::move($6), std::move($7)),
+              std::move($2), std::move($4), std::move($6), std::move($8), std::move($7)),
           @$);
     }
 ;
@@ -574,6 +580,39 @@ optional_return_sig:
   %empty
     { $$ = std::vector<hitsimple::ast::ReturnItem>(); }
 | return_sig
+    { $$ = std::move($1); }
+;
+
+optional_effect_clause:
+  %empty
+    { $$ = std::nullopt; }
+| effect_clause
+    { $$ = std::optional<hitsimple::ast::EffectClause>(std::move($1)); }
+;
+
+effect_clause:
+  EFFECTS LPAREN effect_item_list RPAREN
+    { $$ = hitsimple::ast::EffectClause{std::move($3)}; }
+;
+
+effect_item_list:
+  effect_item
+    { $$.push_back(std::move($1)); }
+| effect_item_list COMMA effect_item
+    { $$ = std::move($1); $$.push_back(std::move($3)); }
+;
+
+effect_item:
+  IDENTIFIER
+    { $$ = hitsimple::ast::EffectItem(std::move($1)); }
+| IDENTIFIER LPAREN IDENTIFIER COMMA effect_range RPAREN
+    { $$ = hitsimple::ast::EffectItem(std::move($1), std::move($3), std::move($5)); }
+;
+
+effect_range:
+  INTEGER
+    { $$ = std::move($1); }
+| IDENTIFIER
     { $$ = std::move($1); }
 ;
 

@@ -187,8 +187,10 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
   labelBlocks_.clear();
   const auto previousEntryBlock = functionEntryBlock_;
   const bool previousFrameActive = runtimeFrameActive_;
+  const bool previousEffectContractActive = effectContractActive_;
   functionEntryBlock_ = nullptr;
   runtimeFrameActive_ = false;
+  effectContractActive_ = false;
 
   if (hasRuntimeSafetyChecks()) {
     functionEntryBlock_ = entry;
@@ -212,6 +214,7 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
   }
   functionEntryBlock_ = previousEntryBlock;
   runtimeFrameActive_ = previousFrameActive;
+  effectContractActive_ = previousEffectContractActive;
   if (!diagnostics_.empty()) {
     return;
   }
@@ -244,6 +247,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
   builder_.SetInsertPoint(entry);
   const auto previousEntryBlock = functionEntryBlock_;
   const bool previousFrameActive = runtimeFrameActive_;
+  const bool previousEffectContractActive = effectContractActive_;
   const auto *memoryPlan = cAbiMemoryPlan(function.name);
   const auto directParameters =
       cAbiDirectAggregateParameters_.find(function.name);
@@ -259,6 +263,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
   const auto previousViewAbiResultByteLength = viewAbiResultByteLength_;
   functionEntryBlock_ = nullptr;
   runtimeFrameActive_ = false;
+  effectContractActive_ = false;
   cAbiSRetStorage_ = nullptr;
   cAbiSRetStorageType_ = nullptr;
   viewAbiResultStorage_ = nullptr;
@@ -309,9 +314,11 @@ void LlvmEmitter::emit(const hir::Function &function) {
                     function.name + "'");
       return;
     }
+    emitEffectContractEnter(function);
     emit(*function.body);
     if (diagnostics_.empty() && !builder_.GetInsertBlock()->getTerminator()) {
       if (function.viewResultByteLength == 0U) {
+        emitEffectContractExit();
         emitRuntimeFrameExit();
         builder_.CreateRetVoid();
       } else {
@@ -321,6 +328,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
     }
     functionEntryBlock_ = previousEntryBlock;
     runtimeFrameActive_ = previousFrameActive;
+    effectContractActive_ = previousEffectContractActive;
     cAbiSRetStorage_ = previousSRetStorage;
     cAbiSRetStorageType_ = previousSRetStorageType;
     viewAbiResultStorage_ = previousViewAbiResultStorage;
@@ -452,9 +460,11 @@ void LlvmEmitter::emit(const hir::Function &function) {
     return;
   }
 
+  emitEffectContractEnter(function);
   emit(*function.body);
 
   if (diagnostics_.empty() && !builder_.GetInsertBlock()->getTerminator()) {
+    emitEffectContractExit();
     emitRuntimeFrameExit();
     if (function.name == "main" &&
         llvmFunction->getReturnType()->isIntegerTy(32)) {
@@ -467,6 +477,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
   }
   functionEntryBlock_ = previousEntryBlock;
   runtimeFrameActive_ = previousFrameActive;
+  effectContractActive_ = previousEffectContractActive;
   cAbiSRetStorage_ = previousSRetStorage;
   cAbiSRetStorageType_ = previousSRetStorageType;
   viewAbiResultStorage_ = previousViewAbiResultStorage;

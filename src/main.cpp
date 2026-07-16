@@ -1,9 +1,15 @@
 #include "hitsimple/lexer/Lexer.h"
+#include "hitsimple/metrics/CompilationMetrics.h"
 #include "hitsimple/ast/AST.h"
 #include "hitsimple/compat/CCompat.h"
 #include "hitsimple/codegen/LLVMCodegen.h"
 #include "hitsimple/codegen/TargetCapabilities.h"
 #include "hitsimple/diagnostic/Diagnostic.h"
+#include "hitsimple/flowir/Analysis.h"
+#include "hitsimple/flowir/Builder.h"
+#include "hitsimple/flowir/Dump.h"
+#include "hitsimple/flowir/Verifier.h"
+#include "hitsimple/gpu/GpuAnalysis.h"
 #include "hitsimple/hir/HIR.h"
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/preprocessor/Preprocessor.h"
@@ -18,6 +24,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -48,7 +55,17 @@ void printHelp(std::ostream& out) {
       << "  --dump-tokens     Print lexer tokens\n"
       << "  --dump-ast        Print parser AST\n"
       << "  --dump-hir        Print semantic HIR\n"
+      << "  --dump-flow-ir    Build, verify, and print deterministic FlowIR\n"
+      << "  --flow-ir-stats   Build and verify FlowIR, then print table counts\n"
+      << "  --dump-flow-ir-analysis[=threads]\n"
+      << "                   Build FlowIR and dump deterministic CPU reference analyses\n"
+      << "  --dump-flow-ir-gpu-analysis[=auto|opencl|cpu]\n"
+      << "                   Run OpenCL reachability/liveness with verified CPU fallback\n"
+      << "  --flow-ir-gpu-report=<path>\n"
+      << "                   Write the GPU analysis execution and timing report as JSON\n"
       << "  --emit-llvm       Emit LLVM IR\n"
+      << "  --timing-json=<path>\n"
+      << "                   Write versioned compilation timing metrics as JSON\n"
       << "  --c-compat        Parse all inputs as C compatibility source\n"
       << "  -E, --preprocess-only\n"
       << "                   Print preprocessed source\n"
@@ -111,6 +128,12 @@ void printTargetInfo(std::ostream& out,
       << "checked.address_coverage: local objects are removed when their function "
          "frame exits; internal globals/statics persist; extern globals, FFI "
          "raw addresses, and file handles are not registered\n"
+      << "checked.effect_contracts: declared pointer ranges and noalias pairs are "
+         "checked for compiler-lowered dereferences, pointer stores, and core "
+         "memory calls; allocation/free, formatted output, input, and throw are "
+         "tracked where lowered by the runtime bridge; raw/FFI addresses, cstr "
+         "traversal, file handles, and opaque extern implementations retain "
+         "documented detection limits\n"
       << "static-checked.runtime-overhead: none\n"
       << "abi.symbol.names: source identifiers use external linkage as written\n"
       << "abi.main: unannotated main uses i32, fallthrough returns 0\n"
@@ -235,6 +258,20 @@ bool validateOutputParent(const std::string& path) {
   return true;
 }
 
+std::optional<hitsimple::gpu::GpuAnalysisMode>
+parseGpuAnalysisMode(std::string_view value) {
+  if (value == "auto") {
+    return hitsimple::gpu::GpuAnalysisMode::Auto;
+  }
+  if (value == "opencl") {
+    return hitsimple::gpu::GpuAnalysisMode::OpenCl;
+  }
+  if (value == "cpu") {
+    return hitsimple::gpu::GpuAnalysisMode::Cpu;
+  }
+  return std::nullopt;
+}
+
 std::optional<std::string> readFile(const std::string& path) {
   std::ifstream input(hitsimple::support::pathFromUtf8(path),
                       std::ios::binary);
@@ -246,6 +283,16 @@ std::optional<std::string> readFile(const std::string& path) {
                      std::istreambuf_iterator<char>());
 }
 
+std::size_t inputByteCount(const std::string& path) {
+  std::error_code error;
+  const auto size = std::filesystem::file_size(
+      hitsimple::support::pathFromUtf8(path), error);
+  if (error || size > std::numeric_limits<std::size_t>::max()) {
+    return 0;
+  }
+  return static_cast<std::size_t>(size);
+}
+
 struct ParsedTranslationUnit {
   std::unique_ptr<hitsimple::ast::TranslationUnit> unit;
   std::vector<hitsimple::compat::LinkageMetadata> compatibilityLinkage;
@@ -253,15 +300,29 @@ struct ParsedTranslationUnit {
 };
 
 std::optional<ParsedTranslationUnit>
-parseInput(const std::string& inputPath, bool cCompatibilityMode) {
-  auto preprocessed = hitsimple::preprocessor::preprocessFile(inputPath);
+parseInput(const std::string& inputPath, bool cCompatibilityMode,
+           hitsimple::metrics::CompilationMetrics* compilationMetrics = nullptr,
+           std::optional<std::size_t> metricsIndex = std::nullopt) {
+  hitsimple::preprocessor::PreprocessResult preprocessed;
+  {
+    hitsimple::metrics::ScopedStageTimer timer(
+        compilationMetrics, metricsIndex,
+        hitsimple::metrics::CompilationStage::Preprocess);
+    preprocessed = hitsimple::preprocessor::preprocessFile(inputPath);
+  }
   if (printDiagnostics(preprocessed.diagnostics)) {
     return std::nullopt;
   }
 
   if (cCompatibilityMode) {
-    auto parsed = hitsimple::compat::parseCCompatSource(preprocessed.source,
-                                                         inputPath);
+    hitsimple::compat::ParseResult parsed;
+    {
+      hitsimple::metrics::ScopedStageTimer timer(
+          compilationMetrics, metricsIndex,
+          hitsimple::metrics::CompilationStage::CCompatParse);
+      parsed = hitsimple::compat::parseCCompatSource(preprocessed.source,
+                                                      inputPath);
+    }
     if (printDiagnostics(parsed.diagnostics) || !parsed.unit) {
       if (!parsed.unit && parsed.diagnostics.empty()) {
         std::cerr << "hsc: C compatibility parser did not produce an AST\n";
@@ -271,8 +332,14 @@ parseInput(const std::string& inputPath, bool cCompatibilityMode) {
 
     auto loweringOptions = hitsimple::compat::LoweringOptions{};
     loweringOptions.allowHostFloatExternAbi = true;
-    auto lowered = hitsimple::compat::lowerCCompatToCore(*parsed.unit,
-                                                          loweringOptions);
+    hitsimple::compat::LoweringResult lowered;
+    {
+      hitsimple::metrics::ScopedStageTimer timer(
+          compilationMetrics, metricsIndex,
+          hitsimple::metrics::CompilationStage::CCompatLowering);
+      lowered = hitsimple::compat::lowerCCompatToCore(*parsed.unit,
+                                                       loweringOptions);
+    }
     if (printDiagnostics(lowered.diagnostics) || !lowered.unit) {
       if (!lowered.unit && lowered.diagnostics.empty()) {
         std::cerr << "hsc: C compatibility lowering did not produce a core AST\n";
@@ -283,8 +350,14 @@ parseInput(const std::string& inputPath, bool cCompatibilityMode) {
                                  std::move(lowered.linkage), {}};
   }
 
-  auto parseResult = hitsimple::parser::parseSource(
-      preprocessed.source, inputPath, std::move(preprocessed.lineOrigins));
+  hitsimple::parser::ParseResult parseResult;
+  {
+    hitsimple::metrics::ScopedStageTimer timer(
+        compilationMetrics, metricsIndex,
+        hitsimple::metrics::CompilationStage::Parse);
+    parseResult = hitsimple::parser::parseSource(
+        preprocessed.source, inputPath, std::move(preprocessed.lineOrigins));
+  }
   if (printDiagnostics(parseResult.diagnostics) || !parseResult.unit) {
     return std::nullopt;
   }
@@ -543,17 +616,26 @@ bool applyCCompatibilityMetadata(
 std::optional<CompiledTranslationUnit> compileTranslationUnit(
     const std::string& inputPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
-    bool cCompatibilityMode) {
-  auto parsed = parseInput(inputPath, cCompatibilityMode);
+    bool cCompatibilityMode,
+    hitsimple::metrics::CompilationMetrics* compilationMetrics = nullptr,
+    std::optional<std::size_t> metricsIndex = std::nullopt) {
+  auto parsed = parseInput(inputPath, cCompatibilityMode, compilationMetrics,
+                           metricsIndex);
   if (!parsed) {
     return std::nullopt;
   }
 
   const auto mainCount = mainDefinitionCount(*parsed->unit);
-  auto analyzeResult = hitsimple::sema::analyze(
-      *parsed->unit,
-      hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
-                                      cCompatibilityMode});
+  hitsimple::sema::AnalyzeResult analyzeResult;
+  {
+    hitsimple::metrics::ScopedStageTimer timer(
+        compilationMetrics, metricsIndex,
+        hitsimple::metrics::CompilationStage::Sema);
+    analyzeResult = hitsimple::sema::analyze(
+        *parsed->unit,
+        hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
+                                        cCompatibilityMode});
+  }
   if (!analyzeResult.unit) {
     for (const auto& diagnostic : analyzeResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
@@ -565,10 +647,20 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
                                    parsed->compatibilityLinkage)) {
     return std::nullopt;
   }
+  if (compilationMetrics != nullptr && metricsIndex) {
+    compilationMetrics->recordHirStatistics(
+        *metricsIndex,
+        hitsimple::metrics::collectHirStatistics(*analyzeResult.unit));
+  }
 
-  auto emitResult =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, inputPath,
-                                     codegenOptions);
+  hitsimple::codegen::EmitResult emitResult;
+  {
+    hitsimple::metrics::ScopedStageTimer timer(
+        compilationMetrics, metricsIndex,
+        hitsimple::metrics::CompilationStage::LlvmEmission);
+    emitResult = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, inputPath,
+                                                codegenOptions);
+  }
   if (!emitResult.diagnostics.empty()) {
     for (const auto& diagnostic : emitResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
@@ -655,12 +747,148 @@ int dumpHir(const std::string& inputPath, bool cCompatibilityMode) {
   return EXIT_SUCCESS;
 }
 
+int dumpFlowIr(const std::string& inputPath, bool cCompatibilityMode) {
+  auto parsed = parseInput(inputPath, cCompatibilityMode);
+  if (!parsed) {
+    return EXIT_FAILURE;
+  }
+
+  auto analyzeResult = hitsimple::sema::analyze(
+      *parsed->unit,
+      hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
+                                      cCompatibilityMode});
+  if (printDiagnostics(analyzeResult.diagnostics) || !analyzeResult.unit) {
+    return EXIT_FAILURE;
+  }
+
+  auto flowResult = hitsimple::flowir::build(*analyzeResult.unit);
+  if (printDiagnostics(flowResult.diagnostics) || !flowResult.module) {
+    return EXIT_FAILURE;
+  }
+  const auto verifierDiagnostics = hitsimple::flowir::verify(*flowResult.module);
+  if (printDiagnostics(verifierDiagnostics)) {
+    return EXIT_FAILURE;
+  }
+  hitsimple::flowir::dump(*flowResult.module, std::cout);
+  return EXIT_SUCCESS;
+}
+
+int printFlowIrStats(const std::string& inputPath, bool cCompatibilityMode) {
+  auto parsed = parseInput(inputPath, cCompatibilityMode);
+  if (!parsed) {
+    return EXIT_FAILURE;
+  }
+  auto analyzeResult = hitsimple::sema::analyze(
+      *parsed->unit,
+      hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
+                                      cCompatibilityMode});
+  if (printDiagnostics(analyzeResult.diagnostics) || !analyzeResult.unit) {
+    return EXIT_FAILURE;
+  }
+  auto flowResult = hitsimple::flowir::build(*analyzeResult.unit);
+  if (printDiagnostics(flowResult.diagnostics) || !flowResult.module) {
+    return EXIT_FAILURE;
+  }
+  const auto verifierDiagnostics = hitsimple::flowir::verify(*flowResult.module);
+  if (printDiagnostics(verifierDiagnostics)) {
+    return EXIT_FAILURE;
+  }
+  const auto stats = hitsimple::flowir::statistics(*flowResult.module);
+  std::cout << "functions=" << stats.functionCount << '\n'
+            << "blocks=" << stats.blockCount << '\n'
+            << "instructions=" << stats.instructionCount << '\n'
+            << "edges=" << stats.edgeCount << '\n'
+            << "objects=" << stats.objectCount << '\n'
+            << "views=" << stats.viewCount << '\n';
+  return EXIT_SUCCESS;
+}
+
+int dumpFlowIrAnalysis(const std::string& inputPath, bool cCompatibilityMode,
+                       std::size_t workerCount) {
+  auto parsed = parseInput(inputPath, cCompatibilityMode);
+  if (!parsed) {
+    return EXIT_FAILURE;
+  }
+  auto analyzeResult = hitsimple::sema::analyze(
+      *parsed->unit,
+      hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
+                                      cCompatibilityMode});
+  if (printDiagnostics(analyzeResult.diagnostics) || !analyzeResult.unit) {
+    return EXIT_FAILURE;
+  }
+  auto flowResult = hitsimple::flowir::build(*analyzeResult.unit);
+  if (printDiagnostics(flowResult.diagnostics) || !flowResult.module) {
+    return EXIT_FAILURE;
+  }
+  const auto verifierDiagnostics = hitsimple::flowir::verify(*flowResult.module);
+  if (printDiagnostics(verifierDiagnostics)) {
+    return EXIT_FAILURE;
+  }
+  const auto analysis = hitsimple::flowir::analyze(
+      *flowResult.module, hitsimple::flowir::AnalysisOptions{workerCount});
+  if (printDiagnostics(analysis.diagnostics)) {
+    return EXIT_FAILURE;
+  }
+  std::cout << hitsimple::flowir::dumpAnalysisToString(analysis);
+  return EXIT_SUCCESS;
+}
+
+int dumpFlowIrGpuAnalysis(
+    const std::string& inputPath, bool cCompatibilityMode,
+    hitsimple::gpu::GpuAnalysisMode mode,
+    const std::optional<std::string>& reportPath) {
+  auto parsed = parseInput(inputPath, cCompatibilityMode);
+  if (!parsed) {
+    return EXIT_FAILURE;
+  }
+  auto analyzeResult = hitsimple::sema::analyze(
+      *parsed->unit,
+      hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
+                                      cCompatibilityMode});
+  if (printDiagnostics(analyzeResult.diagnostics) || !analyzeResult.unit) {
+    return EXIT_FAILURE;
+  }
+  auto flowResult = hitsimple::flowir::build(*analyzeResult.unit);
+  if (printDiagnostics(flowResult.diagnostics) || !flowResult.module) {
+    return EXIT_FAILURE;
+  }
+  const auto verifierDiagnostics = hitsimple::flowir::verify(*flowResult.module);
+  if (printDiagnostics(verifierDiagnostics)) {
+    return EXIT_FAILURE;
+  }
+  const auto execution = hitsimple::gpu::analyzeWithGpu(
+      *flowResult.module, hitsimple::gpu::GpuAnalysisOptions{mode});
+  if (printDiagnostics(execution.analysis.diagnostics)) {
+    return EXIT_FAILURE;
+  }
+  if (reportPath) {
+    if (!validateOutputParent(*reportPath)) {
+      return EXIT_FAILURE;
+    }
+    std::string error;
+    if (!hitsimple::gpu::writeGpuAnalysisReportJson(execution.report, *reportPath,
+                                                    error)) {
+      std::cerr << "hsc: " << error << '\n';
+      return EXIT_FAILURE;
+    }
+  }
+  std::cout << hitsimple::flowir::dumpAnalysisToString(execution.analysis);
+  return EXIT_SUCCESS;
+}
+
 int emitLlvm(const std::string& inputPath,
              const std::optional<std::string>& outputPath,
              hitsimple::codegen::CodegenOptions codegenOptions,
-             bool cCompatibilityMode) {
-  auto compiled =
-      compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode);
+             bool cCompatibilityMode,
+             hitsimple::metrics::CompilationMetrics* compilationMetrics = nullptr) {
+  const auto metricsIndex = compilationMetrics == nullptr
+                                ? std::optional<std::size_t>{}
+                                : std::optional<std::size_t>{
+                                      compilationMetrics->beginTranslationUnit(
+                                          inputPath, inputByteCount(inputPath))};
+  auto compiled = compileTranslationUnit(inputPath, codegenOptions,
+                                         cCompatibilityMode, compilationMetrics,
+                                         metricsIndex);
   if (!compiled) {
     return EXIT_FAILURE;
   }
@@ -705,22 +933,33 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                       const std::optional<std::string>& outputPath,
                       hitsimple::codegen::CodegenOptions codegenOptions,
                       bool cCompatibilityMode,
-                      const hitsimple::support::ClangSelection& clang) {
+                      const hitsimple::support::ClangSelection& clang,
+                      hitsimple::metrics::CompilationMetrics* compilationMetrics =
+                          nullptr) {
   if (!clang.path) {
     std::cerr << "hsc: " << clang.error << '\n';
     return EXIT_FAILURE;
   }
   std::vector<CompiledTranslationUnit> units;
   units.reserve(inputPaths.size());
+  std::vector<std::optional<std::size_t>> metricsIndices;
+  metricsIndices.reserve(inputPaths.size());
   std::size_t mainCount = 0;
   for (const auto& inputPath : inputPaths) {
-    auto compiled =
-        compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode);
+    const auto metricsIndex = compilationMetrics == nullptr
+                                  ? std::optional<std::size_t>{}
+                                  : std::optional<std::size_t>{
+                                        compilationMetrics->beginTranslationUnit(
+                                            inputPath, inputByteCount(inputPath))};
+    auto compiled = compileTranslationUnit(inputPath, codegenOptions,
+                                           cCompatibilityMode,
+                                           compilationMetrics, metricsIndex);
     if (!compiled) {
       return EXIT_FAILURE;
     }
     mainCount += compiled->mainDefinitionCount;
     units.push_back(std::move(*compiled));
+    metricsIndices.push_back(metricsIndex);
   }
 
   if (mainCount == 0) {
@@ -761,7 +1000,14 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     const auto tempPath =
         tempDirectory / (tempPrefix + "-" + std::to_string(index) + ".ll");
     const auto tempPathText = hitsimple::support::pathToUtf8(tempPath);
-    if (!writeFile(tempPathText, units[index].llvmIr)) {
+    bool wroteTemporaryLl = false;
+    {
+      hitsimple::metrics::ScopedStageTimer timer(
+          compilationMetrics, metricsIndices[index],
+          hitsimple::metrics::CompilationStage::TemporaryLlWrite);
+      wroteTemporaryLl = writeFile(tempPathText, units[index].llvmIr);
+    }
+    if (!wroteTemporaryLl) {
       std::cerr << "hsc: cannot write temporary file '" << tempPathText
                 << "'\n";
       for (const auto& path : tempPaths) {
@@ -796,7 +1042,13 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   arguments.push_back("-lc++");
 #endif
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
-  const auto process = hitsimple::support::runProcess(*clang.path, arguments);
+  hitsimple::support::ProcessResult process;
+  {
+    hitsimple::metrics::ScopedStageTimer timer(
+        compilationMetrics, std::nullopt,
+        hitsimple::metrics::CompilationStage::ClangBackendLink);
+    process = hitsimple::support::runProcess(*clang.path, arguments);
+  }
   for (const auto& tempPath : tempPaths) {
     std::filesystem::remove(tempPath);
   }
@@ -826,6 +1078,13 @@ int hscMain(const std::vector<std::string>& arguments) {
   bool shouldDumpTokens = false;
   bool shouldDumpAst = false;
   bool shouldDumpHir = false;
+  bool shouldDumpFlowIr = false;
+  bool shouldPrintFlowIrStats = false;
+  bool shouldDumpFlowIrAnalysis = false;
+  std::size_t flowIrAnalysisWorkers = 1;
+  bool shouldDumpFlowIrGpuAnalysis = false;
+  hitsimple::gpu::GpuAnalysisMode flowIrGpuAnalysisMode =
+      hitsimple::gpu::GpuAnalysisMode::Auto;
   bool shouldEmitLlvm = false;
   bool shouldPreprocessOnly = false;
   bool shouldPrintTargetInfo = false;
@@ -835,6 +1094,8 @@ int hscMain(const std::vector<std::string>& arguments) {
   std::vector<std::string> inputPaths;
   std::optional<std::string> outputPath;
   std::optional<std::filesystem::path> clangOverride;
+  std::optional<std::filesystem::path> timingJsonPath;
+  std::optional<std::string> flowIrGpuReportPath;
 
   for (std::size_t i = 1; i < arguments.size(); ++i) {
     const std::string_view arg(arguments[i]);
@@ -868,10 +1129,89 @@ int hscMain(const std::vector<std::string>& arguments) {
       shouldDumpHir = true;
       continue;
     }
+    if (arg == "--dump-flow-ir") {
+      shouldDumpFlowIr = true;
+      continue;
+    }
+    if (arg == "--flow-ir-stats") {
+      shouldPrintFlowIrStats = true;
+      continue;
+    }
+    if (arg == "--dump-flow-ir-analysis" ||
+        arg.starts_with("--dump-flow-ir-analysis=")) {
+      if (shouldDumpFlowIrAnalysis) {
+        std::cerr << "hsc: --dump-flow-ir-analysis may be specified only once\n";
+        return EXIT_FAILURE;
+      }
+      shouldDumpFlowIrAnalysis = true;
+      if (arg != "--dump-flow-ir-analysis") {
+        const auto text = arg.substr(std::string_view("--dump-flow-ir-analysis=").size());
+        const auto begin = text.data();
+        const auto end = begin + text.size();
+        const auto parsed = std::from_chars(begin, end, flowIrAnalysisWorkers);
+        if (text.empty() || parsed.ec != std::errc{} || parsed.ptr != end ||
+            flowIrAnalysisWorkers == 0U) {
+          std::cerr << "hsc: --dump-flow-ir-analysis requires a positive thread count\n";
+          return EXIT_FAILURE;
+        }
+      }
+      continue;
+    }
+    if (arg == "--dump-flow-ir-gpu-analysis" ||
+        arg.starts_with("--dump-flow-ir-gpu-analysis=")) {
+      if (shouldDumpFlowIrGpuAnalysis) {
+        std::cerr << "hsc: --dump-flow-ir-gpu-analysis may be specified only once\n";
+        return EXIT_FAILURE;
+      }
+      shouldDumpFlowIrGpuAnalysis = true;
+      if (arg != "--dump-flow-ir-gpu-analysis") {
+        const auto value = arg.substr(
+            std::string_view("--dump-flow-ir-gpu-analysis=").size());
+        const auto parsed = parseGpuAnalysisMode(value);
+        if (!parsed) {
+          std::cerr << "hsc: --dump-flow-ir-gpu-analysis requires auto, opencl, or cpu\n";
+          return EXIT_FAILURE;
+        }
+        flowIrGpuAnalysisMode = *parsed;
+      }
+      continue;
+    }
+    if (arg.starts_with("--flow-ir-gpu-report=")) {
+      const auto path = arg.substr(std::string_view("--flow-ir-gpu-report=").size());
+      if (path.empty()) {
+        std::cerr << "hsc: --flow-ir-gpu-report requires a path\n";
+        return EXIT_FAILURE;
+      }
+      if (flowIrGpuReportPath) {
+        std::cerr << "hsc: --flow-ir-gpu-report may be specified only once\n";
+        return EXIT_FAILURE;
+      }
+      flowIrGpuReportPath = std::string(path);
+      continue;
+    }
 
     if (arg == "--emit-llvm") {
       shouldEmitLlvm = true;
       continue;
+    }
+
+    if (arg.starts_with("--timing-json=")) {
+      const auto path = arg.substr(std::string_view("--timing-json=").size());
+      if (path.empty()) {
+        std::cerr << "hsc: --timing-json requires a path\n";
+        return EXIT_FAILURE;
+      }
+      if (timingJsonPath) {
+        std::cerr << "hsc: --timing-json may be specified only once\n";
+        return EXIT_FAILURE;
+      }
+      timingJsonPath = hitsimple::support::pathFromUtf8(path);
+      continue;
+    }
+
+    if (arg == "--timing-json") {
+      std::cerr << "hsc: --timing-json requires --timing-json=<path>\n";
+      return EXIT_FAILURE;
     }
 
     if (arg == "--c-compat") {
@@ -942,6 +1282,18 @@ int hscMain(const std::vector<std::string>& arguments) {
   if (shouldDumpHir) {
     actions.push_back("--dump-hir");
   }
+  if (shouldDumpFlowIr) {
+    actions.push_back("--dump-flow-ir");
+  }
+  if (shouldPrintFlowIrStats) {
+    actions.push_back("--flow-ir-stats");
+  }
+  if (shouldDumpFlowIrAnalysis) {
+    actions.push_back("--dump-flow-ir-analysis");
+  }
+  if (shouldDumpFlowIrGpuAnalysis) {
+    actions.push_back("--dump-flow-ir-gpu-analysis");
+  }
   if (shouldEmitLlvm) {
     actions.push_back("--emit-llvm");
   }
@@ -963,6 +1315,40 @@ int hscMain(const std::vector<std::string>& arguments) {
     std::cerr << '\n';
     return EXIT_FAILURE;
   }
+
+  if (flowIrGpuReportPath && !shouldDumpFlowIrGpuAnalysis) {
+    std::cerr << "hsc: --flow-ir-gpu-report requires --dump-flow-ir-gpu-analysis\n";
+    return EXIT_FAILURE;
+  }
+
+  if (timingJsonPath && (shouldDumpTokens || shouldDumpAst || shouldDumpHir ||
+                         shouldDumpFlowIr || shouldPrintFlowIrStats ||
+                         shouldDumpFlowIrAnalysis || shouldDumpFlowIrGpuAnalysis ||
+                         shouldPreprocessOnly ||
+                         shouldPrintTargetInfo)) {
+    std::cerr << "hsc: --timing-json is supported only for compilation and "
+                 "--emit-llvm\n";
+    return EXIT_FAILURE;
+  }
+
+  std::optional<hitsimple::metrics::CompilationMetrics> timingMetrics;
+  if (timingJsonPath) {
+    timingMetrics.emplace();
+  }
+  auto* compilationMetrics =
+      timingMetrics ? &*timingMetrics : nullptr;
+  const auto finishWithMetrics = [&](int result) {
+    if (compilationMetrics == nullptr) {
+      return result;
+    }
+    compilationMetrics->finish(result == EXIT_SUCCESS);
+    std::string error;
+    if (compilationMetrics->writeJson(*timingJsonPath, error)) {
+      return result;
+    }
+    std::cerr << "hsc: " << error << '\n';
+    return EXIT_FAILURE;
+  };
 
   const auto rejectOutputPath = [&](std::string_view action) {
     if (outputPath) {
@@ -1029,6 +1415,68 @@ int hscMain(const std::vector<std::string>& arguments) {
     return dumpHir(inputPaths.front(), cCompatibilityMode);
   }
 
+  if (shouldDumpFlowIr) {
+    if (rejectOutputPath("--dump-flow-ir")) {
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.empty()) {
+      std::cerr << "hsc: --dump-flow-ir requires an input file\n";
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.size() > 1U) {
+      std::cerr << "hsc: --dump-flow-ir supports exactly one input file\n";
+      return EXIT_FAILURE;
+    }
+    return dumpFlowIr(inputPaths.front(), cCompatibilityMode);
+  }
+
+  if (shouldPrintFlowIrStats) {
+    if (rejectOutputPath("--flow-ir-stats")) {
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.empty()) {
+      std::cerr << "hsc: --flow-ir-stats requires an input file\n";
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.size() > 1U) {
+      std::cerr << "hsc: --flow-ir-stats supports exactly one input file\n";
+      return EXIT_FAILURE;
+    }
+    return printFlowIrStats(inputPaths.front(), cCompatibilityMode);
+  }
+
+  if (shouldDumpFlowIrAnalysis) {
+    if (rejectOutputPath("--dump-flow-ir-analysis")) {
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.empty()) {
+      std::cerr << "hsc: --dump-flow-ir-analysis requires an input file\n";
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.size() > 1U) {
+      std::cerr << "hsc: --dump-flow-ir-analysis supports exactly one input file\n";
+      return EXIT_FAILURE;
+    }
+    return dumpFlowIrAnalysis(inputPaths.front(), cCompatibilityMode,
+                              flowIrAnalysisWorkers);
+  }
+
+  if (shouldDumpFlowIrGpuAnalysis) {
+    if (rejectOutputPath("--dump-flow-ir-gpu-analysis")) {
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.empty()) {
+      std::cerr << "hsc: --dump-flow-ir-gpu-analysis requires an input file\n";
+      return EXIT_FAILURE;
+    }
+    if (inputPaths.size() > 1U) {
+      std::cerr << "hsc: --dump-flow-ir-gpu-analysis supports exactly one input file\n";
+      return EXIT_FAILURE;
+    }
+    return dumpFlowIrGpuAnalysis(inputPaths.front(), cCompatibilityMode,
+                                 flowIrGpuAnalysisMode, flowIrGpuReportPath);
+  }
+
   if (shouldEmitLlvm) {
     if (inputPaths.empty()) {
       std::cerr << "hsc: --emit-llvm requires an input file\n";
@@ -1038,8 +1486,9 @@ int hscMain(const std::vector<std::string>& arguments) {
       std::cerr << "hsc: --emit-llvm supports exactly one input file\n";
       return EXIT_FAILURE;
     }
-    return emitLlvm(inputPaths.front(), outputPath, codegenOptions,
-                    cCompatibilityMode);
+    return finishWithMetrics(emitLlvm(inputPaths.front(), outputPath,
+                                      codegenOptions, cCompatibilityMode,
+                                      compilationMetrics));
   }
 
   if (shouldPreprocessOnly) {
@@ -1059,9 +1508,9 @@ int hscMain(const std::vector<std::string>& arguments) {
     return EXIT_FAILURE;
   }
 
-  return compileExecutable(inputPaths, outputPath, codegenOptions,
-                           cCompatibilityMode,
-                           hitsimple::support::resolveClang(clangOverride));
+  return finishWithMetrics(compileExecutable(
+      inputPaths, outputPath, codegenOptions, cCompatibilityMode,
+      hitsimple::support::resolveClang(clangOverride), compilationMetrics));
 }
 
 #ifdef _WIN32

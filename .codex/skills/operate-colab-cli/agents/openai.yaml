@@ -1,0 +1,4 @@
+interface:
+  display_name: "Colab CLI 实验环境"
+  short_description: "通过 CLI 申请、操作并安全释放 Google Colab 实例"
+  default_prompt: "使用 $operate-colab-cli 申请 CPU Colab 实例，运行实验并在结束后确认释放资源。"

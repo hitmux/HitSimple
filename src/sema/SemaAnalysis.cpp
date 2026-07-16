@@ -95,6 +95,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
       continue;
     }
     globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength);
+    globals_.back().templateName = symbol.templateName;
   }
   for (const auto *externVariable : unit.externVariables) {
     CurrentRangeGuard rangeGuard(*this, *externVariable);
@@ -134,6 +135,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     }
     globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength,
                           true);
+    globals_.back().templateName = symbol.templateName;
   }
   (void)collectFunctionSignatures(unit, externFunctions);
 
@@ -161,10 +163,15 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     return std::move(result_);
   }
 
-  result_.unit = std::make_unique<hir::TranslationUnit>(
+  auto loweredUnit = std::make_unique<hir::TranslationUnit>(
       std::move(globals_), std::move(structLayouts), std::move(viewTemplates),
       std::move(implOps), std::move(externFunctions), std::move(functions),
       std::move(globalInit));
+  verifyEffectContracts(*loweredUnit);
+  if (!result_.diagnostics.empty()) {
+    return std::move(result_);
+  }
+  result_.unit = std::move(loweredUnit);
   return std::move(result_);
 }
 
@@ -236,6 +243,7 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
     }
     currentParameters_.emplace_back(symbol.name, symbol.bindingName,
                                     symbol.byteLength);
+    currentParameters_.back().templateName = param.templateName;
   }
 
   auto body = analyze(*function.body);
@@ -254,10 +262,14 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
   auto parameters = std::move(currentParameters_);
   currentParameters_.clear();
   auto returns = currentFunction_->returnByteLengths;
+  auto returnTemplateNames = currentFunction_->returnTemplateNames;
+  auto effectContract = currentFunction_->effectContract;
   const auto abi = floatingAbiSignature(*currentFunction_);
   currentFunction_ = nullptr;
   auto lowered = std::make_unique<hir::Function>(
       function.name, std::move(parameters), std::move(returns), std::move(body));
+  lowered->returnTemplateNames = std::move(returnTemplateNames);
+  lowered->effectContract = std::move(effectContract);
   if (abi) {
     lowered->abiSignature = *abi;
   }
@@ -286,6 +298,11 @@ bool Analyzer::lowerImplOpBodies(
         info.returnHasExplicitUserTemplate;
     signature.returnsKnown = true;
     signature.returnsExplicit = true;
+    const auto effectContract = validateEffectContract(op->effects, op->params, false);
+    if (!effectContract) {
+      return false;
+    }
+    signature.effectContract = *effectContract;
     signature.parameterByteLengths.reserve(op->params.size());
     signature.parameterTemplateNames.reserve(op->params.size());
     for (const auto &param : op->params) {
@@ -317,6 +334,7 @@ bool Analyzer::lowerImplOpBodies(
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
                                       symbol.byteLength);
+      currentParameters_.back().templateName = param.templateName;
     }
 
     auto body = analyze(*op->body);
@@ -341,9 +359,11 @@ bool Analyzer::lowerImplOpBodies(
     auto lowered = std::make_unique<hir::Function>(
         info.symbolName, std::move(parameters), info.returnByteLengths,
         std::move(body));
+    lowered->returnTemplateNames = info.returnTemplateNames;
     lowered->linkage = hir::Linkage::Internal;
     lowered->usesViewAbi = true;
     lowered->viewResultByteLength = info.returnByteLengths.front();
+    lowered->effectContract = signature.effectContract;
     functions.push_back(std::move(lowered));
   }
   return true;
@@ -377,6 +397,11 @@ bool Analyzer::lowerImplMethodBodies(
     }
     signature.returnsKnown = true;
     signature.returnsExplicit = true;
+    const auto effectContract = validateEffectContract(method->effects, method->params, false);
+    if (!effectContract) {
+      return false;
+    }
+    signature.effectContract = *effectContract;
 
     currentFunction_ = &signature;
     currentParameters_.clear();
@@ -396,6 +421,7 @@ bool Analyzer::lowerImplMethodBodies(
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
                                       symbol.byteLength);
+      currentParameters_.back().templateName = param.templateName;
     }
 
     auto body = analyze(*method->body);
@@ -420,11 +446,13 @@ bool Analyzer::lowerImplMethodBodies(
     auto lowered = std::make_unique<hir::Function>(
         info.symbolName, std::move(parameters), info.returnByteLengths,
         std::move(body));
+    lowered->returnTemplateNames = info.returnTemplateNames;
     lowered->linkage = hir::Linkage::Internal;
     lowered->usesViewAbi = true;
     lowered->viewResultByteLength =
         info.returnByteLengths.empty() ? 0U : info.returnByteLengths.front();
     lowered->viewParametersAreCopies = true;
+    lowered->effectContract = signature.effectContract;
     functions.push_back(std::move(lowered));
   }
   return true;
