@@ -160,21 +160,31 @@ function isLinuxX64() {
 
 function createDebugAdapterTrace() {
   const entries = [];
+  const repeatedRequests = new Map();
 
   function record(direction, message) {
     if (!message || typeof message !== "object") {
       return;
     }
     const kind = message.event || message.command || message.type || "message";
+    const repetitionKey = `${direction} ${message.type || "unknown"} ${kind}`;
+    const repetitions = (repeatedRequests.get(repetitionKey) || 0) + 1;
+    repeatedRequests.set(repetitionKey, repetitions);
+    if (kind === "threads" && repetitions > 3) {
+      return;
+    }
     let detail = `${direction} ${message.type || "unknown"} ${kind}`;
     if (message.success === false) {
       detail += ` failed: ${message.message || "unknown error"}`;
+    }
+    if (message.body && kind !== "output" && kind !== "threads") {
+      detail += `: ${JSON.stringify(message.body).slice(0, 480)}`;
     }
     if (message.event === "output" && message.body && message.body.output) {
       detail += `: ${String(message.body.output).trim().slice(0, 240)}`;
     }
     entries.push(detail);
-    if (entries.length > 80) {
+    if (entries.length > 160) {
       entries.shift();
     }
   }
