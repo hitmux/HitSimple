@@ -1455,6 +1455,29 @@ HS_TEST(LLVMCodegen_EmitsExternalFunctionDeclarationAndCall) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_EmitsExplicitCAbiImportsAndExports) {
+  auto result = emitSource(
+      "extern \"C\" native_scale(value as f64) -> f64\n"
+      "extern \"C\" sink(text as cstr) -> ()\n"
+      "extern \"C\" func hsc_increment(value as i32) -> i32 {\n"
+      "    return value %d+ 1\n"
+      "}\n"
+      "func main() {\n"
+      "    sink(\"ok\")\n"
+      "    return hsc_increment(41)\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("declare double @native_scale(double)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("declare void @sink(ptr)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @hsc_increment(i32") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hsc_increment(i32 41)") !=
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_AppliesInternalLinkageOverridesToDefinitions) {
   auto parseResult = hitsimple::parser::parseSource(
       "new file_local[4]\n"

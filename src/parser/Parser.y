@@ -303,6 +303,21 @@ extern_decl:
               std::move($2), std::move($4), std::move($6)),
           @$);
     }
+| EXTERN STRING IDENTIFIER LPAREN optional_param_list RPAREN return_sig
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::ExternFunctionDecl>(
+              std::move($3), std::move($5), std::move($7), std::move($2)),
+          @$);
+    }
+| EXTERN STRING FUNC IDENTIFIER LPAREN optional_param_list RPAREN optional_return_sig block
+    {
+      $$ = withSourceRange(
+          std::make_unique<hitsimple::ast::FunctionDecl>(
+              std::move($4), std::move($6), std::move($8), std::move($9),
+              std::move($2)),
+          @$);
+    }
 ;
 
 struct_decl:

@@ -47,3 +47,7 @@ vscode/hitsimple/dist/
 *.log
 *.tmp
 *.temp
+
+# Cargo fixture output
+tests/cases/interop/**/target/
+tests/cases/interop/**/Cargo.lock

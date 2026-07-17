@@ -2,12 +2,15 @@
 
 #include "hitsimple/codegen/LlvmCompatibility.h"
 #include "hitsimple/literal/Literal.h"
+#include "hitsimple/support/Path.h"
 
 #include <llvm/BinaryFormat/Dwarf.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfoMetadata.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/Support/FileSystem.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/TargetParser/Host.h>
@@ -17,6 +20,7 @@
 #include <filesystem>
 #include <limits>
 #include <optional>
+#include <system_error>
 #include <string_view>
 #include <utility>
 
@@ -207,6 +211,63 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
   llvm::raw_string_ostream out(llvmIr);
   module_->print(out, nullptr);
   return EmitResult{out.str(), {}};
+}
+
+EmitObjectResult LlvmEmitter::emitObject(
+    const hir::TranslationUnit &unit, const std::filesystem::path &outputPath) {
+  auto irResult = emit(unit);
+  if (!irResult.diagnostics.empty()) {
+    return EmitObjectResult{std::move(irResult.diagnostics)};
+  }
+
+  std::string targetError;
+  const auto targetTriple = moduleTargetTriple(*module_);
+  const auto *target = resolveTarget(targetTriple, targetError);
+  if (target == nullptr) {
+    return EmitObjectResult{{diagnostic::Diagnostic::error(
+        diagnostic::Stage::Codegen,
+        "cannot resolve LLVM target '" + targetTriple + "': " + targetError)}};
+  }
+  llvm::TargetOptions targetOptions;
+  std::unique_ptr<llvm::TargetMachine> targetMachine(
+      createGenericTargetMachine(*target, targetTriple, targetOptions));
+  if (!targetMachine) {
+    return EmitObjectResult{{diagnostic::Diagnostic::error(
+        diagnostic::Stage::Codegen,
+        "cannot create LLVM target machine for '" + targetTriple + "'")}};
+  }
+
+  std::error_code error;
+  llvm::raw_fd_ostream output(
+      support::pathToUtf8(outputPath), error, llvm::sys::fs::OF_None);
+  if (error) {
+    return EmitObjectResult{{diagnostic::Diagnostic::error(
+        diagnostic::Stage::Codegen,
+        "cannot open object output '" + support::pathToUtf8(outputPath) +
+            "': " + error.message())}};
+  }
+
+  llvm::legacy::PassManager passManager;
+#if LLVM_VERSION_MAJOR >= 18
+  if (targetMachine->addPassesToEmitFile(
+          passManager, output, nullptr, llvm::CodeGenFileType::ObjectFile)) {
+#else
+  if (targetMachine->addPassesToEmitFile(passManager, output, nullptr,
+                                         llvm::CGFT_ObjectFile)) {
+#endif
+    return EmitObjectResult{{diagnostic::Diagnostic::error(
+        diagnostic::Stage::Codegen,
+        "LLVM target cannot emit an object file for '" + targetTriple + "'")}};
+  }
+  passManager.run(*module_);
+  output.flush();
+  if (output.has_error()) {
+    return EmitObjectResult{{diagnostic::Diagnostic::error(
+        diagnostic::Stage::Codegen,
+        "cannot write object output '" + support::pathToUtf8(outputPath) +
+            "'")}};
+  }
+  return EmitObjectResult{};
 }
 
 void LlvmEmitter::addDiagnostic(std::string diagnostic) {
@@ -660,6 +721,14 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
 EmitResult emitLlvmIr(const hir::TranslationUnit &unit,
                       std::string moduleName, CodegenOptions options) {
   return LlvmEmitter(std::move(moduleName), options).emit(unit);
+}
+
+EmitObjectResult emitObjectFile(const hir::TranslationUnit &unit,
+                                std::string moduleName,
+                                const std::filesystem::path &outputPath,
+                                CodegenOptions options) {
+  return LlvmEmitter(std::move(moduleName), options).emitObject(unit,
+                                                                  outputPath);
 }
 
 } // namespace hitsimple::codegen

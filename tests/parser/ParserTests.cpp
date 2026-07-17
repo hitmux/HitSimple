@@ -275,6 +275,32 @@ HS_TEST(Parser_ParsesTopLevelExternDeclarations) {
                  std::string::npos);
 }
 
+HS_TEST(Parser_ParsesExplicitCAbiImportsAndExports) {
+  auto result = hitsimple::parser::parseSource(
+      "extern \"C\" native_add(value as i32) -> i32\n"
+      "extern \"C\" func hsc_increment(value as i32) -> i32 {\n"
+      "    return value %d+ 1\n"
+      "}\n"
+      "func main() {\n"
+      "    return hsc_increment(41)\n"
+      "}\n",
+      "test.hs");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.error.empty());
+  HS_EXPECT_EQ(result.unit->externFunctions.size(), 1U);
+  HS_EXPECT_EQ(result.unit->externFunctions.front()->abiName, "\"C\"");
+  HS_EXPECT_EQ(result.unit->functions.size(), 2U);
+  HS_EXPECT_EQ(result.unit->functions.front()->name, "hsc_increment");
+  HS_EXPECT_EQ(result.unit->functions.front()->abiName, "\"C\"");
+
+  const std::string dump = hitsimple::ast::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("ExternFunctionDecl name=native_add abi=\"C\"") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("FunctionDecl name=hsc_increment abi=\"C\"") !=
+                 std::string::npos);
+}
+
 HS_TEST(Parser_ParsesTopLevelGlobalNewDeclaration) {
   auto result = hitsimple::parser::parseSource("new global_count[4]\n"
                                                "func main() {\n"

@@ -36,6 +36,118 @@ hsc app/main.hs app/math.hs app/io.hs -o app/program
 
 `extern` declarations must agree across translation units. Macros, typedefs, and file-scope `static` declarations remain local to their translation unit.
 
+## Emit an Object or Static Library
+
+```bash
+hsc --emit-object library.hs -o library.o
+hsc --crate-type=object library.hs -o library.o
+hsc --crate-type=staticlib library.hs -o liblibrary.a
+```
+
+`--emit-object` is an alias of `--crate-type=object`; it accepts exactly one
+HitSimple input and uses LLVM's target machine to write a native object. Without
+`-o`, the input extension is replaced with `.o`.
+
+`--crate-type=staticlib` accepts one or more HitSimple inputs and writes
+`libhitsimple.a` by default. It packages the generated objects together with
+the HitSimple runtime archive. Archive creation uses `HITSIMPLE_LLVM_AR` when
+set, then `llvm-ar-18`, then `llvm-ar` on `PATH`. External C, C++, and Rust
+objects or libraries are linked by their parent build step, not copied into the
+HitSimple static library.
+
+These output modes do not require a `main` function and cannot be combined
+with dump, preprocessing, or `--emit-llvm` actions.
+
+## C ABI Interoperability
+
+Use `extern "C"` to select the stable C ABI explicitly:
+
+```hs
+extern "C" native_add(value as i32) -> i32
+
+extern "C" func hsc_increment(value as i32) -> i32 {
+    return value %d+ 1
+}
+```
+
+Imports and exports retain the source identifier as an unmangled C symbol.
+The supported parameter and single-return templates are `bool`, `i8`–`i64`,
+`u8`–`u64`, `f32`, `f64`, `addr`, `cstr`, and `handle`; `()` denotes no return.
+`addr`, `cstr`, and `handle` map to C pointers. Structure values, user
+templates, Views, `bytes`, `f16`, `f128`, multiple returns, and varargs are
+rejected at the boundary. `throw` and `try`/`catch` are forbidden in a C ABI
+export.
+
+Compile C++ through an `extern "C"` wrapper. Rust must use an unmangled
+`pub extern "C"` export and should build its library as `staticlib`. C++
+exceptions, Rust panics, and HitSimple exceptions must be handled on their
+own side of the ABI boundary.
+
+## Build with Native C or C++
+
+Position arguments always name HitSimple sources. Add native inputs explicitly:
+
+```bash
+# A HitSimple main calls a C function.
+hsc app.hs --c-source native/helper.c -o app
+
+# A HitSimple main calls a C++ extern "C" wrapper.
+hsc app.hs --cxx-source native/wrapper.cpp -o app
+
+# A native main calls an exported HitSimple function.
+hsc library.hs --entry=native --cxx-source native/main.cpp -o app
+```
+
+`--c-source` and `--cxx-source` may be repeated. Each source is compiled to a
+temporary object with Clang or Clang++, then `hsc` performs one final link with
+the HitSimple objects and runtime. `--entry=hsc` is the default and requires
+exactly one HitSimple `main`. `--entry=native` forbids a HitSimple `main` and
+requires a C or C++ source to provide it.
+
+Use `--link-input <path>` for an object, archive, or shared library; repeat
+`-L <dir>`, `-l <name>`, and `--link-arg <arg>` as needed. When linking only
+archive/object inputs, select the driver explicitly with
+`--linker-language=c|cxx`. A C++ source selects the C++ driver by default.
+`--clangxx <path>` overrides that driver; its lookup otherwise uses
+`HITSIMPLE_CLANGXX`, `clang++-18`, then `clang++` on `PATH`.
+
+The native-source and linker options are executable-build options. They cannot
+be combined with dump/preprocessing/IR actions, `--emit-object`, or
+`--crate-type=staticlib`. The supported mixed-build scope is Linux x86_64 and
+AArch64. C++ names, class ABI, and exception propagation are outside the
+contract; use an `extern "C"` wrapper.
+
+## Build with a Cargo Static Library
+
+`hsc` can build and link one Cargo library that declares `staticlib`:
+
+```toml
+[lib]
+crate-type = ["staticlib"]
+```
+
+```bash
+hsc app.hs \
+  --cargo-manifest rust/Cargo.toml \
+  --cargo-profile release \
+  --cargo-features ffi \
+  -o app
+```
+
+Use `--cargo-package <name>` for a workspace package; it is mandatory when
+the manifest is a virtual workspace. `--cargo-features <list>` passes Cargo's
+comma- or space-separated feature list, and `--cargo-no-default-features`
+forwards Cargo's corresponding switch. Cargo is resolved through
+`HITSIMPLE_CARGO` or `cargo` on `PATH`.
+
+The compiler requests Cargo JSON messages and uses the reported static archive
+instead of guessing a `target/` path. Supported Cargo native search paths and
+`static`/`dylib` library requirements are forwarded to the final link; other
+native-link forms fail explicitly. Cargo build diagnostics are retained and
+forwarded. Rust entry points stay under Cargo: to call HitSimple from Rust,
+first create a HitSimple `staticlib`, then link it from Cargo through a build
+script or equivalent native-link configuration.
+
 ## Select a Safety Mode
 
 | Option | Behavior |
@@ -82,6 +194,9 @@ $env:HITSIMPLE_CLANG = 'C:\llvm-mingw\bin\clang++.exe'
 ```
 
 If no compatible toolchain is found, `hsc` returns a clear error before linking. `--emit-llvm` does not link, so it does not require Clang, even when the supplied `--clang` path is invalid.
+
+Mixed builds resolve Clang++ independently through `--clangxx`,
+`HITSIMPLE_CLANGXX`, `clang++-18`, and `clang++` on `PATH`.
 
 `HITSIMPLE_RUNTIME_SOURCE` can still override the static runtime during development and debugging. Normal installations and release packages link `lib/hitsimple/libhitsimple_runtime.a` by default.
 
@@ -217,6 +332,8 @@ This mode translates a restricted C syntax subset into the core AST. It explicit
 | Action | Input count | Supports `-o` | Supports `--c-compat` | Supports `-g` |
 | --- | --- | --- | --- | --- |
 | Default executable build | One or more | Yes | Yes | Yes |
+| `--emit-object` / `--crate-type=object` | One | Yes | Yes | Yes |
+| `--crate-type=staticlib` | One or more | Yes | Yes | Yes |
 | `--dump-tokens` | One | No | No | No |
 | `--dump-ast` | One | No | Yes | No |
 | `--dump-hir` | One | No | Yes | No |

@@ -177,6 +177,55 @@ HS_TEST(Sema_LowersTopLevelExternDeclarations) {
   HS_EXPECT_TRUE(dump.find("Call callee=puts") != std::string::npos);
 }
 
+HS_TEST(Sema_LowersExplicitCAbiDeclarations) {
+  auto result = analyzeSource(
+      "extern \"C\" native_scale(value as f64) -> f64\n"
+      "extern \"C\" sink(text as cstr) -> ()\n"
+      "extern \"C\" func hsc_increment(value as i32) -> i32 {\n"
+      "    return value %d+ 1\n"
+      "}\n"
+      "func main() {\n"
+      "    sink(\"ok\")\n"
+      "    return hsc_increment(41)\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("ExternFunction name=native_scale c_abi=true") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("ExternFunction name=sink c_abi=true") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("Function name=hsc_increment linkage=external c_abi=true") !=
+                 std::string::npos);
+}
+
+HS_TEST(Sema_RejectsUnsupportedExplicitCAbiContracts) {
+  auto unsupportedType = analyzeSource(
+      "extern \"C\" func unsupported(value as f16) -> f16 {\n"
+      "    return value\n"
+      "}\n"
+      "func main() {\n"
+      "    return 0\n"
+      "}\n");
+  HS_EXPECT_TRUE(unsupportedType.unit == nullptr);
+  HS_EXPECT_EQ(unsupportedType.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(unsupportedType.diagnostics.front().find("unsupported parameter or return type") !=
+                 std::string::npos);
+
+  auto exceptionBoundary = analyzeSource(
+      "extern \"C\" func failure() -> () {\n"
+      "    throw 1\n"
+      "}\n"
+      "func main() {\n"
+      "    return 0\n"
+      "}\n");
+  HS_EXPECT_TRUE(exceptionBoundary.unit == nullptr);
+  HS_EXPECT_EQ(exceptionBoundary.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(exceptionBoundary.diagnostics.front().find("cannot contain throw or try/catch") !=
+                 std::string::npos);
+}
+
 HS_TEST(Sema_RejectsUnsizedExternValuesAndByValueVariableTemplates) {
   auto bytesParameter = analyzeSource("extern host_copy(text[8] as bytes) -> ()\n"
                                       "func main() {\n"

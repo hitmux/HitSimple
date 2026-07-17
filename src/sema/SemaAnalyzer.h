@@ -94,6 +94,7 @@ struct FunctionSignature {
   bool returnsKnown = false;
   bool returnsExplicit = false;
   bool isExtern = false;
+  bool isCAbi = false;
   stdlib::BuiltinId builtin = stdlib::BuiltinId::None;
 };
 
@@ -130,6 +131,9 @@ enum class UserTemplateViewAssignmentCompatibility {
 
 std::optional<hir::FunctionAbiSignature>
 floatingAbiSignature(const FunctionSignature &signature);
+
+std::optional<hir::FunctionAbiSignature>
+cAbiSignature(const FunctionSignature &signature);
 
 struct LabelInfo {
   std::size_t blockDepth = 0;
@@ -304,7 +308,7 @@ private:
   lowerGlobalInitializers(const ast::TranslationUnit &unit);
   std::optional<std::vector<std::size_t>>
   parseReturnSignature(const std::vector<ast::ReturnItem> &returns,
-                       std::string_view owner);
+                       std::string_view owner, bool cAbi = false);
   std::vector<std::unique_ptr<hir::Expr>>
   analyzeCallArguments(const ast::CallExpr &call,
                        const FunctionSignature &signature);

@@ -144,11 +144,26 @@ Common commands:
 hsc examples/hello.hs -o hello
 hsc --checked examples/hello.hs -o hello-checked
 hsc --emit-llvm examples/hello.hs -o hello.ll
+hsc --emit-object examples/hello.hs -o hello.o
+hsc --crate-type=staticlib path/to/library.hs -o libexample.a
 hsc --clang /path/to/clang++ examples/hello.hs -o hello
+hsc app.hs --c-source native/helper.c -o app
+hsc app.hs --cxx-source native/wrapper.cpp -o app
+hsc app.hs --cargo-manifest rust/Cargo.toml -o app
 hsc --target-info
 ```
 
 See [`USAGE.md`](USAGE.md) for complete CLI documentation. See [`Standard.md`](Standard.md) for the language model, standard templates, safety semantics, and ABI contracts.
+
+For C ABI interoperability, use explicit `extern "C"` declarations and
+exports. C++ must expose an `extern "C"` wrapper; Rust must export an
+unmangled `pub extern "C"` function. `USAGE.md` documents the supported value
+types and object/static-library commands. On Linux x86_64 and AArch64, `hsc`
+can also compile explicit C/C++ inputs, link objects/archives/libraries, and
+build one Cargo `staticlib` selected from Cargo JSON output. A HitSimple
+`main` is the default entry; `--entry=native` selects a C/C++ `main` for a
+HitSimple library. Cargo virtual workspaces require `--cargo-package`; Cargo
+and Rust never cross the ABI boundary through Rust `main` or the Rust ABI.
 
 ## VS Code Extension
 

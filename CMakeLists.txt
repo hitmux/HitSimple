@@ -24,6 +24,8 @@ find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
+find_program(CLANGXX_EXECUTABLE NAMES clang++-18 clang++ REQUIRED)
+find_program(LLVM_AR_EXECUTABLE NAMES llvm-ar-18 llvm-ar REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
   NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
 )
@@ -56,6 +58,8 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Found Bison ${BISON_VERSION}")
 message(STATUS "Found re2c: ${RE2C_EXECUTABLE}")
 message(STATUS "Found clang: ${CLANG_EXECUTABLE}")
+message(STATUS "Found clang++: ${CLANGXX_EXECUTABLE}")
+message(STATUS "Found llvm-ar: ${LLVM_AR_EXECUTABLE}")
 
 add_executable(hsc_mcpp
   third_party/mcpp/src/main.c
@@ -139,6 +143,7 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
   src/stdlib/StandardLibrary.cpp
+  src/support/Cargo.cpp
   src/support/CompilationMetrics.cpp
   src/support/Path.cpp
   src/support/Process.cpp
@@ -314,6 +319,12 @@ endif()
 include(CTest)
 
 if(BUILD_TESTING)
+  if(APPLE)
+    set(HITSIMPLE_LIBRARY_SEARCH_LINK_ARGUMENT "-Wl,-undefined,error")
+  else()
+    set(HITSIMPLE_LIBRARY_SEARCH_LINK_ARGUMENT "-Wl,-z,defs")
+  endif()
+
   add_executable(hsc_unit_tests
     tests/test_main.cpp
     tests/diagnostic/SourceLocationTests.cpp
@@ -387,6 +398,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_target_info_documents_main_abi
     "$<TARGET_FILE:hsc> --target-info | grep -Fx 'abi.main: unannotated main uses i32, fallthrough returns 0'"
   )
+  add_hsc_shell_test(hsc_target_info_documents_native_interop
+    "$<TARGET_FILE:hsc> --target-info | grep -Fq 'build.native_interop: Linux x86_64/aarch64' && $<TARGET_FILE:hsc> --target-info | grep -Fq 'build.cargo: Linux x86_64/aarch64'"
+  )
   if(WIN32 OR APPLE)
     set(HITSIMPLE_EXPECTED_F128_BACKEND
       "boost.cpp_bin_float.113-bit-software-binary128")
@@ -439,6 +453,113 @@ target_link_libraries(hsc_unit_tests
   add_test(NAME hsc_emit_llvm
     COMMAND hsc ${PROJECT_SOURCE_DIR}/examples/hello.hs --emit-llvm
   )
+  add_hsc_shell_test(hsc_emits_target_object
+    "$<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs -o hello.o && test -s hello.o"
+  )
+  add_hsc_shell_test(hsc_c_abi_object_native_to_hsc
+    "$<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs -o hsc_export.o && ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export_caller.c hsc_export.o $<TARGET_FILE:hitsimple_runtime> -lm -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_c_abi_object_hsc_to_native
+    "$<TARGET_FILE:hsc> --crate-type=object ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs -o hsc_import.o && ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c hsc_import.o $<TARGET_FILE:hitsimple_runtime> -lm -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_c_abi_staticlib_native_to_hsc
+    "$<TARGET_FILE:hsc> --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs -o libhsc.a && ${LLVM_AR_EXECUTABLE} t libhsc.a | grep -Fq 'hitsimple_runtime' && ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export_caller.c libhsc.a -lm -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_rejects_multifile_object_output
+    "! $<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/arithmetic.hs -o program.o >stdout 2>stderr && grep -Fq -- '--crate-type=object supports exactly one input file' stderr"
+  )
+  add_hsc_shell_test(hsc_rejects_object_with_llvm_ir_action
+    "! $<TARGET_FILE:hsc> --emit-object --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq -- '--crate-type is not supported with --emit-llvm' stderr"
+  )
+  add_hsc_shell_test(hsc_reports_missing_llvm_ar
+    "! env -u HITSIMPLE_LLVM_AR PATH= $<TARGET_FILE:hsc> --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs -o libhsc.a >stdout 2>stderr && grep -Fq 'no llvm-ar tool found' stderr"
+  )
+  add_hsc_shell_test(hsc_mixed_hsc_entry_calls_c_source
+    "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_mixed_hsc_entry_calls_cxx_wrapper
+    "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_mixed_native_c_entry_calls_hsc
+    "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs --entry=native --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export_caller.c -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_mixed_native_cxx_entry_calls_hsc
+    "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs --entry=native --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_hsc_export_caller.cpp -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_cxx_staticlib_calls_hsc
+    "$<TARGET_FILE:hsc> --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs -o libhsc.a && ${CLANGXX_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_hsc_export_caller.cpp libhsc.a -lm -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_mixed_cxx_archive_link_input
+    "${CLANGXX_EXECUTABLE} -c ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o cpp_wrapper.o && ${LLVM_AR_EXECUTABLE} rcs libcpp_wrapper.a cpp_wrapper.o && $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --linker-language=cxx --link-input libcpp_wrapper.a -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_mixed_library_search_and_link_argument
+    "mkdir -p native-lib && ${CLANGXX_EXECUTABLE} -c ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o native-lib/cpp_wrapper.o && ${LLVM_AR_EXECUTABLE} rcs native-lib/libcpp_wrapper.a native-lib/cpp_wrapper.o && $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --linker-language=cxx -L native-lib -l cpp_wrapper --link-arg ${HITSIMPLE_LIBRARY_SEARCH_LINK_ARGUMENT} -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_mixed_rejects_archive_input_without_linker_language
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --link-input missing.o >stdout 2>stderr && grep -Fq -- '--linker-language=c|cxx' stderr"
+  )
+  add_hsc_shell_test(hsc_mixed_reports_missing_clangxx
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp --clangxx ${CMAKE_CURRENT_BINARY_DIR}/missing-clangxx -o program >stdout 2>stderr && grep -Fq 'configured Clang executable was not found' stderr"
+  )
+  add_hsc_shell_test(hsc_mixed_forwards_c_compiler_failure
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source missing.c -o program >stdout 2>stderr && grep -Fq 'C compiler failed for' stderr && grep -Fq 'no such file' stderr"
+  )
+  add_hsc_shell_test(hsc_mixed_forwards_linker_failure
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/examples/hello.hs --linker-language=c --link-input missing.o -o program >stdout 2>stderr && grep -Fq 'linker failed while linking executable' stderr && grep -Fq 'missing.o' stderr"
+  )
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_hsc_shell_test(hsc_mixed_wrong_linker_language_fails
+      "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp --linker-language=c -o program >stdout 2>stderr && grep -Fq 'linker failed while linking executable' stderr"
+    )
+  endif()
+  add_hsc_shell_test(hsc_mixed_rejects_native_entry_with_hsc_main
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --entry=native --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o program >stdout 2>stderr && grep -Fq -- '--entry=native forbids a HitSimple main function' stderr"
+  )
+  add_hsc_shell_test(hsc_mixed_rejects_external_inputs_for_object_output
+    "! $<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source missing.c -o program.o >stdout 2>stderr && grep -Fq 'native linker options are not supported with --crate-type' stderr"
+  )
+  add_hsc_shell_test(hsc_cargo_staticlib_hsc_calls_rust
+    "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_staticlib/Cargo.toml --cargo-profile release --cargo-features bonus -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_cargo_virtual_workspace_package
+    "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_virtual/Cargo.toml --cargo-package hitsimple-rust-virtual-staticlib -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_cargo_forwards_native_link_requirements
+    "mkdir -p cargo-native && ${CLANG_EXECUTABLE} -c ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_native_link/rust_native_helper.c -o cargo-native/rust_native_helper.o && ${LLVM_AR_EXECUTABLE} rcs cargo-native/librust_native_helper.a cargo-native/rust_native_helper.o && HITSIMPLE_RUST_NATIVE_LIB_DIR=$PWD/cargo-native $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_native_link/Cargo.toml -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_cargo_reports_unresolved_native_requirement
+    "mkdir -p cargo-native-missing && ! HITSIMPLE_RUST_NATIVE_LIB_DIR=$PWD/cargo-native-missing $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_native_link/Cargo.toml -o program >stdout 2>stderr && grep -Fq 'could not find native static library' stderr && grep -Fq 'Cargo build failed' stderr"
+  )
+  add_hsc_shell_test(hsc_cargo_rust_calls_hsc_staticlib
+    "$<TARGET_FILE:hsc> --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs -o libhsc.a && HITSIMPLE_HSC_LIB_DIR=$PWD cargo test --manifest-path ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_hsc_caller/Cargo.toml --quiet"
+  )
+  add_hsc_shell_test(hsc_cargo_reports_missing_tool
+    "! env -u HITSIMPLE_CARGO PATH= $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_staticlib/Cargo.toml -o program >stdout 2>stderr && grep -Fq 'no Cargo tool found' stderr"
+  )
+  add_hsc_shell_test(hsc_cargo_requires_virtual_workspace_package
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_virtual/Cargo.toml -o program >stdout 2>stderr && grep -Fq 'virtual workspace' stderr"
+  )
+  add_hsc_shell_test(hsc_cargo_rejects_nonstaticlib_target
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_nonstatic/Cargo.toml -o program >stdout 2>stderr && grep -Fq 'did not emit a staticlib artifact' stderr"
+  )
+  add_hsc_shell_test(hsc_cargo_forwards_build_failure
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_rust.hs --cargo-manifest ${PROJECT_SOURCE_DIR}/tests/cases/interop/rust_staticlib/Cargo.toml --cargo-features missing -o program >stdout 2>stderr && grep -Fq 'Cargo build failed' stderr && grep -Fq 'does not contain this feature' stderr"
+  )
+  add_hsc_shell_test(hsc_cargo_options_require_manifest
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/examples/hello.hs --cargo-profile release -o program >stdout 2>stderr && grep -Fq 'Cargo options require --cargo-manifest' stderr"
+  )
+  set_tests_properties(
+    hsc_cargo_staticlib_hsc_calls_rust
+    hsc_cargo_virtual_workspace_package
+    hsc_cargo_forwards_native_link_requirements
+    hsc_cargo_reports_unresolved_native_requirement
+    hsc_cargo_rust_calls_hsc_staticlib
+    hsc_cargo_reports_missing_tool
+    hsc_cargo_requires_virtual_workspace_package
+    hsc_cargo_rejects_nonstaticlib_target
+    hsc_cargo_forwards_build_failure
+    hsc_cargo_options_require_manifest
+    PROPERTIES ENVIRONMENT "RUSTC_WRAPPER=;RUSTC_WORKSPACE_WRAPPER=")
   add_hsc_shell_test(hsc_c_compat_double_abi_emit_llvm
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_double_abi.c > module.ll && grep -Fq 'declare double @host_value()' module.ll && grep -Fq 'define double @add(double' module.ll && grep -Fq 'call double @host_value()' module.ll && grep -Fq 'call double @add(double' module.ll"
   )
@@ -1378,8 +1499,10 @@ target_link_libraries(hsc_unit_tests
      CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|aarch64|arm64|ARM64)$" AND
      LLVM_DWARFDUMP_EXECUTABLE AND GDB_EXECUTABLE)
     add_hsc_shell_test(hsc_debug_info_gdb
-      "$<TARGET_FILE:hsc> -g ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o debug-info && ${LLVM_DWARFDUMP_EXECUTABLE} --verify debug-info && readelf --debug-dump=info debug-info | grep -Fq 'DW_TAG_variable' && ${GDB_EXECUTABLE} -q -batch -ex 'break debug_info.hs:6' -ex run -ex bt -ex 'info locals' --args ./debug-info >gdb.out 2>&1 && grep -Fq 'helper' gdb.out && grep -Fq 'main' gdb.out && grep -Fq 'value =' gdb.out"
+      "${CMAKE_COMMAND} -DHSC=$<TARGET_FILE:hsc> -DLLVM_DWARFDUMP=${LLVM_DWARFDUMP_EXECUTABLE} -DGDB=${GDB_EXECUTABLE} -DSOURCE=${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -P ${PROJECT_SOURCE_DIR}/tests/support/RunGdbDebugInfoTest.cmake"
     )
+    set_tests_properties(hsc_debug_info_gdb PROPERTIES
+      SKIP_REGULAR_EXPRESSION "SKIP: ptrace is unavailable")
   endif()
 endif()
 

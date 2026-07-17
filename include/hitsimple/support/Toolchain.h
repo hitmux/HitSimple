@@ -12,7 +12,18 @@ struct ClangSelection {
   std::string error;
 };
 
+struct LlvmArSelection {
+  std::optional<std::filesystem::path> path;
+  std::string source;
+  std::string error;
+};
+
 ClangSelection resolveClang(
     const std::optional<std::filesystem::path>& commandLineOverride);
+
+ClangSelection resolveClangxx(
+    const std::optional<std::filesystem::path>& commandLineOverride);
+
+LlvmArSelection resolveLlvmAr();
 
 } // namespace hitsimple::support

@@ -63,7 +63,11 @@ private:
 
     if (const auto *externFunction =
             dynamic_cast<const ExternFunctionDecl *>(&declaration)) {
-      line("ExternFunctionDecl name=" + externFunction->name);
+      std::string text = "ExternFunctionDecl name=" + externFunction->name;
+      if (!externFunction->abiName.empty()) {
+        text += " abi=" + externFunction->abiName;
+      }
+      line(text);
       ++indent_;
       for (const auto &param : externFunction->params) {
         dump(param);
@@ -131,7 +135,11 @@ private:
   }
 
   void dump(const FunctionDecl &function) {
-    line("FunctionDecl name=" + function.name);
+    std::string text = "FunctionDecl name=" + function.name;
+    if (!function.abiName.empty()) {
+      text += " abi=" + function.abiName;
+    }
+    line(text);
     ++indent_;
     for (const auto &param : function.params) {
       dump(param);
@@ -722,9 +730,11 @@ ReturnItem::ReturnItem(std::string name, std::string length,
 
 FunctionDecl::FunctionDecl(std::string name, std::vector<Param> params,
                            std::vector<ReturnItem> returns,
-                           std::unique_ptr<BlockStmt> body)
+                           std::unique_ptr<BlockStmt> body,
+                           std::string abiName)
     : name(std::move(name)), params(std::move(params)),
-      returns(std::move(returns)), body(std::move(body)) {}
+      returns(std::move(returns)), body(std::move(body)),
+      abiName(std::move(abiName)) {}
 
 GlobalNewDecl::GlobalNewDecl(std::string name, std::string length,
                              std::string templateName, std::string assignmentOp,
@@ -741,9 +751,10 @@ ExternVarDecl::ExternVarDecl(std::string name, std::string length,
 
 ExternFunctionDecl::ExternFunctionDecl(std::string name,
                                        std::vector<Param> params,
-                                       std::vector<ReturnItem> returns)
+                                       std::vector<ReturnItem> returns,
+                                       std::string abiName)
     : name(std::move(name)), params(std::move(params)),
-      returns(std::move(returns)) {}
+      returns(std::move(returns)), abiName(std::move(abiName)) {}
 
 StructMember::StructMember(std::string name, std::string length)
     : name(std::move(name)), length(std::move(length)) {}

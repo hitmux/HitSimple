@@ -48,4 +48,42 @@ ClangSelection resolveClang(
           "HITSIMPLE_CLANG, or install Clang 18"};
 }
 
+ClangSelection resolveClangxx(
+    const std::optional<std::filesystem::path>& commandLineOverride) {
+  if (commandLineOverride) {
+    return resolveConfigured(*commandLineOverride, "--clangxx");
+  }
+  if (const auto environment = pathEnvironmentVariable("HITSIMPLE_CLANGXX")) {
+    return resolveConfigured(*environment, "HITSIMPLE_CLANGXX");
+  }
+  if (const auto resolved = findExecutable("clang++-18")) {
+    return {*resolved, "clang++-18", {}};
+  }
+  if (const auto resolved = findExecutable("clang++")) {
+    return {*resolved, "PATH clang++", {}};
+  }
+  return {std::nullopt, "not found",
+          "no compatible Clang++ toolchain found; use --clangxx <path>, set "
+          "HITSIMPLE_CLANGXX, or install Clang 18"};
+}
+
+LlvmArSelection resolveLlvmAr() {
+  if (const auto environment = pathEnvironmentVariable("HITSIMPLE_LLVM_AR")) {
+    if (const auto resolved = findExecutable(*environment)) {
+      return {*resolved, "HITSIMPLE_LLVM_AR", {}};
+    }
+    return {std::nullopt, "HITSIMPLE_LLVM_AR",
+            "configured llvm-ar executable was not found: " +
+                pathToUtf8(*environment)};
+  }
+  if (const auto resolved = findExecutable("llvm-ar-18")) {
+    return {*resolved, "PATH llvm-ar-18", {}};
+  }
+  if (const auto resolved = findExecutable("llvm-ar")) {
+    return {*resolved, "PATH llvm-ar", {}};
+  }
+  return {std::nullopt, "not found",
+          "no llvm-ar tool found; set HITSIMPLE_LLVM_AR or install llvm-ar"};
+}
+
 } // namespace hitsimple::support
