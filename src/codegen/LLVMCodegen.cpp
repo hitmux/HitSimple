@@ -95,6 +95,12 @@ void useLegacyDebugInfoFormatIfAvailable(ModuleType& module) {
 
 } // namespace
 
+DebugInfoFormat debugInfoFormatForTargetTriple(std::string_view targetTriple) {
+  return parseTargetTriple(targetTriple).isOSWindows()
+             ? DebugInfoFormat::CodeView
+             : DebugInfoFormat::Dwarf;
+}
+
 LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
     : moduleName_(std::move(moduleName)), options_(options),
       module_(std::make_unique<llvm::Module>(moduleName_, context_)),
@@ -243,7 +249,8 @@ void LlvmEmitter::initializeDebugInfo() {
       llvm::dwarf::DW_LANG_C, debugFile_, "hsc", false, "", 0);
   module_->addModuleFlag(llvm::Module::Warning, "Debug Info Version",
                          llvm::DEBUG_METADATA_VERSION);
-  if (parseTargetTriple(moduleTargetTriple(*module_)).isOSWindows()) {
+  if (debugInfoFormatForTargetTriple(moduleTargetTriple(*module_)) ==
+      DebugInfoFormat::CodeView) {
     module_->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
   } else {
     module_->addModuleFlag(llvm::Module::Warning, "Dwarf Version", 5);

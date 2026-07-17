@@ -1354,7 +1354,7 @@ target_link_libraries(hsc_unit_tests
     "! $<TARGET_FILE:hsc> --timing-json=timing-sema-failure.json --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_integer_to_float_rejected.hs -o module.ll && ${CMAKE_COMMAND} -DJSON=$PWD/timing-sema-failure.json -DEXPECTED_OUTCOME=failure -DEXPECTED_FAILED_STAGE=sema_hir -DEXPECTED_TU_COUNT=1 -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
   )
   add_hsc_shell_test(hsc_timing_json_link_failure
-    "! $<TARGET_FILE:hsc> --timing-json=timing-link-failure.json --clang /bin/false ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program && ${CMAKE_COMMAND} -DJSON=$PWD/timing-link-failure.json -DEXPECTED_OUTCOME=failure -DEXPECTED_FAILED_STAGE=clang_backend_link -DEXPECTED_TU_COUNT=1 -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+    "! $<TARGET_FILE:hsc> --timing-json=timing-link-failure.json --clang ${CMAKE_COMMAND} ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program && ${CMAKE_COMMAND} -DJSON=$PWD/timing-link-failure.json -DEXPECTED_OUTCOME=failure -DEXPECTED_FAILED_STAGE=clang_backend_link -DEXPECTED_TU_COUNT=1 -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
   )
   add_hsc_shell_test(hsc_timing_does_not_change_emit_llvm_stdout
     "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs > plain.ll && $<TARGET_FILE:hsc> --timing --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs > timed.ll 2>timing.stderr && cmp -s plain.ll timed.ll && grep -Fq 'hsc: timing outcome=success' timing.stderr"

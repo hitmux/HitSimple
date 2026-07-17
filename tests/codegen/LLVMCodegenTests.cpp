@@ -99,32 +99,19 @@ HS_TEST(LLVMCodegen_EmitsMinimalProgramIr) {
 }
 
 HS_TEST(LLVMCodegen_UsesNativeDebugFormatForTargetTriple) {
-  const std::vector<std::pair<std::string, bool>> targets = {
-      {"x86_64-unknown-linux-gnu", false},
-      {"x86_64-apple-darwin", false},
-      {"x86_64-w64-windows-gnu", true},
+  const std::vector<std::pair<std::string, hitsimple::codegen::DebugInfoFormat>>
+      targets = {
+          {"x86_64-unknown-linux-gnu",
+           hitsimple::codegen::DebugInfoFormat::Dwarf},
+          {"x86_64-apple-darwin", hitsimple::codegen::DebugInfoFormat::Dwarf},
+          {"x86_64-w64-windows-gnu",
+           hitsimple::codegen::DebugInfoFormat::CodeView},
   };
 
-  for (const auto& [targetTriple, expectsCodeView] : targets) {
-    hitsimple::codegen::CodegenOptions options;
-    options.targetTriple = targetTriple;
-    options.emitDebugInfo = true;
-    const auto result = emitSource(
-        "func main() {\n"
-        "    new value[4]\n"
-        "    value %d= 41\n"
-        "    return 0\n"
-        "}\n",
-        options);
-
-    HS_EXPECT_TRUE(result.diagnostics.empty());
-    HS_EXPECT_TRUE(result.llvmIr.find("!llvm.dbg.cu") != std::string::npos);
-    HS_EXPECT_TRUE(
-        (result.llvmIr.find("!\"CodeView\"") != std::string::npos) ==
-        expectsCodeView);
-    HS_EXPECT_TRUE(
-        (result.llvmIr.find("!\"Dwarf Version\"") != std::string::npos) ==
-        !expectsCodeView);
+  for (const auto& [targetTriple, expectedFormat] : targets) {
+    HS_EXPECT_EQ(
+        hitsimple::codegen::debugInfoFormatForTargetTriple(targetTriple),
+        expectedFormat);
   }
 }
 

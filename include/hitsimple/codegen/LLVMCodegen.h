@@ -4,6 +4,7 @@
 #include "hitsimple/hir/HIR.h"
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace hitsimple::codegen {
@@ -19,6 +20,11 @@ enum class SafetyMode {
   Checked,
 };
 
+enum class DebugInfoFormat {
+  Dwarf,
+  CodeView,
+};
+
 struct CodegenOptions {
   SafetyMode safetyMode = SafetyMode::Unchecked;
   // An empty value selects LLVM's default target triple.
@@ -29,5 +35,7 @@ struct CodegenOptions {
 EmitResult emitLlvmIr(const hir::TranslationUnit& unit,
                       std::string moduleName,
                       CodegenOptions options = {});
+
+DebugInfoFormat debugInfoFormatForTargetTriple(std::string_view targetTriple);
 
 } // namespace hitsimple::codegen
