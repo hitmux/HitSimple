@@ -158,7 +158,60 @@ function isLinuxX64() {
   return process.platform === "linux" && process.arch === "x64";
 }
 
-async function waitForDebugFrame(session, sourcePath) {
+function createDebugAdapterTrace() {
+  const entries = [];
+
+  function record(direction, message) {
+    if (!message || typeof message !== "object") {
+      return;
+    }
+    const kind = message.event || message.command || message.type || "message";
+    let detail = `${direction} ${message.type || "unknown"} ${kind}`;
+    if (message.success === false) {
+      detail += ` failed: ${message.message || "unknown error"}`;
+    }
+    if (message.event === "output" && message.body && message.body.output) {
+      detail += `: ${String(message.body.output).trim().slice(0, 240)}`;
+    }
+    entries.push(detail);
+    if (entries.length > 80) {
+      entries.shift();
+    }
+  }
+
+  const disposable = vscode.debug.registerDebugAdapterTrackerFactory("cppdbg", {
+    createDebugAdapterTracker() {
+      return {
+        onWillStartSession() {
+          entries.push("adapter starting");
+        },
+        onWillReceiveMessage(message) {
+          record("->", message);
+        },
+        onDidSendMessage(message) {
+          record("<-", message);
+        },
+        onError(error) {
+          entries.push(`adapter error: ${String(error)}`);
+        },
+        onExit(code, signal) {
+          entries.push(`adapter exit: code=${code} signal=${signal}`);
+        },
+      };
+    },
+  });
+
+  return {
+    dispose() {
+      disposable.dispose();
+    },
+    describe() {
+      return entries.length > 0 ? entries.join(" | ") : "no DAP messages observed";
+    },
+  };
+}
+
+async function waitForDebugFrame(session, sourcePath, trace) {
   const sourceName = path.basename(sourcePath);
   let lastStackFrames = [];
   let lastError;
@@ -199,7 +252,8 @@ async function waitForDebugFrame(session, sourcePath) {
     }));
     throw new Error(
       `${error.message}; last frames: ${JSON.stringify(frames)}; ` +
-      `last DAP error: ${lastError ? String(lastError) : "none"}`,
+      `last DAP error: ${lastError ? String(lastError) : "none"}; ` +
+      `DAP trace: ${trace.describe()}`,
     );
   }
 }
@@ -232,6 +286,7 @@ async function verifyDebug() {
 
   let session;
   let startedSession;
+  const trace = createDebugAdapterTrace();
   const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
     if (candidate.type === "cppdbg") {
       startedSession = candidate;
@@ -254,7 +309,11 @@ async function verifyDebug() {
       "the cppdbg session",
       30000,
     );
-    const { frame, stack } = await waitForDebugFrame(session, document.uri.fsPath);
+    const { frame, stack } = await waitForDebugFrame(
+      session,
+      document.uri.fsPath,
+      trace,
+    );
     assert.match(frame.name, /^helper(?:\(\))?$/);
     assert.ok(frame.source, "helper must be a HitSimple source frame");
     assert.ok(
@@ -288,6 +347,7 @@ async function verifyDebug() {
     );
   } finally {
     sessionSubscription.dispose();
+    trace.dispose();
     if (session) {
       await vscode.debug.stopDebugging(session);
     }
