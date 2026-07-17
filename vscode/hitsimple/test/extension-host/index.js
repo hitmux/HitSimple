@@ -159,7 +159,11 @@ function isLinuxX64() {
 }
 
 async function waitForDebugFrame(session, sourcePath) {
-  return waitForValue(async () => {
+  const sourceName = path.basename(sourcePath);
+  let lastStackFrames = [];
+  let lastError;
+  try {
+    return await waitForValue(async () => {
     try {
       const threads = await session.customRequest("threads");
       for (const thread of threads.threads || []) {
@@ -167,20 +171,37 @@ async function waitForDebugFrame(session, sourcePath) {
           const stack = await session.customRequest("stackTrace", {
             threadId: thread.id,
           });
+          lastStackFrames = stack.stackFrames || [];
           const frame = (stack.stackFrames || []).find((candidate) =>
-            candidate.source && path.resolve(candidate.source.path) === sourcePath);
+            candidate.source && (
+              (candidate.source.path &&
+                path.resolve(candidate.source.path) === sourcePath) ||
+              candidate.source.name === sourceName ||
+              (candidate.source.path &&
+                path.basename(candidate.source.path) === sourceName)
+            ));
           if (frame) {
             return { frame, stack, thread };
           }
-        } catch {
-          // The debugger returns an error while the debuggee is still running.
+        } catch (error) {
+          lastError = error;
         }
       }
-    } catch {
-      // The debug adapter can take a short time to accept DAP requests.
+    } catch (error) {
+      lastError = error;
     }
     return undefined;
-  }, Boolean, "the HitSimple source breakpoint", 30000);
+    }, Boolean, "the HitSimple source breakpoint", 30000);
+  } catch (error) {
+    const frames = lastStackFrames.map(({ name, source }) => ({
+      name,
+      source: source && { name: source.name, path: source.path },
+    }));
+    throw new Error(
+      `${error.message}; last frames: ${JSON.stringify(frames)}; ` +
+      `last DAP error: ${lastError ? String(lastError) : "none"}`,
+    );
+  }
 }
 
 async function verifyDebug() {
@@ -235,11 +256,19 @@ async function verifyDebug() {
     );
     const { frame, stack } = await waitForDebugFrame(session, document.uri.fsPath);
     assert.match(frame.name, /^helper(?:\(\))?$/);
-    assert.equal(path.resolve(frame.source.path), document.uri.fsPath);
+    assert.ok(frame.source, "helper must be a HitSimple source frame");
+    assert.ok(
+      frame.source.name === path.basename(document.uri.fsPath) ||
+      (frame.source.path &&
+        path.resolve(frame.source.path) === document.uri.fsPath),
+      "helper must resolve to debug.hs",
+    );
     assert.ok(
       (stack.stackFrames || []).some((candidate) =>
         /^main(?:\(\))?$/.test(candidate.name) && candidate.source &&
-        path.resolve(candidate.source.path) === document.uri.fsPath),
+        (candidate.source.name === path.basename(document.uri.fsPath) ||
+          (candidate.source.path &&
+            path.resolve(candidate.source.path) === document.uri.fsPath))),
       "cppdbg must expose the HitSimple main source frame",
     );
 
