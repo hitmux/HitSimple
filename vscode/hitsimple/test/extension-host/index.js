@@ -158,6 +158,27 @@ function isLinuxX64() {
   return process.platform === "linux" && process.arch === "x64";
 }
 
+function createHeadlessDebugConsoleOverride() {
+  if (process.env.CI !== "true") {
+    return undefined;
+  }
+
+  // The production command keeps integratedTerminal. GitHub's headless
+  // Extension Host has no usable integrated-terminal process, so route only
+  // the test adapter session through its debug console.
+  const originalStartDebugging = vscode.debug.startDebugging;
+  vscode.debug.startDebugging = (workspaceFolder, configuration, options) =>
+    originalStartDebugging.call(vscode.debug, workspaceFolder, {
+      ...configuration,
+      console: "internalConsole",
+    }, options);
+  return {
+    dispose() {
+      vscode.debug.startDebugging = originalStartDebugging;
+    },
+  };
+}
+
 async function waitForDebugFrame(session, sourcePath) {
   const sourceName = path.basename(sourcePath);
   let lastStackFrames = [];
@@ -232,6 +253,7 @@ async function verifyDebug() {
 
   let session;
   let startedSession;
+  const consoleOverride = createHeadlessDebugConsoleOverride();
   const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
     if (candidate.type === "cppdbg") {
       startedSession = candidate;
@@ -288,6 +310,7 @@ async function verifyDebug() {
     );
   } finally {
     sessionSubscription.dispose();
+    consoleOverride?.dispose();
     if (session) {
       await vscode.debug.stopDebugging(session);
     }
