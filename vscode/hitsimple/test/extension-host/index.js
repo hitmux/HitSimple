@@ -158,6 +158,32 @@ function isLinuxX64() {
   return process.platform === "linux" && process.arch === "x64";
 }
 
+function createTestDebuggerArgumentsOverride() {
+  const miDebuggerArgs = process.env.HITSIMPLE_TEST_MI_DEBUGGER_ARGS;
+  if (!miDebuggerArgs) {
+    return undefined;
+  }
+
+  // cppdbg starts GDB with --nx, so CI must pass this command explicitly.
+  const originalStartDebugging = vscode.debug.startDebugging;
+  let invocation;
+  vscode.debug.startDebugging = (workspaceFolder, configuration, options) => {
+    invocation = { miDebuggerArgs: configuration.miDebuggerArgs };
+    return originalStartDebugging.call(vscode.debug, workspaceFolder, {
+      ...configuration,
+      miDebuggerArgs,
+    }, options);
+  };
+  return {
+    getInvocation() {
+      return invocation;
+    },
+    dispose() {
+      vscode.debug.startDebugging = originalStartDebugging;
+    },
+  };
+}
+
 function createDebugAdapterTrace() {
   const entries = [];
   const repeatedRequests = new Map();
@@ -296,6 +322,7 @@ async function verifyDebug() {
 
   let session;
   let startedSession;
+  const debuggerArgumentsOverride = createTestDebuggerArgumentsOverride();
   const trace = createDebugAdapterTrace();
   const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
     if (candidate.type === "cppdbg") {
@@ -312,6 +339,11 @@ async function verifyDebug() {
     assert.deepEqual(result.launchConfiguration.args, ["argument with spaces"]);
     assert.equal(result.launchConfiguration.MIMode, "gdb");
     assert.equal(result.launchConfiguration.console, "integratedTerminal");
+    if (debuggerArgumentsOverride) {
+      assert.deepEqual(debuggerArgumentsOverride.getInvocation(), {
+        miDebuggerArgs: undefined,
+      });
+    }
 
     session = await waitForValue(
       () => startedSession,
@@ -357,6 +389,7 @@ async function verifyDebug() {
     );
   } finally {
     sessionSubscription.dispose();
+    debuggerArgumentsOverride?.dispose();
     trace.dispose();
     if (session) {
       await vscode.debug.stopDebugging(session);

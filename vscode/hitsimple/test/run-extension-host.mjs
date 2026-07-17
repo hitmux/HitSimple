@@ -90,10 +90,6 @@ async function prepareWorkspace(root) {
       }, null, 2)}\n`,
     ),
     writeFile(
-      path.join(root, ".gdbinit"),
-      "set debuginfod enabled off\n",
-    ),
-    writeFile(
       path.join(workspacePath, "main.hs"),
       "func main() {\n    return 0\n}\n",
     ),
@@ -147,7 +143,7 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
-      HOME: tempRoot,
+      HITSIMPLE_TEST_MI_DEBUGGER_ARGS: '-iex "set debuginfod enabled off"',
     },
     launchArgs: [
       workspacePath,
