@@ -90,6 +90,10 @@ async function prepareWorkspace(root) {
       }, null, 2)}\n`,
     ),
     writeFile(
+      path.join(root, ".gdbinit"),
+      "set debuginfod enabled off\n",
+    ),
+    writeFile(
       path.join(workspacePath, "main.hs"),
       "func main() {\n    return 0\n}\n",
     ),
@@ -143,8 +147,7 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
-      // Prevent GDB from blocking CI on optional system debug-info downloads.
-      DEBUGINFOD_URLS: "",
+      HOME: tempRoot,
     },
     launchArgs: [
       workspacePath,
