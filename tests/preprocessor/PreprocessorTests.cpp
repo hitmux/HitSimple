@@ -5,10 +5,46 @@
 #include "hitsimple/support/Path.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <utility>
+
+namespace {
+
+class ScopedEnvironment final {
+public:
+  ScopedEnvironment(const char* name, const std::string& value) : name_(name) {
+    if (const char* current = std::getenv(name)) {
+      previousValue_ = current;
+    }
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+  }
+
+  ~ScopedEnvironment() {
+#ifdef _WIN32
+    _putenv_s(name_.c_str(), previousValue_ ? previousValue_->c_str() : "");
+#else
+    if (previousValue_) {
+      setenv(name_.c_str(), previousValue_->c_str(), 1);
+    } else {
+      unsetenv(name_.c_str());
+    }
+#endif
+  }
+
+private:
+  std::string name_;
+  std::optional<std::string> previousValue_;
+};
+
+} // namespace
 
 HS_TEST(Preprocessor_ExpandsObjectFunctionAndVariadicMacros) {
   const auto result = hitsimple::preprocessor::preprocessSource(
@@ -108,6 +144,44 @@ HS_TEST(Preprocessor_SourceMapFeedsParserDiagnostics) {
   HS_EXPECT_EQ(diagnostic.format(),
                (root / "broken.hsi").string() +
                    ":1:11: parser: error: " + diagnostic.message);
+}
+
+HS_TEST(Preprocessor_MapsCanonicalizedTemporarySourcePaths) {
+#ifdef _WIN32
+  return;
+#else
+  const auto root = std::filesystem::temp_directory_path() /
+                    "hitsimple-preprocessor-canonical-source-map";
+  const auto realTemporaryRoot = root / "real-temporary";
+  const auto aliasedTemporaryRoot = root / "temporary-alias";
+  const auto sourcePath = root / "source" / "broken.hs";
+  std::error_code error;
+  std::filesystem::remove_all(root, error);
+  std::filesystem::create_directories(realTemporaryRoot);
+  std::filesystem::create_directories(sourcePath.parent_path());
+  std::filesystem::create_directory_symlink(realTemporaryRoot,
+                                             aliasedTemporaryRoot, error);
+  HS_EXPECT_TRUE(!error);
+  std::ofstream(sourcePath) << "func main(]\n";
+
+  hitsimple::parser::ParseResult parsed;
+  {
+    const ScopedEnvironment temporaryDirectory(
+        "TMPDIR", hitsimple::support::pathToUtf8(aliasedTemporaryRoot));
+    auto preprocessed =
+        hitsimple::preprocessor::preprocessFile(sourcePath.string());
+    HS_EXPECT_TRUE(preprocessed.diagnostics.empty());
+    parsed = hitsimple::parser::parseSource(
+        preprocessed.source, sourcePath.string(),
+        std::move(preprocessed.lineOrigins));
+  }
+  std::filesystem::remove_all(root, error);
+
+  HS_EXPECT_TRUE(!parsed.unit);
+  HS_EXPECT_EQ(parsed.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(parsed.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(parsed.diagnostics[0].range->begin.file, sourcePath.string());
+#endif
 }
 
 HS_TEST(Preprocessor_ExpandsNestedFunctionMacroArguments) {

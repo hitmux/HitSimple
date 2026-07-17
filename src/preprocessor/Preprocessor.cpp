@@ -128,6 +128,12 @@ void addFileMapping(PreparedInput &prepared,
   prepared.fileMap[support::pathToUtf8(generated.lexically_normal())] = original;
   prepared.fileMap[support::pathToUtf8(
       std::filesystem::absolute(generated).lexically_normal())] = original;
+  std::error_code canonicalError;
+  const auto canonical = std::filesystem::weakly_canonical(generated,
+                                                            canonicalError);
+  if (!canonicalError) {
+    prepared.fileMap[support::pathToUtf8(canonical)] = original;
+  }
   if (!spelling.empty()) {
     prepared.fileMap[spelling] = original;
   }
@@ -144,6 +150,16 @@ std::string mappedFileName(const PreparedInput &prepared, std::string fileName) 
   const auto found = prepared.fileMap.find(normalized);
   if (found != prepared.fileMap.end()) {
     return found->second;
+  }
+  std::error_code canonicalError;
+  const auto canonical = std::filesystem::weakly_canonical(
+      support::pathFromUtf8(fileName), canonicalError);
+  if (!canonicalError) {
+    const auto canonicalText = support::pathToUtf8(canonical);
+    const auto canonicalFound = prepared.fileMap.find(canonicalText);
+    if (canonicalFound != prepared.fileMap.end()) {
+      return canonicalFound->second;
+    }
   }
   return fileName;
 }
