@@ -158,57 +158,6 @@ function isLinuxX64() {
   return process.platform === "linux" && process.arch === "x64";
 }
 
-function createHeadlessDebugConsoleOverride() {
-  if (process.env.HITSIMPLE_TEST_HEADLESS_DEBUG !== "true") {
-    return undefined;
-  }
-
-  // cppdbg only supports externalConsole on Linux. GitHub's headless
-  // Extension Host has no usable integrated-terminal process, so route only
-  // the test adapter session through xterm under Xvfb.
-  const originalStartDebugging = vscode.debug.startDebugging;
-  let invocation;
-  vscode.debug.startDebugging = (workspaceFolder, configuration, options) => {
-    invocation = {
-      console: configuration.console,
-      externalConsole: configuration.externalConsole,
-      stopAtEntry: configuration.stopAtEntry,
-    };
-    console.log(
-      `HitSimple Extension Host: headless cppdbg console=${configuration.console} ` +
-      `externalConsole=${configuration.externalConsole} ` +
-      `stopAtEntry=${configuration.stopAtEntry}`,
-    );
-    const { console: _console, ...cppdbgConfiguration } = configuration;
-    return originalStartDebugging.call(vscode.debug, workspaceFolder, {
-      ...cppdbgConfiguration,
-      externalConsole: true,
-      stopAtEntry: true,
-    }, options);
-  };
-  return {
-    getInvocation() {
-      return invocation;
-    },
-    dispose() {
-      vscode.debug.startDebugging = originalStartDebugging;
-    },
-  };
-}
-
-async function continueFromDebugEntry(session) {
-  const threads = await waitForValue(
-    async () => {
-      const response = await session.customRequest("threads");
-      return response.threads && response.threads[0];
-    },
-    Boolean,
-    "the cppdbg entry thread",
-    30000,
-  );
-  await session.customRequest("continue", { threadId: threads.id });
-}
-
 async function waitForDebugFrame(session, sourcePath) {
   const sourceName = path.basename(sourcePath);
   let lastStackFrames = [];
@@ -283,7 +232,6 @@ async function verifyDebug() {
 
   let session;
   let startedSession;
-  const consoleOverride = createHeadlessDebugConsoleOverride();
   const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
     if (candidate.type === "cppdbg") {
       startedSession = candidate;
@@ -299,13 +247,6 @@ async function verifyDebug() {
     assert.deepEqual(result.launchConfiguration.args, ["argument with spaces"]);
     assert.equal(result.launchConfiguration.MIMode, "gdb");
     assert.equal(result.launchConfiguration.console, "integratedTerminal");
-    if (consoleOverride) {
-      assert.deepEqual(consoleOverride.getInvocation(), {
-        console: "integratedTerminal",
-        externalConsole: undefined,
-        stopAtEntry: undefined,
-      });
-    }
 
     session = await waitForValue(
       () => startedSession,
@@ -313,9 +254,6 @@ async function verifyDebug() {
       "the cppdbg session",
       30000,
     );
-    if (consoleOverride) {
-      await continueFromDebugEntry(session);
-    }
     const { frame, stack } = await waitForDebugFrame(session, document.uri.fsPath);
     assert.match(frame.name, /^helper(?:\(\))?$/);
     assert.ok(frame.source, "helper must be a HitSimple source frame");
@@ -350,7 +288,6 @@ async function verifyDebug() {
     );
   } finally {
     sessionSubscription.dispose();
-    consoleOverride?.dispose();
     if (session) {
       await vscode.debug.stopDebugging(session);
     }
