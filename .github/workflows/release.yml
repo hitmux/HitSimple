@@ -820,7 +820,7 @@ jobs:
         working-directory: vscode/hitsimple
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y gdb xvfb
           npm ci
           npm test
           xvfb-run -a npm run test:extension
