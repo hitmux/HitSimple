@@ -8,7 +8,7 @@
 hsc [options] <input>...
 ```
 
-Except for `--help`, `--version`, and `--target-info`, commands require an input file. Unknown options, a missing value for `-o`, or a nonexistent output directory produce an error.
+Except for `--help`, `--version`, and `--target-info`, commands require an input file. Unknown options, a missing value for `-o`, a nonexistent output directory, or a nonexistent timing JSON directory produce an error.
 
 ## Build an Executable
 
@@ -125,6 +125,70 @@ hsc --checked --emit-llvm examples/hello.hs -o hello-checked.ll
 
 `--emit-llvm` accepts exactly one input file per invocation.
 
+## Debug Information
+
+`-g` emits native debug information for the default executable build and for
+`--emit-llvm`. Linux and macOS targets emit DWARF v5; Windows targets emit
+CodeView metadata. It is rejected for token, AST, HIR, target, and preprocessing
+actions. Without `-g`, generated LLVM IR and executables contain no compiler
+debug metadata.
+
+```bash
+hsc -g examples/hello.hs -o hello-debug
+gdb ./hello-debug
+
+hsc -g --emit-llvm examples/hello.hs -o hello-debug.ll
+```
+
+Local `new` declarations and parameters are exposed as fixed-length unsigned
+byte arrays that point at their actual storage. This preserves HitSimple's
+memory-and-View semantics; templates, `as` Views, and byte interpretation are
+not represented as C-like static types in the debugger.
+
+The VS Code extension's Debug Current File command rebuilds the active `.hs`
+entry with one `-g` flag and uses the Microsoft C/C++ extension
+(`ms-vscode.cpptools`). Linux x86_64/aarch64 uses `cppdbg` with GDB; macOS
+arm64/x86_64 uses `cppdbg` with LLDB; Windows x64 uses `cppvsdbg` with
+CodeView/PDB. `hitsimple.gdbPath` remains the GDB setting and
+`hitsimple.lldbPath` selects the LLDB executable, defaulting to `lldb`.
+Windows does not require a debugger-path setting: debug builds remove any old
+PDB and fail unless the compiler creates a same-base-name `.pdb` next to the
+executable. The command uses the workspace root as its working directory and
+does not create `launch.json` or override F5. Cross-target debugging, remote
+debugging, and custom debug adapter configurations are outside this interface
+contract.
+
+## Compilation Timing
+
+`--timing` writes a human-readable summary to standard error. It never changes
+LLVM IR, AST, HIR, token, or preprocessing output written to standard output.
+
+```bash
+hsc --timing examples/hello.hs -o hello
+hsc --timing --emit-llvm examples/hello.hs > hello.ll
+```
+
+`--timing-json=<path>` writes the same compilation lifecycle as an atomic JSON
+replacement. It can be used with or without `--timing`:
+
+```bash
+hsc --timing-json=build/timing.json examples/hello.hs -o build/hello
+```
+
+The parent directory must already exist, and the timing JSON path cannot equal
+the executable or IR output path, including the default `a.out`/`a.exe` path.
+Successful and failed compilations both write a record. The current format is
+`schema_version: 1` and contains:
+
+- `outcome`, `failed_stage`, `total_duration_ns`, and `translation_unit_count`.
+- One entry per translation unit with `preprocess`, `parse`,
+  `c_compat_lowering`, `sema_hir`, and `llvm_emission` stage states and
+  nanosecond durations.
+- HIR node counts and emitted LLVM IR byte counts for each translation unit.
+- Global `llvm_ir_write` and `clang_backend_link` stage states and durations.
+
+Each stage state is `not_started`, `skipped`, `completed`, or `failed`.
+
 ## Preprocess Only
 
 ```bash
@@ -147,26 +211,26 @@ This mode translates a restricted C syntax subset into the core AST. It explicit
 
 ## Action Constraints
 
-| Action | Input count | Supports `-o` | Supports `--c-compat` |
-| --- | --- | --- | --- |
-| Default executable build | One or more | Yes | Yes |
-| `--dump-tokens` | One | No | No |
-| `--dump-ast` | One | No | Yes |
-| `--dump-hir` | One | No | Yes |
-| `--emit-llvm` | One | Yes | Yes |
-| `--preprocess-only` / `-E` | One | Yes | No effect |
-| `--target-info` | None | No | No |
+| Action | Input count | Supports `-o` | Supports `--c-compat` | Supports `-g` |
+| --- | --- | --- | --- | --- |
+| Default executable build | One or more | Yes | Yes | Yes |
+| `--dump-tokens` | One | No | No | No |
+| `--dump-ast` | One | No | Yes | No |
+| `--dump-hir` | One | No | Yes | No |
+| `--emit-llvm` | One | Yes | Yes | Yes |
+| `--preprocess-only` / `-E` | One | Yes | No effect | No |
+| `--target-info` | None | No | No | No |
 
 ## Linux DEB
 
 ```bash
-sudo apt install ./hitsimple_0.2.1_amd64.deb
+sudo apt install ./hitsimple_0.2.2_amd64.deb
 ```
 
 On arm64, use:
 
 ```bash
-sudo apt install ./hitsimple_0.2.1_arm64.deb
+sudo apt install ./hitsimple_0.2.2_arm64.deb
 ```
 
 Ubuntu 22.04 and Debian 12 need Clang 18 installed first. The following commands configure apt.llvm.org for the appropriate distribution codename; verify the current [apt.llvm.org](https://apt.llvm.org/) instructions and signing method before running them.
@@ -199,8 +263,8 @@ hsc examples/hello.hs -o /tmp/hitsimple-hello
 RPM packages provide x86_64/aarch64 baselines only for Fedora 44 and EL9. The distributions use distinct release suffixes to avoid claims about a cross-distribution glibc baseline:
 
 ```bash
-sudo dnf install ./hitsimple-0.2.1-1.fc44.x86_64.rpm
-sudo dnf install ./hitsimple-0.2.1-1.el9.aarch64.rpm
+sudo dnf install ./hitsimple-0.2.2-1.fc44.x86_64.rpm
+sudo dnf install ./hitsimple-0.2.2-1.el9.aarch64.rpm
 ```
 
 The packages depend on `clang >= 18`. They do not bundle Clang, add package sources, or provide GPG signatures. After installation, use the same `hsc --version`, `hsc --target-info`, and hello-program checks as for DEB packages.
@@ -210,13 +274,13 @@ The packages depend on `clang >= 18`. They do not bundle Clang, add package sour
 Choose the archive matching the machine:
 
 ```bash
-tar -xzf hitsimple-0.2.1-macos-arm64.tar.gz
-cd hitsimple-0.2.1-macos-arm64
+tar -xzf hitsimple-0.2.2-macos-arm64.tar.gz
+cd hitsimple-0.2.2-macos-arm64
 bin/hsc --clang /opt/homebrew/opt/llvm@18/bin/clang path/to/hello.hs -o hello
 ./hello
 ```
 
-Use `hitsimple-0.2.1-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang 18 or later. The package is unsigned and not notarized, and no PKG is provided.
+Use `hitsimple-0.2.2-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang 18 or later. The package is unsigned and not notarized, and no PKG is provided.
 
 Like Windows, macOS uses the software binary128 backend for `f128`, covering literals, arithmetic, comparisons, numeric conversion, formatting, scanning, and the floating-point entry points in `math.hsh`. Linux continues to use the native `fp128`/glibc backend.
 
@@ -225,8 +289,8 @@ Like Windows, macOS uses the software binary128 backend for `f128`, covering lit
 The full package runs directly after extraction:
 
 ```powershell
-Expand-Archive .\hitsimple-0.2.1-windows-x86_64-full.zip
-cd .\hitsimple-0.2.1-windows-x86_64-full
+Expand-Archive .\hitsimple-0.2.2-windows-x86_64-full.zip
+cd .\hitsimple-0.2.2-windows-x86_64-full
 .\bin\hsc.exe path\to\hello.hs -o hello.exe
 .\hello.exe
 ```

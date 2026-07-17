@@ -12,7 +12,7 @@ source -> preprocessor -> lexer -> parser -> AST -> sema -> HIR -> LLVM IR -> ex
 
 ## Current Status
 
-`v0.2.1` is the current Beta release with builds for:
+`v0.2.2` is the current Beta release with builds for:
 
 - Linux x86_64/aarch64 tar.gz archives.
 - Linux amd64/arm64 DEB packages.
@@ -80,17 +80,17 @@ The DEB installation layout is:
 Install a local DEB package:
 
 ```bash
-sudo apt install ./hitsimple_0.2.1_amd64.deb
+sudo apt install ./hitsimple_0.2.2_amd64.deb
 ```
 
-Use `hitsimple_0.2.1_arm64.deb` on arm64. The package depends on `clang-18`, or a Debian `clang` package at version 18 or later. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
+Use `hitsimple_0.2.2_arm64.deb` on arm64. The package depends on `clang-18`, or a Debian `clang` package at version 18 or later. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
 
 The tar.gz archive is a relocatable directory package. Run its `bin/hsc` directly after extraction. The compiler locates the preprocessor, standard library, and runtime relative to its own location.
 
 Fedora 44 and EL9 each provide x86_64/aarch64 RPM packages, for example:
 
 ```bash
-sudo dnf install ./hitsimple-0.2.1-1.fc44.x86_64.rpm
+sudo dnf install ./hitsimple-0.2.2-1.fc44.x86_64.rpm
 ```
 
 EL9 uses the `1.el9` release suffix. RPM packages install to `/usr/bin`, `/usr/libexec/hitsimple`, the distribution library directory (`/usr/lib64/hitsimple` on x86_64/aarch64), and `/usr/share/hitsimple`; the system must already provide `clang >= 18`. They do not bundle Clang or provide a GPG signature. Fedora 44 and EL9 are the only currently supported RPM baselines.
@@ -98,8 +98,8 @@ EL9 uses the `1.el9` release suffix. RPM packages install to `/usr/bin`, `/usr/l
 ## macOS Distribution Packages
 
 ```text
-hitsimple-0.2.1-macos-arm64.tar.gz
-hitsimple-0.2.1-macos-x86_64.tar.gz
+hitsimple-0.2.2-macos-arm64.tar.gz
+hitsimple-0.2.2-macos-x86_64.tar.gz
 ```
 
 After extraction, use `bin/hsc` directly. The package locates `hsc_mcpp`, the static runtime, and the standard library relative to the executable, so the extracted directory remains usable after being moved. The system must provide Clang 18 or later, selected through `--clang`, `HITSIMPLE_CLANG`, or PATH.
@@ -111,7 +111,7 @@ macOS provides only unsigned relocatable tar.gz archives; no signing, notarizati
 Full package:
 
 ```text
-hitsimple-0.2.1-windows-x86_64-full.zip
+hitsimple-0.2.2-windows-x86_64-full.zip
 ```
 
 It includes `hsc.exe`, the standard library, the static runtime, and the pinned `llvm-mingw-20240619-ucrt-x86_64` toolchain. No Visual Studio or system Clang installation is required after extraction.
@@ -119,7 +119,7 @@ It includes `hsc.exe`, the standard library, the static runtime, and the pinned 
 Slim package:
 
 ```text
-hitsimple-0.2.1-windows-x86_64-slim.zip
+hitsimple-0.2.2-windows-x86_64-slim.zip
 ```
 
 The slim package requires a compatible llvm-mingw/Clang 18 installation. Toolchain lookup order is:
@@ -152,14 +152,14 @@ See [`USAGE.md`](USAGE.md) for complete CLI documentation. See [`Standard.md`](S
 
 ## VS Code Extension
 
-The extension source is in `vscode/hitsimple/`. It provides syntax highlighting, indentation, snippets, the `$hsc` Problem Matcher, and Build/Run commands.
+The extension source is in `vscode/hitsimple/`. It provides syntax highlighting, indentation, snippets, the `$hsc` Problem Matcher, and Build/Run/Debug Current File commands. Debug Current File rebuilds the active `.hs` entry with one `-g` flag, then starts the native Microsoft C/C++ debugger. It does not create `launch.json` or override F5.
 
 ```bash
 cd vscode/hitsimple
 npm ci
 npm test
 npm run package:vsix
-code --install-extension dist/hitsimple-vscode-0.2.1.vsix --force
+code --install-extension dist/hitsimple-vscode-0.2.2.vsix --force
 ```
 
 Key settings:
@@ -170,6 +170,11 @@ Key settings:
 | `hitsimple.mode` | `unchecked` | Selects `unchecked`, `static-checked`, or `checked`. |
 | `hitsimple.outputDirectory` | `.hitsimple/build` | Output directory inside the workspace. |
 | `hitsimple.additionalArgs` | `[]` | Additional arguments passed as separate argv entries. |
+| `hitsimple.gdbPath` | `gdb` | GDB executable name or path used by Debug Current File. |
+| `hitsimple.lldbPath` | `lldb` | LLDB executable name or path used by Debug Current File on macOS. |
+| `hitsimple.debugArguments` | `[]` | Program arguments passed as separate argv entries when debugging. |
+
+Debug Current File supports native Linux x86_64/aarch64 through `cppdbg` with GDB, native macOS arm64/x86_64 through `cppdbg` with LLDB, and native Windows x64 through `cppvsdbg` with CodeView/PDB. It requires the Microsoft C/C++ extension (`ms-vscode.cpptools`); Linux also requires an executable GDB, and macOS an executable LLDB. Windows debug builds remove stale PDB files and require a new `.pdb` alongside the executable. Remote debugging, cross-target debugging, custom debug adapters, and custom `launch.json` configurations remain outside this command's scope.
 
 Haskell also uses `.hs`. When both language extensions are installed, explicitly associate the extension in the workspace:
 
@@ -188,7 +193,7 @@ Haskell also uses `.hs`. When both language extensions are installed, explicitly
 ctest --test-dir build --output-on-failure --parallel 4
 ```
 
-VS Code Extension Host tests require `xvfb-run` in headless Linux environments:
+VS Code Extension Host tests install `ms-vscode.cpptools` into an isolated extension directory. Headless Linux environments also require `xvfb-run` and GDB; macOS requires LLDB. Each supported native target verifies a HitSimple breakpoint, `helper` and `main` stack frames, and the `value` local:
 
 ```bash
 cd vscode/hitsimple

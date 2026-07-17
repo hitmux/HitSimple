@@ -7,6 +7,23 @@
 #include <utility>
 
 namespace hitsimple::hir {
+
+namespace {
+thread_local std::optional<diagnostic::SourceRange> activeRange;
+} // namespace
+
+void setActiveSourceRange(std::optional<diagnostic::SourceRange> range) {
+  activeRange = std::move(range);
+}
+
+std::optional<diagnostic::SourceRange> activeSourceRange() {
+  return activeRange;
+}
+
+Expr::Expr() : range(activeSourceRange()) {}
+
+Stmt::Stmt() : range(activeSourceRange()) {}
+
 std::string_view toString(MemoryStorage storage) {
   switch (storage) {
   case MemoryStorage::Global:
@@ -208,12 +225,12 @@ StatementList::StatementList(std::vector<std::unique_ptr<Stmt>> statements)
 GlobalMemory::GlobalMemory(std::string name, std::string bindingName,
                            std::size_t byteLength)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength) {}
+      range(activeSourceRange()), byteLength(byteLength) {}
 
 GlobalMemory::GlobalMemory(std::string name, std::string bindingName,
                            std::size_t byteLength, bool isExtern)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength), isExtern(isExtern) {}
+      range(activeSourceRange()), byteLength(byteLength), isExtern(isExtern) {}
 
 StructMemberLayout::StructMemberLayout(std::string name,
                                        std::size_t byteLength,
@@ -253,7 +270,7 @@ ImplOpBinding::ImplOpBinding(std::string implTemplate, std::string op,
 Parameter::Parameter(std::string name, std::string bindingName,
                      std::size_t byteLength)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength) {}
+      range(activeSourceRange()), byteLength(byteLength) {}
 
 ExternFunction::ExternFunction(std::string name,
                                std::vector<std::size_t> parameterByteLengths,
@@ -437,15 +454,16 @@ TryCatch::TryCatch(std::unique_ptr<Block> tryBlock, std::string errorName,
       errorByteLength(errorByteLength), catchBlock(std::move(catchBlock)) {}
 
 Block::Block(std::vector<std::unique_ptr<Stmt>> statements)
-    : statements(std::move(statements)) {}
+    : statements(std::move(statements)), range(activeSourceRange()) {}
 
 Function::Function(std::string name, std::unique_ptr<Block> body)
-    : name(std::move(name)), body(std::move(body)) {}
+    : name(std::move(name)), range(activeSourceRange()), body(std::move(body)) {}
 
 Function::Function(std::string name, std::vector<Parameter> parameters,
                    std::vector<std::size_t> returnByteLengths,
                    std::unique_ptr<Block> body)
-    : name(std::move(name)), parameters(std::move(parameters)),
+    : name(std::move(name)), range(activeSourceRange()),
+      parameters(std::move(parameters)),
       returnByteLengths(std::move(returnByteLengths)), body(std::move(body)) {}
 
 TranslationUnit::TranslationUnit(

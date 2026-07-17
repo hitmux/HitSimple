@@ -10,7 +10,7 @@ on:
       version:
         description: Version to validate without publishing
         required: true
-        default: "0.2.1"
+        default: "0.2.2"
       scope:
         description: Validation jobs to run
         required: true
@@ -76,7 +76,7 @@ jobs:
               sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
           fi
           sudo apt-get update
-          sudo apt-get install -y bison clang-18 dpkg-dev file llvm-18-dev ninja-build re2c
+          sudo apt-get install -y bison clang-18 dpkg-dev file gdb llvm-18-dev ninja-build re2c
 
       - name: Configure and build
         run: |
@@ -108,6 +108,7 @@ jobs:
           ./hello-checked | grep -Fx 42
           ./build-release/hsc tests/cases/run/f16_f128_fallback.hs -o f128-smoke
           ./f128-smoke
+          ctest --test-dir build-release --output-on-failure -R '^hsc_debug_info_gdb$'
 
       - name: Verify native preprocessor macro
         shell: bash
@@ -675,6 +676,8 @@ jobs:
           & ./hello-static.exe | Select-String -SimpleMatch '42'
           & build-windows/hsc.exe --clang $mingwClang --checked examples/hello.hs -o hello-checked.exe
           & ./hello-checked.exe | Select-String -SimpleMatch '42'
+          & build-windows/hsc.exe --clang $mingwClang -g tests/cases/run/debug_info.hs -o debug-info.exe
+          if (-not (Test-Path debug-info.pdb)) { throw 'Windows debug build did not generate debug-info.pdb' }
           & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-llvm examples/hello.hs -o hello.ll
           if (-not (Test-Path hello.ll)) { throw '--emit-llvm unexpectedly required clang' }
           $aggregateOutput = & build-windows/hsc.exe --c-compat --emit-llvm tests/cases/compat/c_aggregate_by_value.c 2>&1
@@ -790,7 +793,7 @@ jobs:
           if-no-files-found: error
 
   extension:
-    name: VS Code extension Linux
+    name: VS Code extension Linux x86_64
     if: github.event_name == 'push' || inputs.scope != 'windows'
     needs: linux
     runs-on: ubuntu-24.04
@@ -820,7 +823,7 @@ jobs:
         working-directory: vscode/hitsimple
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y gdb xvfb
           npm ci
           npm test
           xvfb-run -a npm run test:extension
@@ -834,6 +837,85 @@ jobs:
           name: hitsimple-vscode
           path: vscode/hitsimple/dist/*.vsix
           if-no-files-found: error
+
+  extension_linux_aarch64:
+    name: VS Code extension Linux aarch64
+    if: github.event_name == 'push' || inputs.scope != 'windows'
+    needs: linux
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-linux-aarch64
+          path: compiler-asset
+
+      - name: Resolve packaged compiler
+        shell: bash
+        run: |
+          version="$(node -p "require('./vscode/hitsimple/package.json').version")"
+          tar -xzf "compiler-asset/hitsimple-${version}-linux-aarch64.tar.gz" -C compiler-asset
+          echo "HSC_PATH=$PWD/compiler-asset/hitsimple-${version}-linux-aarch64/bin/hsc" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode/hitsimple/package-lock.json
+
+      - name: Test extension with Linux aarch64 release compiler
+        working-directory: vscode/hitsimple
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdb xvfb
+          npm ci
+          npm test
+          xvfb-run -a npm run test:extension
+
+  extension_macos:
+    name: VS Code extension macOS ${{ matrix.architecture }}
+    if: github.event_name == 'push' || inputs.scope != 'windows'
+    needs: macos
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+          - runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hitsimple-macos-${{ matrix.architecture }}
+          path: compiler-asset
+
+      - name: Resolve packaged compiler
+        shell: bash
+        run: |
+          version="$(node -p "require('./vscode/hitsimple/package.json').version")"
+          tar -xzf "compiler-asset/hitsimple-${version}-macos-${{ matrix.architecture }}.tar.gz" -C compiler-asset
+          echo "HSC_PATH=$PWD/compiler-asset/hitsimple-${version}-macos-${{ matrix.architecture }}/bin/hsc" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: vscode/hitsimple/package-lock.json
+
+      - name: Test extension with macOS release compiler
+        working-directory: vscode/hitsimple
+        run: |
+          brew install llvm@18
+          xcrun --find lldb
+          export HITSIMPLE_CLANG="$(brew --prefix llvm@18)/bin/clang"
+          npm ci
+          npm test
+          npm run test:extension
 
   windows_extension:
     name: VS Code extension Windows
@@ -882,7 +964,7 @@ jobs:
   assemble:
     name: Assemble release assets
     if: github.event_name == 'push' || inputs.scope != 'windows'
-    needs: [linux, deb_compatibility, macos, rpm, windows, extension, windows_extension]
+    needs: [linux, deb_compatibility, macos, rpm, windows, extension, extension_linux_aarch64, extension_macos, windows_extension]
     runs-on: ubuntu-24.04
 
     steps:
@@ -981,6 +1063,8 @@ jobs:
           DEB 安装到 \`/usr/bin\`、\`/usr/libexec/hitsimple\`、\`/usr/lib/hitsimple\` 和 \`/usr/share/hitsimple\`。Ubuntu 22.04 与 Debian 12 需要从 apt.llvm.org 安装 Clang 18；软件包不会自动添加软件源。
 
           macOS 使用 Boost software binary128 backend，要求外部 Clang 18 或更高版本。Fedora 44 和 EL9 RPM 也要求外部 \`clang >= 18\`，不内置 Clang。
+
+          VS Code 扩展的 Debug Current File 以一个 \`-g\` 构建当前 \`.hs\` 文件：Linux x86_64/aarch64 通过 Microsoft C/C++ 扩展的 \`cppdbg\` 与 GDB 启动，macOS arm64/x86_64 通过 \`cppdbg\` 与 LLDB 启动，Windows x64 通过 \`cppvsdbg\` 与 CodeView/PDB 启动。远程、交叉目标和自定义 DAP 仍不在此支持范围内。
 
           当前仍是实验性 Beta。C compatibility 的 struct 传值 ABI 只支持 x86_64 SysV ELF；Windows 和 Darwin 会明确拒绝该范围。
           EOF

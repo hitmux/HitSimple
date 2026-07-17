@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hitsimple/diagnostic/Diagnostic.h"
+#include "hitsimple/diagnostic/SourceLocation.h"
 #include "hitsimple/stdlib/StandardLibrary.h"
 
 #include <cstddef>
@@ -13,6 +14,11 @@
 #include <vector>
 
 namespace hitsimple::hir {
+
+// Sema scopes this construction context while lowering an AST node. HIR
+// constructors copy it so generated nodes keep the source that caused them.
+void setActiveSourceRange(std::optional<diagnostic::SourceRange> range);
+std::optional<diagnostic::SourceRange> activeSourceRange();
 
 struct Block;
 
@@ -100,7 +106,10 @@ struct AbiOverride final {
 };
 
 struct Expr {
+  Expr();
   virtual ~Expr() = default;
+
+  std::optional<diagnostic::SourceRange> range;
 };
 
 struct IntegerLiteral final : Expr {
@@ -348,7 +357,10 @@ struct ByteSwapExpr final : Expr {
 };
 
 struct Stmt {
+  Stmt();
   virtual ~Stmt() = default;
+
+  std::optional<diagnostic::SourceRange> range;
 };
 
 struct AssignmentExpr final : Expr {
@@ -375,6 +387,7 @@ struct GlobalMemory final {
 
   std::string name;
   std::string bindingName;
+  std::optional<diagnostic::SourceRange> range;
   std::size_t byteLength = 0;
   bool isExtern = false;
   Linkage linkage = Linkage::External;
@@ -443,6 +456,7 @@ struct Parameter final {
 
   std::string name;
   std::string bindingName;
+  std::optional<diagnostic::SourceRange> range;
   std::size_t byteLength = 0;
 };
 
@@ -731,6 +745,7 @@ struct Block final {
   explicit Block(std::vector<std::unique_ptr<Stmt>> statements);
 
   std::vector<std::unique_ptr<Stmt>> statements;
+  std::optional<diagnostic::SourceRange> range;
 };
 
 struct Function final {
@@ -740,6 +755,7 @@ struct Function final {
            std::unique_ptr<Block> body);
 
   std::string name;
+  std::optional<diagnostic::SourceRange> range;
   std::vector<Parameter> parameters;
   std::vector<std::size_t> returnByteLengths;
   std::unique_ptr<Block> body;

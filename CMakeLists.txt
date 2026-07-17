@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(HitSimple
-  VERSION 0.2.1
+  VERSION 0.2.2
   LANGUAGES C CXX
 )
 
@@ -24,6 +24,10 @@ find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
+find_program(LLVM_DWARFDUMP_EXECUTABLE
+  NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
+)
+find_program(GDB_EXECUTABLE gdb)
 
 # LLVM packages may append host SDK paths. Propagate only actual LLVM headers.
 set(HITSIMPLE_LLVM_INCLUDE_DIRS)
@@ -44,6 +48,7 @@ llvm_map_components_to_libnames(
   TargetParser
   MC
   AsmPrinter
+  DebugInfoDWARF
   native
 )
 
@@ -134,6 +139,7 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
   src/stdlib/StandardLibrary.cpp
+  src/support/CompilationMetrics.cpp
   src/support/Path.cpp
   src/support/Process.cpp
   src/support/ResourcePaths.cpp
@@ -322,6 +328,7 @@ if(BUILD_TESTING)
     tests/sema/SemaExpressionTests.cpp
     tests/sema/SemaTryCatchTests.cpp
     tests/support/ProcessTests.cpp
+    tests/support/CompilationMetricsTests.cpp
     tests/support/ResourcePathsTests.cpp
     tests/support/TestRunner.cpp
   )
@@ -1333,6 +1340,47 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_run_checked_scanf_left_context
     PROPERTIES FIXTURES_REQUIRED checked_scanf_left_context_executable
   )
+
+  add_hsc_shell_test(hsc_timing_json_emit_llvm_success
+    "$<TARGET_FILE:hsc> --timing-json=timing-success.json --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll && ${CMAKE_COMMAND} -DJSON=$PWD/timing-success.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=1 -DEXPECTED_C_COMPAT_LOWERING_STATUS=skipped -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
+  add_hsc_shell_test(hsc_timing_json_c_compat
+    "$<TARGET_FILE:hsc> --timing-json=timing-c-compat.json --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_runtime_double.c -o module.ll && ${CMAKE_COMMAND} -DJSON=$PWD/timing-c-compat.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=1 -DEXPECTED_C_COMPAT_LOWERING_STATUS=completed -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
+  add_hsc_shell_test(hsc_timing_json_multifile
+    "$<TARGET_FILE:hsc> --timing-json=timing-multifile.json ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/main.hs -o program && ${CMAKE_COMMAND} -DJSON=$PWD/timing-multifile.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=2 -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
+  add_hsc_shell_test(hsc_timing_json_sema_failure
+    "! $<TARGET_FILE:hsc> --timing-json=timing-sema-failure.json --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_integer_to_float_rejected.hs -o module.ll && ${CMAKE_COMMAND} -DJSON=$PWD/timing-sema-failure.json -DEXPECTED_OUTCOME=failure -DEXPECTED_FAILED_STAGE=sema_hir -DEXPECTED_TU_COUNT=1 -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
+  add_hsc_shell_test(hsc_timing_json_link_failure
+    "! $<TARGET_FILE:hsc> --timing-json=timing-link-failure.json --clang /bin/false ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program && ${CMAKE_COMMAND} -DJSON=$PWD/timing-link-failure.json -DEXPECTED_OUTCOME=failure -DEXPECTED_FAILED_STAGE=clang_backend_link -DEXPECTED_TU_COUNT=1 -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
+  add_hsc_shell_test(hsc_timing_does_not_change_emit_llvm_stdout
+    "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs > plain.ll && $<TARGET_FILE:hsc> --timing --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs > timed.ll 2>timing.stderr && cmp -s plain.ll timed.ll && grep -Fq 'hsc: timing outcome=success' timing.stderr"
+  )
+  add_hsc_shell_test(hsc_rejects_timing_json_output_conflict
+    "! $<TARGET_FILE:hsc> --timing-json=module.ll --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll 2>stderr && grep -Fq -- '--timing-json path must not match -o output path' stderr"
+  )
+  add_hsc_shell_test(hsc_rejects_timing_json_default_output_conflict
+    "! $<TARGET_FILE:hsc> --timing-json=a.out ${PROJECT_SOURCE_DIR}/examples/hello.hs 2>stderr && grep -Fq -- '--timing-json path must not match default output path' stderr"
+  )
+  add_hsc_shell_test(hsc_rejects_timing_json_missing_parent
+    "! $<TARGET_FILE:hsc> --timing-json=missing-parent/timing.json --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll 2>stderr && grep -Fq 'timing JSON directory does not exist' stderr"
+  )
+  add_hsc_shell_test(hsc_emit_llvm_debug_metadata
+    "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o plain.ll && ! grep -Fq '!llvm.dbg.cu' plain.ll && $<TARGET_FILE:hsc> -g --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o debug.ll && grep -Fq '!llvm.dbg.cu' debug.ll && grep -Fq '!DISubprogram' debug.ll && grep -Fq '!DILocalVariable(name: \"value\"' debug.ll && grep -Fq 'llvm.dbg.declare' debug.ll"
+  )
+  add_hsc_shell_test(hsc_rejects_debug_info_for_non_compile_action
+    "! $<TARGET_FILE:hsc> -g --dump-hir ${PROJECT_SOURCE_DIR}/examples/hello.hs 2>stderr && grep -Fq -- '-g is only supported for executable builds and --emit-llvm' stderr"
+  )
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|aarch64|arm64|ARM64)$" AND
+     LLVM_DWARFDUMP_EXECUTABLE AND GDB_EXECUTABLE)
+    add_hsc_shell_test(hsc_debug_info_gdb
+      "$<TARGET_FILE:hsc> -g ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o debug-info && ${LLVM_DWARFDUMP_EXECUTABLE} --verify debug-info && readelf --debug-dump=info debug-info | grep -Fq 'DW_TAG_variable' && ${GDB_EXECUTABLE} -q -batch -ex 'break debug_info.hs:6' -ex run -ex bt -ex 'info locals' --args ./debug-info >gdb.out 2>&1 && grep -Fq 'helper' gdb.out && grep -Fq 'main' gdb.out && grep -Fq 'value =' gdb.out"
+    )
+  endif()
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")

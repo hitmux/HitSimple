@@ -1,8 +1,14 @@
 "use strict";
 
 const { createWorkflows } = require("./workflows");
+const { createDebugWorkflow } = require("./debugWorkflow");
 
-function registerExtension(vscodeApi, context, workflows = createWorkflows(vscodeApi)) {
+function registerExtension(
+  vscodeApi,
+  context,
+  workflows = createWorkflows(vscodeApi),
+  debugWorkflow = createDebugWorkflow(vscodeApi, workflows),
+) {
   const build = vscodeApi.commands.registerCommand(
     "hitsimple.buildCurrentFile",
     () => workflows.buildCurrentFile(),
@@ -11,7 +17,11 @@ function registerExtension(vscodeApi, context, workflows = createWorkflows(vscod
     "hitsimple.runCurrentFile",
     () => workflows.runCurrentFile(),
   );
-  context.subscriptions.push(build, run);
+  const debug = vscodeApi.commands.registerCommand(
+    "hitsimple.debugCurrentFile",
+    () => debugWorkflow.debugCurrentFile(),
+  );
+  context.subscriptions.push(build, run, debug);
   return workflows;
 }
 

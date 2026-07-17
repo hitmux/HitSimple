@@ -242,6 +242,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
 
   auto *entry = llvm::BasicBlock::Create(context_, "entry", llvmFunction);
   builder_.SetInsertPoint(entry);
+  beginDebugFunction(function, *llvmFunction);
   const auto previousEntryBlock = functionEntryBlock_;
   const bool previousFrameActive = runtimeFrameActive_;
   const auto *memoryPlan = cAbiMemoryPlan(function.name);
@@ -303,6 +304,9 @@ void LlvmEmitter::emit(const hir::Function &function) {
       locals_.emplace(parameter.bindingName,
                       Local{storage, storageType, parameter.byteLength,
                             std::nullopt});
+      declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
+                           storage, static_cast<unsigned>(
+                               &parameter - function.parameters.data() + 1U));
     }
     if (argument != llvmFunction->arg_end()) {
       addDiagnostic("internal View ABI parameter count does not match function '" +
@@ -378,6 +382,9 @@ void LlvmEmitter::emit(const hir::Function &function) {
       locals_.emplace(parameter.bindingName,
                       Local{&*argument++, storageType, parameter.byteLength,
                             abiType});
+      declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
+                           locals_.at(parameter.bindingName).storage,
+                           static_cast<unsigned>(index + 1U));
       continue;
     }
     auto *storage =
@@ -388,6 +395,8 @@ void LlvmEmitter::emit(const hir::Function &function) {
     locals_.emplace(parameter.bindingName,
                     Local{storage, storageType, parameter.byteLength, abiType});
     registerLocalObject(storage, parameter.byteLength);
+    declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
+                         storage, static_cast<unsigned>(index + 1U));
     const auto directType =
         directParameters == cAbiDirectAggregateParameters_.end()
             ? std::optional<hir::AbiType>{}

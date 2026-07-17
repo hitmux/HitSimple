@@ -3,13 +3,18 @@
 #include "hitsimple/codegen/LlvmCompatibility.h"
 #include "hitsimple/literal/Literal.h"
 
+#include <llvm/BinaryFormat/Dwarf.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/TargetParser/Host.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <string_view>
@@ -89,6 +94,12 @@ LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
                                 ? llvm::sys::getDefaultTargetTriple()
                                 : options_.targetTriple;
   setModuleTargetTriple(*module_, targetTriple);
+  if (options_.emitDebugInfo) {
+    // Clang 18 accepts intrinsic-form debug declarations but not LLVM 19's
+    // printed #dbg_declare records.
+    module_->setNewDbgInfoFormatFlag(false);
+    initializeDebugInfo();
+  }
 }
 
 EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
@@ -177,6 +188,7 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
   }
 
   std::string llvmIr;
+  finalizeDebugInfo();
   llvm::raw_string_ostream out(llvmIr);
   module_->print(out, nullptr);
   return EmitResult{out.str(), {}};
@@ -194,6 +206,104 @@ bool LlvmEmitter::hasStaticSafetyChecks() const {
 
 bool LlvmEmitter::hasRuntimeSafetyChecks() const {
   return options_.safetyMode == SafetyMode::Checked;
+}
+
+LlvmEmitter::DebugLocationScope::DebugLocationScope(
+    LlvmEmitter& emitter,
+    const std::optional<diagnostic::SourceRange>& range)
+    : emitter_(emitter), previous_(emitter.builder_.getCurrentDebugLocation()) {
+  if (auto* location = emitter_.debugLocation(range)) {
+    emitter_.builder_.SetCurrentDebugLocation(location);
+  }
+}
+
+LlvmEmitter::DebugLocationScope::~DebugLocationScope() {
+  emitter_.builder_.SetCurrentDebugLocation(previous_);
+}
+
+void LlvmEmitter::initializeDebugInfo() {
+  const std::filesystem::path sourcePath(moduleName_);
+  const auto fileName = sourcePath.filename().string();
+  const auto directory = sourcePath.has_parent_path()
+                             ? sourcePath.parent_path().string()
+                             : std::string(".");
+  debugBuilder_ = std::make_unique<llvm::DIBuilder>(*module_);
+  debugFile_ = debugBuilder_->createFile(fileName.empty() ? moduleName_ : fileName,
+                                         directory);
+  debugCompileUnit_ = debugBuilder_->createCompileUnit(
+      llvm::dwarf::DW_LANG_C, debugFile_, "hsc", false, "", 0);
+  module_->addModuleFlag(llvm::Module::Warning, "Debug Info Version",
+                         llvm::DEBUG_METADATA_VERSION);
+  if (parseTargetTriple(moduleTargetTriple(*module_)).isOSWindows()) {
+    module_->addModuleFlag(llvm::Module::Warning, "CodeView", 1);
+  } else {
+    module_->addModuleFlag(llvm::Module::Warning, "Dwarf Version", 5);
+  }
+}
+
+void LlvmEmitter::finalizeDebugInfo() {
+  if (debugBuilder_) {
+    debugBuilder_->finalize();
+  }
+}
+
+void LlvmEmitter::beginDebugFunction(const hir::Function& function,
+                                     llvm::Function& llvmFunction) {
+  if (!debugBuilder_ || !debugFile_) {
+    return;
+  }
+  const auto line = static_cast<unsigned>(
+      function.range ? std::max<std::size_t>(function.range->begin.line, 1U) : 1U);
+  auto* type = debugBuilder_->createSubroutineType(
+      debugBuilder_->getOrCreateTypeArray({}));
+  auto* subprogram = debugBuilder_->createFunction(
+      debugFile_, function.name, llvmFunction.getName(), debugFile_, line, type,
+      line, llvm::DINode::FlagPrototyped,
+      llvm::DISubprogram::SPFlagDefinition);
+  llvmFunction.setSubprogram(subprogram);
+  debugScope_ = subprogram;
+}
+
+llvm::DILocation* LlvmEmitter::debugLocation(
+    const std::optional<diagnostic::SourceRange>& range) {
+  if (!debugBuilder_ || !debugScope_) {
+    return nullptr;
+  }
+  const auto line = static_cast<unsigned>(
+      range ? std::max<std::size_t>(range->begin.line, 1U) : 1U);
+  const auto column = static_cast<unsigned>(
+      range ? std::max<std::size_t>(range->begin.column, 1U) : 1U);
+  return llvm::DILocation::get(context_, line, column, debugScope_);
+}
+
+void LlvmEmitter::declareDebugVariable(
+    std::string_view name,
+    const std::optional<diagnostic::SourceRange>& range,
+    std::size_t byteLength, llvm::Value* storage, unsigned argumentIndex) {
+  if (!debugBuilder_ || !debugFile_ || !debugScope_ || storage == nullptr) {
+    return;
+  }
+  const auto line = static_cast<unsigned>(
+      range ? std::max<std::size_t>(range->begin.line, 1U) : 1U);
+  auto* byteType = debugBuilder_->createBasicType(
+      "u8", 8, llvm::dwarf::DW_ATE_unsigned_char);
+  llvm::Metadata* subranges[] = {
+      debugBuilder_->getOrCreateSubrange(0, static_cast<std::int64_t>(byteLength))};
+  auto* type = debugBuilder_->createArrayType(
+      byteLength * 8U, 8, byteType,
+      debugBuilder_->getOrCreateArray(subranges));
+  llvm::DILocalVariable* variable = nullptr;
+  if (argumentIndex == 0) {
+    variable = debugBuilder_->createAutoVariable(debugScope_, name, debugFile_,
+                                                  line, type, true);
+  } else {
+    variable = debugBuilder_->createParameterVariable(
+        debugScope_, name, argumentIndex, debugFile_, line, type, true);
+  }
+  debugBuilder_->insertDeclare(storage, variable,
+                               debugBuilder_->createExpression(),
+                               debugLocation(range),
+                               builder_.GetInsertBlock());
 }
 
 std::optional<LlvmEmitter::StaticAddressRange>

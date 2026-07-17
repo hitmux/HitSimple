@@ -10,6 +10,7 @@
 #include "hitsimple/sema/Sema.h"
 #include "hitsimple/support/Process.h"
 #include "hitsimple/support/Path.h"
+#include "hitsimple/support/CompilationMetrics.h"
 #include "hitsimple/support/ResourcePaths.h"
 #include "hitsimple/support/Toolchain.h"
 
@@ -28,6 +29,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <vector>
 
@@ -49,6 +51,10 @@ void printHelp(std::ostream& out) {
       << "  --dump-ast        Print parser AST\n"
       << "  --dump-hir        Print semantic HIR\n"
       << "  --emit-llvm       Emit LLVM IR\n"
+      << "  -g                Emit native debug information\n"
+      << "  --timing          Print compilation timing to stderr\n"
+      << "  --timing-json=<path>\n"
+      << "                   Write versioned compilation timing JSON\n"
       << "  --c-compat        Parse all inputs as C compatibility source\n"
       << "  -E, --preprocess-only\n"
       << "                   Print preprocessed source\n"
@@ -81,6 +87,21 @@ std::string targetTriple() {
 #else
   return llvm::sys::getDefaultTargetTriple();
 #endif
+}
+
+bool usesWindowsCodeView(
+    const hitsimple::codegen::CodegenOptions& codegenOptions) {
+  const auto triple = codegenOptions.targetTriple.empty()
+      ? targetTriple()
+      : codegenOptions.targetTriple;
+  return llvm::Triple(triple).isOSWindows();
+}
+
+std::filesystem::path pdbPathForExecutable(
+    const std::string& executablePath) {
+  auto pdbPath = hitsimple::support::pathFromUtf8(executablePath);
+  pdbPath.replace_extension(".pdb");
+  return pdbPath;
 }
 
 void printTargetInfo(std::ostream& out,
@@ -235,6 +256,14 @@ bool validateOutputParent(const std::string& path) {
   return true;
 }
 
+bool outputPathsConflict(const std::string& left, const std::string& right) {
+  const auto normalized = [](const std::string& path) {
+    return std::filesystem::absolute(hitsimple::support::pathFromUtf8(path))
+        .lexically_normal();
+  };
+  return normalized(left) == normalized(right);
+}
+
 std::optional<std::string> readFile(const std::string& path) {
   std::ifstream input(hitsimple::support::pathFromUtf8(path),
                       std::ios::binary);
@@ -289,6 +318,64 @@ parseInput(const std::string& inputPath, bool cCompatibilityMode) {
     return std::nullopt;
   }
 
+  return ParsedTranslationUnit{std::move(parseResult.unit), {},
+                               std::move(preprocessed.standardHeaders)};
+}
+
+std::optional<ParsedTranslationUnit> parseInput(
+    const std::string& inputPath, bool cCompatibilityMode,
+    hitsimple::support::CompilationMetrics& metrics,
+    hitsimple::support::TranslationUnitMetrics& unitMetrics) {
+  const auto preprocessStarted = metrics.now();
+  auto preprocessed = hitsimple::preprocessor::preprocessFile(inputPath);
+  if (printDiagnostics(preprocessed.diagnostics)) {
+    metrics.fail(unitMetrics.preprocess, preprocessStarted);
+    metrics.fail("preprocess");
+    return std::nullopt;
+  }
+  metrics.complete(unitMetrics.preprocess, preprocessStarted);
+
+  const auto parseStarted = metrics.now();
+  if (cCompatibilityMode) {
+    auto parsed = hitsimple::compat::parseCCompatSource(preprocessed.source,
+                                                         inputPath);
+    if (printDiagnostics(parsed.diagnostics) || !parsed.unit) {
+      if (!parsed.unit && parsed.diagnostics.empty()) {
+        std::cerr << "hsc: C compatibility parser did not produce an AST\n";
+      }
+      metrics.fail(unitMetrics.parse, parseStarted);
+      metrics.fail("parse");
+      return std::nullopt;
+    }
+    metrics.complete(unitMetrics.parse, parseStarted);
+
+    const auto loweringStarted = metrics.now();
+    auto loweringOptions = hitsimple::compat::LoweringOptions{};
+    loweringOptions.allowHostFloatExternAbi = true;
+    auto lowered = hitsimple::compat::lowerCCompatToCore(*parsed.unit,
+                                                          loweringOptions);
+    if (printDiagnostics(lowered.diagnostics) || !lowered.unit) {
+      if (!lowered.unit && lowered.diagnostics.empty()) {
+        std::cerr << "hsc: C compatibility lowering did not produce a core AST\n";
+      }
+      metrics.fail(unitMetrics.cCompatLowering, loweringStarted);
+      metrics.fail("c_compat_lowering");
+      return std::nullopt;
+    }
+    metrics.complete(unitMetrics.cCompatLowering, loweringStarted);
+    return ParsedTranslationUnit{std::move(lowered.unit),
+                                 std::move(lowered.linkage), {}};
+  }
+
+  auto parseResult = hitsimple::parser::parseSource(
+      preprocessed.source, inputPath, std::move(preprocessed.lineOrigins));
+  if (printDiagnostics(parseResult.diagnostics) || !parseResult.unit) {
+    metrics.fail(unitMetrics.parse, parseStarted);
+    metrics.fail("parse");
+    return std::nullopt;
+  }
+  metrics.complete(unitMetrics.parse, parseStarted);
+  metrics.markSkipped(unitMetrics.cCompatLowering);
   return ParsedTranslationUnit{std::move(parseResult.unit), {},
                                std::move(preprocessed.standardHeaders)};
 }
@@ -543,13 +630,15 @@ bool applyCCompatibilityMetadata(
 std::optional<CompiledTranslationUnit> compileTranslationUnit(
     const std::string& inputPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
-    bool cCompatibilityMode) {
-  auto parsed = parseInput(inputPath, cCompatibilityMode);
+    bool cCompatibilityMode, hitsimple::support::CompilationMetrics& metrics) {
+  auto& unitMetrics = metrics.addTranslationUnit(inputPath);
+  auto parsed = parseInput(inputPath, cCompatibilityMode, metrics, unitMetrics);
   if (!parsed) {
     return std::nullopt;
   }
 
   const auto mainCount = mainDefinitionCount(*parsed->unit);
+  const auto semaStarted = metrics.now();
   auto analyzeResult = hitsimple::sema::analyze(
       *parsed->unit,
       hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
@@ -558,14 +647,22 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
     for (const auto& diagnostic : analyzeResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
     }
+    metrics.fail(unitMetrics.semaHir, semaStarted);
+    metrics.fail("sema_hir");
     return std::nullopt;
   }
   if (cCompatibilityMode &&
       !applyCCompatibilityMetadata(*analyzeResult.unit,
                                    parsed->compatibilityLinkage)) {
+    metrics.fail(unitMetrics.semaHir, semaStarted);
+    metrics.fail("sema_hir");
     return std::nullopt;
   }
+  unitMetrics.hirNodes =
+      hitsimple::support::collectHirNodeMetrics(*analyzeResult.unit);
+  metrics.complete(unitMetrics.semaHir, semaStarted);
 
+  const auto emissionStarted = metrics.now();
   auto emitResult =
       hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, inputPath,
                                      codegenOptions);
@@ -573,8 +670,12 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
     for (const auto& diagnostic : emitResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
     }
+    metrics.fail(unitMetrics.llvmEmission, emissionStarted);
+    metrics.fail("llvm_emission");
     return std::nullopt;
   }
+  metrics.complete(unitMetrics.llvmEmission, emissionStarted);
+  unitMetrics.llvmIrBytes = emitResult.llvmIr.size();
 
   return CompiledTranslationUnit{std::move(emitResult.llvmIr), mainCount,
                                  std::move(parsed->compatibilityLinkage)};
@@ -658,25 +759,35 @@ int dumpHir(const std::string& inputPath, bool cCompatibilityMode) {
 int emitLlvm(const std::string& inputPath,
              const std::optional<std::string>& outputPath,
              hitsimple::codegen::CodegenOptions codegenOptions,
-             bool cCompatibilityMode) {
+             bool cCompatibilityMode,
+             hitsimple::support::CompilationMetrics& metrics) {
   auto compiled =
-      compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode);
+      compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode, metrics);
   if (!compiled) {
     return EXIT_FAILURE;
   }
 
   if (!outputPath) {
     std::cout << compiled->llvmIr;
+    metrics.markSkipped(metrics.llvmIrWrite());
+    metrics.markSkipped(metrics.clangBackendLink());
     return EXIT_SUCCESS;
   }
 
+  const auto writeStarted = metrics.now();
   if (!validateOutputParent(*outputPath)) {
+    metrics.fail(metrics.llvmIrWrite(), writeStarted);
+    metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
   }
   if (!writeFile(*outputPath, compiled->llvmIr)) {
     std::cerr << "hsc: cannot write output file '" << *outputPath << "'\n";
+    metrics.fail(metrics.llvmIrWrite(), writeStarted);
+    metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
   }
+  metrics.complete(metrics.llvmIrWrite(), writeStarted);
+  metrics.markSkipped(metrics.clangBackendLink());
 
   return EXIT_SUCCESS;
 }
@@ -705,9 +816,13 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                       const std::optional<std::string>& outputPath,
                       hitsimple::codegen::CodegenOptions codegenOptions,
                       bool cCompatibilityMode,
-                      const hitsimple::support::ClangSelection& clang) {
+                      const hitsimple::support::ClangSelection& clang,
+                      hitsimple::support::CompilationMetrics& metrics) {
   if (!clang.path) {
     std::cerr << "hsc: " << clang.error << '\n';
+    const auto linkStarted = metrics.now();
+    metrics.fail(metrics.clangBackendLink(), linkStarted);
+    metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
   std::vector<CompiledTranslationUnit> units;
@@ -715,7 +830,8 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   std::size_t mainCount = 0;
   for (const auto& inputPath : inputPaths) {
     auto compiled =
-        compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode);
+        compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode,
+                               metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
@@ -729,6 +845,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                      hitsimple::diagnostic::Stage::Sema,
                      "program must define a main function")
               << '\n';
+    metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
   if (mainCount > 1) {
@@ -737,9 +854,11 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                      hitsimple::diagnostic::Stage::Sema,
                      "program must define only one main function")
               << '\n';
+    metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
   if (!validateCCompatibilityExternalAbi(units)) {
+    metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
 
@@ -748,8 +867,26 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
 #else
   const std::string executablePath = outputPath.value_or("a.out");
 #endif
+  const auto writeStarted = metrics.now();
   if (!validateOutputParent(executablePath)) {
+    metrics.fail(metrics.llvmIrWrite(), writeStarted);
+    metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
+  }
+  const bool emitWindowsPdb =
+      codegenOptions.emitDebugInfo && usesWindowsCodeView(codegenOptions);
+  std::optional<std::filesystem::path> pdbPath;
+  if (emitWindowsPdb) {
+    pdbPath = pdbPathForExecutable(executablePath);
+    std::error_code removeError;
+    std::filesystem::remove(*pdbPath, removeError);
+    if (removeError) {
+      std::cerr << "hsc: cannot remove stale PDB '"
+                << hitsimple::support::pathToUtf8(*pdbPath)
+                << "': " << removeError.message() << '\n';
+      metrics.fail("clang_backend_link");
+      return EXIT_FAILURE;
+    }
   }
   std::vector<std::filesystem::path> tempPaths;
   tempPaths.reserve(units.size());
@@ -767,10 +904,13 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
       for (const auto& path : tempPaths) {
         std::filesystem::remove(path);
       }
+      metrics.fail(metrics.llvmIrWrite(), writeStarted);
+      metrics.fail("llvm_ir_write");
       return EXIT_FAILURE;
     }
     tempPaths.push_back(tempPath);
   }
+  metrics.complete(metrics.llvmIrWrite(), writeStarted);
 
   std::vector<std::string> arguments{"-x", "ir"};
   for (const auto& tempPath : tempPaths) {
@@ -795,7 +935,17 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
 #if defined(__APPLE__)
   arguments.push_back("-lc++");
 #endif
+  if (codegenOptions.emitDebugInfo) {
+    arguments.push_back("-g");
+  }
+  if (emitWindowsPdb) {
+    arguments.push_back("-gcodeview");
+    arguments.push_back("-fuse-ld=lld");
+    arguments.push_back("-Xlinker");
+    arguments.push_back("--pdb=" + hitsimple::support::pathToUtf8(*pdbPath));
+  }
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
+  const auto linkStarted = metrics.now();
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);
   for (const auto& tempPath : tempPaths) {
     std::filesystem::remove(tempPath);
@@ -804,13 +954,32 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     std::cerr << "hsc: cannot start Clang '"
               << hitsimple::support::pathToUtf8(*clang.path)
               << "': " << process.error << '\n';
+    metrics.fail(metrics.clangBackendLink(), linkStarted);
+    metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
   if (process.exitCode != 0) {
     std::cerr << "hsc: Clang failed while linking executable (exit code "
-              << process.exitCode << ")\n";
+                << process.exitCode << ")\n";
+    metrics.fail(metrics.clangBackendLink(), linkStarted);
+    metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
+  if (pdbPath) {
+    std::error_code pdbError;
+    if (!std::filesystem::is_regular_file(*pdbPath, pdbError)) {
+      std::cerr << "hsc: debug build did not generate PDB '"
+                << hitsimple::support::pathToUtf8(*pdbPath) << "'";
+      if (pdbError) {
+        std::cerr << ": " << pdbError.message();
+      }
+      std::cerr << '\n';
+      metrics.fail(metrics.clangBackendLink(), linkStarted);
+      metrics.fail("clang_backend_link");
+      return EXIT_FAILURE;
+    }
+  }
+  metrics.complete(metrics.clangBackendLink(), linkStarted);
 
   return EXIT_SUCCESS;
 }
@@ -830,23 +999,47 @@ int hscMain(const std::vector<std::string>& arguments) {
   bool shouldPreprocessOnly = false;
   bool shouldPrintTargetInfo = false;
   bool cCompatibilityMode = false;
+  bool shouldPrintTiming = false;
+  hitsimple::support::CompilationMetrics metrics;
   hitsimple::codegen::CodegenOptions codegenOptions;
   codegenOptions.targetTriple = targetTriple();
   std::vector<std::string> inputPaths;
   std::optional<std::string> outputPath;
+  std::optional<std::string> timingJsonPath;
   std::optional<std::filesystem::path> clangOverride;
+
+  const auto finish = [&](int exitCode) {
+    if (exitCode == EXIT_SUCCESS) {
+      metrics.succeed();
+    } else if (!metrics.failedStage()) {
+      metrics.fail("cli");
+    }
+    if (shouldPrintTiming) {
+      metrics.printSummary(std::cerr);
+    }
+    if (timingJsonPath) {
+      std::string error;
+      if (!hitsimple::support::writeTimingJsonAtomically(
+              hitsimple::support::pathFromUtf8(*timingJsonPath), metrics,
+              error)) {
+        std::cerr << "hsc: " << error << '\n';
+        return EXIT_FAILURE;
+      }
+    }
+    return exitCode;
+  };
 
   for (std::size_t i = 1; i < arguments.size(); ++i) {
     const std::string_view arg(arguments[i]);
 
     if (arg == "-h" || arg == "--help") {
       printHelp(std::cout);
-      return EXIT_SUCCESS;
+      return finish(EXIT_SUCCESS);
     }
 
     if (arg == "--version") {
       printVersion(std::cout);
-      return EXIT_SUCCESS;
+      return finish(EXIT_SUCCESS);
     }
 
     if (arg == "--target-info") {
@@ -872,6 +1065,31 @@ int hscMain(const std::vector<std::string>& arguments) {
     if (arg == "--emit-llvm") {
       shouldEmitLlvm = true;
       continue;
+    }
+
+    if (arg == "-g") {
+      codegenOptions.emitDebugInfo = true;
+      continue;
+    }
+
+    if (arg == "--timing") {
+      shouldPrintTiming = true;
+      continue;
+    }
+
+    if (arg.starts_with("--timing-json=")) {
+      const auto path = arg.substr(std::string_view("--timing-json=").size());
+      if (path.empty()) {
+        std::cerr << "hsc: --timing-json requires a file path\n";
+        return finish(EXIT_FAILURE);
+      }
+      timingJsonPath = std::string(path);
+      continue;
+    }
+
+    if (arg == "--timing-json") {
+      std::cerr << "hsc: --timing-json requires --timing-json=<path>\n";
+      return finish(EXIT_FAILURE);
     }
 
     if (arg == "--c-compat") {
@@ -903,7 +1121,7 @@ int hscMain(const std::vector<std::string>& arguments) {
     if (arg == "--clang") {
       if (i + 1 >= arguments.size()) {
         std::cerr << "hsc: --clang requires an executable path\n";
-        return EXIT_FAILURE;
+        return finish(EXIT_FAILURE);
       }
       ++i;
       clangOverride = hitsimple::support::pathFromUtf8(arguments[i]);
@@ -913,7 +1131,7 @@ int hscMain(const std::vector<std::string>& arguments) {
     if (arg == "-o") {
       if (i + 1 >= arguments.size()) {
         std::cerr << "hsc: -o requires an output path\n";
-        return EXIT_FAILURE;
+        return finish(EXIT_FAILURE);
       }
       ++i;
       outputPath = arguments[i];
@@ -922,7 +1140,7 @@ int hscMain(const std::vector<std::string>& arguments) {
 
     if (!arg.empty() && arg.front() == '-') {
       std::cerr << "hsc: unknown option '" << arg << "'\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
 
     inputPaths.push_back(std::string(arg));
@@ -932,7 +1150,7 @@ int hscMain(const std::vector<std::string>& arguments) {
   if (shouldDumpTokens) {
     if (cCompatibilityMode) {
       std::cerr << "hsc: --dump-tokens is not supported with --c-compat\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     actions.push_back("--dump-tokens");
   }
@@ -951,7 +1169,7 @@ int hscMain(const std::vector<std::string>& arguments) {
   if (shouldPrintTargetInfo) {
     if (cCompatibilityMode) {
       std::cerr << "hsc: --c-compat is not supported with --target-info\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     actions.push_back("--target-info");
   }
@@ -961,7 +1179,39 @@ int hscMain(const std::vector<std::string>& arguments) {
       std::cerr << ' ' << action;
     }
     std::cerr << '\n';
-    return EXIT_FAILURE;
+    return finish(EXIT_FAILURE);
+  }
+
+  if (codegenOptions.emitDebugInfo && !(shouldEmitLlvm || actions.empty())) {
+    std::cerr << "hsc: -g is only supported for executable builds and --emit-llvm\n";
+    return finish(EXIT_FAILURE);
+  }
+
+  if (timingJsonPath) {
+    std::string error;
+    const auto timingPath = hitsimple::support::pathFromUtf8(*timingJsonPath);
+    if (!hitsimple::support::timingOutputPathIsValid(timingPath, error)) {
+      std::cerr << "hsc: " << error << '\n';
+      timingJsonPath.reset();
+      return finish(EXIT_FAILURE);
+    }
+    if (outputPath && outputPathsConflict(*outputPath, *timingJsonPath)) {
+      std::cerr << "hsc: --timing-json path must not match -o output path\n";
+      timingJsonPath.reset();
+      return finish(EXIT_FAILURE);
+    }
+    if (!outputPath && actions.empty()) {
+#ifdef _WIN32
+      constexpr std::string_view defaultOutputPath = "a.exe";
+#else
+      constexpr std::string_view defaultOutputPath = "a.out";
+#endif
+      if (outputPathsConflict(std::string(defaultOutputPath), *timingJsonPath)) {
+        std::cerr << "hsc: --timing-json path must not match default output path\n";
+        timingJsonPath.reset();
+        return finish(EXIT_FAILURE);
+      }
+    }
   }
 
   const auto rejectOutputPath = [&](std::string_view action) {
@@ -974,94 +1224,94 @@ int hscMain(const std::vector<std::string>& arguments) {
 
   if (shouldDumpTokens) {
     if (rejectOutputPath("--dump-tokens")) {
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.empty()) {
       std::cerr << "hsc: --dump-tokens requires an input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.size() > 1U) {
       std::cerr << "hsc: --dump-tokens supports exactly one input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
-    return dumpTokens(inputPaths.front());
+    return finish(dumpTokens(inputPaths.front()));
   }
 
   if (shouldPrintTargetInfo) {
     if (rejectOutputPath("--target-info")) {
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (!inputPaths.empty()) {
       std::cerr << "hsc: --target-info does not take an input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     printTargetInfo(std::cout, hitsimple::support::resolveClang(clangOverride));
-    return EXIT_SUCCESS;
+    return finish(EXIT_SUCCESS);
   }
 
   if (shouldDumpAst) {
     if (rejectOutputPath("--dump-ast")) {
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.empty()) {
       std::cerr << "hsc: --dump-ast requires an input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.size() > 1U) {
       std::cerr << "hsc: --dump-ast supports exactly one input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
-    return dumpAst(inputPaths.front(), cCompatibilityMode);
+    return finish(dumpAst(inputPaths.front(), cCompatibilityMode));
   }
 
   if (shouldDumpHir) {
     if (rejectOutputPath("--dump-hir")) {
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.empty()) {
       std::cerr << "hsc: --dump-hir requires an input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.size() > 1U) {
       std::cerr << "hsc: --dump-hir supports exactly one input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
-    return dumpHir(inputPaths.front(), cCompatibilityMode);
+    return finish(dumpHir(inputPaths.front(), cCompatibilityMode));
   }
 
   if (shouldEmitLlvm) {
     if (inputPaths.empty()) {
       std::cerr << "hsc: --emit-llvm requires an input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.size() > 1U) {
       std::cerr << "hsc: --emit-llvm supports exactly one input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
-    return emitLlvm(inputPaths.front(), outputPath, codegenOptions,
-                    cCompatibilityMode);
+    return finish(emitLlvm(inputPaths.front(), outputPath, codegenOptions,
+                           cCompatibilityMode, metrics));
   }
 
   if (shouldPreprocessOnly) {
     if (inputPaths.empty()) {
       std::cerr << "hsc: --preprocess-only requires an input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
     if (inputPaths.size() > 1U) {
       std::cerr << "hsc: --preprocess-only supports exactly one input file\n";
-      return EXIT_FAILURE;
+      return finish(EXIT_FAILURE);
     }
-    return preprocessOnly(inputPaths.front(), outputPath);
+    return finish(preprocessOnly(inputPaths.front(), outputPath));
   }
 
   if (inputPaths.empty()) {
     std::cerr << "hsc: missing input file\n";
-    return EXIT_FAILURE;
+    return finish(EXIT_FAILURE);
   }
 
-  return compileExecutable(inputPaths, outputPath, codegenOptions,
-                           cCompatibilityMode,
-                           hitsimple::support::resolveClang(clangOverride));
+  return finish(compileExecutable(
+      inputPaths, outputPath, codegenOptions, cCompatibilityMode,
+      hitsimple::support::resolveClang(clangOverride), metrics));
 }
 
 #ifdef _WIN32

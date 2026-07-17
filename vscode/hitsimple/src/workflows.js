@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
 
 const { createBuildPlan } = require("./buildPlan");
+const { normalizeDebugBuildArgs, pdbPathForOutput } = require("./debugPlan");
 const { findExecutable } = require("./executable");
 const { createTaskRunner } = require("./taskRunner");
 
@@ -115,8 +116,8 @@ function createWorkflows(vscodeApi, dependencies = {}) {
     };
   }
 
-  function planForContext(context) {
-    return makeBuildPlan({
+  function planForContext(context, options = {}) {
+    const plan = makeBuildPlan({
       sourcePath: context.document.uri.fsPath,
       workspacePath: context.workspaceFolder.uri.fsPath,
       compilerPath: context.configuration.get("compilerPath", "hsc"),
@@ -128,6 +129,11 @@ function createWorkflows(vscodeApi, dependencies = {}) {
       additionalArgs: context.configuration.get("additionalArgs", []),
       platform,
     });
+    if (options.debugInfo === true) {
+      plan.args = normalizeDebugBuildArgs(plan.args);
+      plan.debugInfo = true;
+    }
+    return plan;
   }
 
   function failed(stage, message, extra = {}) {
@@ -145,7 +151,7 @@ function createWorkflows(vscodeApi, dependencies = {}) {
     let plan;
     try {
       context = await resolveActiveContext();
-      plan = planForContext(context);
+      plan = planForContext(context, options);
     } catch (error) {
       return failed("validation", errorText(error), {
         error,
@@ -178,6 +184,10 @@ function createWorkflows(vscodeApi, dependencies = {}) {
 
     try {
       await fileSystem.rm(plan.outputPath, { force: true });
+      if (options.debugInfo === true && platform === "win32") {
+        plan.pdbPath = pdbPathForOutput(plan.outputPath);
+        await fileSystem.rm(plan.pdbPath, { force: true });
+      }
       await fileSystem.mkdir(plan.outputParent, { recursive: true });
     } catch (error) {
       return failed(
@@ -237,10 +247,20 @@ function createWorkflows(vscodeApi, dependencies = {}) {
       if (platform !== "win32") {
         await fileSystem.access(plan.outputPath, executableAccessMode);
       }
+      if (plan.pdbPath) {
+        const pdbStat = await fileSystem.stat(plan.pdbPath);
+        if (!pdbStat.isFile()) {
+          throw new WorkflowError(
+            "pdb-not-file",
+            "编译器返回成功，但 PDB 路径不是普通文件。",
+          );
+        }
+      }
     } catch (error) {
+      const artifactName = plan.pdbPath ? "可执行文件和匹配的 PDB" : "可执行文件";
       return failed(
-        "missing-output",
-        `编译器返回成功，但没有生成可执行文件 ${plan.outputPath}：${errorText(error)}`,
+        plan.pdbPath ? "missing-debug-symbols" : "missing-output",
+        `编译器返回成功，但没有生成${artifactName} ${plan.pdbPath || plan.outputPath}：${errorText(error)}`,
         {
           error,
           exitCode: processResult.exitCode,
@@ -256,11 +276,13 @@ function createWorkflows(vscodeApi, dependencies = {}) {
       stage: "build",
       exitCode: processResult.exitCode,
       outputPath: plan.outputPath,
+      pdbPath: plan.pdbPath,
       plan,
       task,
       execution: processResult.execution,
       workspaceFolder: context.workspaceFolder,
       document: context.document,
+      configuration: context.configuration,
     };
     if (options.announceSuccess !== false) {
       vscodeApi.window.showInformationMessage(
@@ -335,4 +357,5 @@ module.exports = {
   errorText,
   isBuildableSourcePath,
   isSupportedWorkspaceFolder,
+  pdbPathForOutput,
 };

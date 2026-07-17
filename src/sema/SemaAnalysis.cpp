@@ -7,6 +7,7 @@ namespace hitsimple::sema {
 AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
                                 const AnalyzeOptions &options) {
   currentRange_.reset();
+  hir::setActiveSourceRange(std::nullopt);
   std::vector<std::unique_ptr<hir::Function>> functions;
   std::vector<hir::ExternFunction> externFunctions;
   scopes_.clear();

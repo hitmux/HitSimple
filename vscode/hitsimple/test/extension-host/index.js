@@ -154,6 +154,139 @@ async function verifyBuildAndRun(mainUri, extension) {
   assert.equal(runResult.exitCode, 0);
 }
 
+function debugPlatform() {
+  if (process.platform === "linux" && ["x64", "arm64"].includes(process.arch)) {
+    return { adapterType: "cppdbg", miMode: "gdb" };
+  }
+  if (process.platform === "darwin" && ["x64", "arm64"].includes(process.arch)) {
+    return { adapterType: "cppdbg", miMode: "lldb" };
+  }
+  if (process.platform === "win32" && process.arch === "x64") {
+    return { adapterType: "cppvsdbg" };
+  }
+  return undefined;
+}
+
+async function waitForDebugFrame(session, sourcePath) {
+  return waitForValue(async () => {
+    try {
+      const threads = await session.customRequest("threads");
+      for (const thread of threads.threads || []) {
+        try {
+          const stack = await session.customRequest("stackTrace", {
+            threadId: thread.id,
+          });
+          const frame = (stack.stackFrames || []).find((candidate) =>
+            candidate.source && path.resolve(candidate.source.path) === sourcePath);
+          if (frame) {
+            return { frame, stack, thread };
+          }
+        } catch {
+          // The debugger returns an error while the debuggee is still running.
+        }
+      }
+    } catch {
+      // The debug adapter can take a short time to accept DAP requests.
+    }
+    return undefined;
+  }, Boolean, "the HitSimple source breakpoint", 30000);
+}
+
+async function verifyDebug() {
+  const { document } = await openEditor("debug.hs");
+  const configuration = vscode.workspace.getConfiguration("hitsimple", document.uri);
+  const originalArguments = configuration.get("debugArguments");
+
+  const platform = debugPlatform();
+  if (!platform) {
+    const result = await vscode.commands.executeCommand(
+      "hitsimple.debugCurrentFile",
+    );
+    assert.ok(result && !result.ok);
+    assert.equal(result.stage, "unsupported-platform");
+    return;
+  }
+
+  const cppTools = vscode.extensions.getExtension("ms-vscode.cpptools");
+  assert.ok(cppTools, "ms-vscode.cpptools must be installed for the native debug test");
+  const breakpoint = new vscode.SourceBreakpoint(
+    new vscode.Location(document.uri, new vscode.Position(2, 0)),
+  );
+  vscode.debug.addBreakpoints([breakpoint]);
+  await configuration.update(
+    "debugArguments",
+    ["argument with spaces"],
+    vscode.ConfigurationTarget.Workspace,
+  );
+
+  let session;
+  let startedSession;
+  const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
+    if (candidate.type === platform.adapterType) {
+      startedSession = candidate;
+    }
+  });
+  try {
+    const result = await vscode.commands.executeCommand(
+      "hitsimple.debugCurrentFile",
+    );
+    assert.ok(result && result.ok, result && result.message);
+    assert.equal(result.stage, "debug");
+    assert.equal(result.build.plan.args.filter((argument) => argument === "-g").length, 1);
+    assert.deepEqual(result.launchConfiguration.args, ["argument with spaces"]);
+    assert.equal(result.launchConfiguration.type, platform.adapterType);
+    if (platform.miMode) {
+      assert.equal(result.launchConfiguration.MIMode, platform.miMode);
+    } else {
+      assert.ok(result.build.pdbPath, "Windows debug builds must report their PDB path");
+      assert.ok((await fs.stat(result.build.pdbPath)).isFile());
+    }
+    assert.equal(result.launchConfiguration.console, "integratedTerminal");
+
+    session = await waitForValue(
+      () => startedSession,
+      Boolean,
+      `the ${platform.adapterType} session`,
+      30000,
+    );
+    const { frame, stack } = await waitForDebugFrame(session, document.uri.fsPath);
+    assert.match(frame.name, /^helper(?:\(\))?$/);
+    assert.equal(path.resolve(frame.source.path), document.uri.fsPath);
+    assert.ok(
+      (stack.stackFrames || []).some((candidate) =>
+        /^main(?:\(\))?$/.test(candidate.name) && candidate.source &&
+        path.resolve(candidate.source.path) === document.uri.fsPath),
+      "cppdbg must expose the HitSimple main source frame",
+    );
+
+    const scopes = await session.customRequest("scopes", { frameId: frame.id });
+    const locals = (scopes.scopes || []).find((scope) =>
+      String(scope.name).toLowerCase() === "locals");
+    assert.ok(locals, "the native debug adapter must expose the local scope");
+    const variables = await session.customRequest("variables", {
+      variablesReference: locals.variablesReference,
+    });
+    const value = (variables.variables || []).find((variable) => variable.name === "value");
+    assert.ok(value, "the HitSimple local byte array value must be visible");
+    assert.match(
+      `${value.type || ""} ${value.value || ""}`,
+      /char|u8|\[4\]|41|0x29|\{/i,
+      "value must retain a byte-array representation in the native debug adapter",
+    );
+  } finally {
+    sessionSubscription.dispose();
+    if (session) {
+      await vscode.debug.stopDebugging(session);
+    }
+    vscode.debug.removeBreakpoints([breakpoint]);
+    await configuration.update(
+      "debugArguments",
+      originalArguments,
+      vscode.ConfigurationTarget.Workspace,
+    );
+  }
+}
+
 async function verifyProblemMatcher() {
   const outputRoot = path.join(workspacePath, outputDirectory, "diagnostics");
   await fs.mkdir(outputRoot, { recursive: true });
@@ -321,6 +454,8 @@ async function run() {
   const commands = await vscode.commands.getCommands(true);
   assert.ok(commands.includes("hitsimple.buildCurrentFile"));
   assert.ok(commands.includes("hitsimple.runCurrentFile"));
+  assert.ok(commands.includes("hitsimple.debugCurrentFile"));
+  await runStep("native debug", verifyDebug, 90000);
   await runStep("Problems", verifyProblemMatcher);
   await runStep("failure gating", () => verifyFailureGating(main.document.uri));
   await runStep("snippet", verifySnippet);

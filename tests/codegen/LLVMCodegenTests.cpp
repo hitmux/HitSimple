@@ -98,6 +98,36 @@ HS_TEST(LLVMCodegen_EmitsMinimalProgramIr) {
   HS_EXPECT_TRUE(result.llvmIr.find("ret i32 0") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_UsesNativeDebugFormatForTargetTriple) {
+  const std::vector<std::pair<std::string, bool>> targets = {
+      {"x86_64-unknown-linux-gnu", false},
+      {"x86_64-apple-darwin", false},
+      {"x86_64-w64-windows-gnu", true},
+  };
+
+  for (const auto& [targetTriple, expectsCodeView] : targets) {
+    hitsimple::codegen::CodegenOptions options;
+    options.targetTriple = targetTriple;
+    options.emitDebugInfo = true;
+    const auto result = emitSource(
+        "func main() {\n"
+        "    new value[4]\n"
+        "    value %d= 41\n"
+        "    return 0\n"
+        "}\n",
+        options);
+
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.llvmIr.find("!llvm.dbg.cu") != std::string::npos);
+    HS_EXPECT_TRUE(
+        (result.llvmIr.find("!\"CodeView\"") != std::string::npos) ==
+        expectsCodeView);
+    HS_EXPECT_TRUE(
+        (result.llvmIr.find("!\"Dwarf Version\"") != std::string::npos) ==
+        !expectsCodeView);
+  }
+}
+
 HS_TEST(LLVMCodegen_LowersUserTemplateOperatorWithInternalViewAbi) {
   auto result = emitSource("template Vec2 {\n"
                            "    x[8] as f64\n"
