@@ -272,6 +272,7 @@ async function verifyDebug() {
   const { document } = await openEditor("debug.hs");
   const configuration = vscode.workspace.getConfiguration("hitsimple", document.uri);
   const originalArguments = configuration.get("debugArguments");
+  const expectedGdbPath = process.env.HITSIMPLE_TEST_GDB_PATH;
 
   if (!isLinuxX64()) {
     const result = await vscode.commands.executeCommand(
@@ -284,6 +285,9 @@ async function verifyDebug() {
 
   const cppTools = vscode.extensions.getExtension("ms-vscode.cpptools");
   assert.ok(cppTools, "ms-vscode.cpptools must be installed for the Linux debug test");
+  if (expectedGdbPath) {
+    assert.equal(configuration.get("gdbPath"), expectedGdbPath);
+  }
   const breakpoint = new vscode.SourceBreakpoint(
     new vscode.Location(document.uri, new vscode.Position(2, 0)),
   );

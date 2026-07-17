@@ -73,7 +73,6 @@ async function prepareWorkspace(root) {
         "hitsimple.mode": "unchecked",
         "hitsimple.outputDirectory": outputDirectory,
         "hitsimple.additionalArgs": [],
-        "hitsimple.gdbPath": gdbPath,
         "hitsimple.debugArguments": [],
         "editor.autoIndent": "full",
         "editor.insertSpaces": true,
@@ -88,6 +87,7 @@ async function prepareWorkspace(root) {
         "telemetry.telemetryLevel": "off",
         "extensions.autoCheckUpdates": false,
         "extensions.autoUpdate": false,
+        "hitsimple.gdbPath": gdbPath,
       }, null, 2)}\n`,
     ),
     writeFile(
@@ -124,13 +124,13 @@ async function prepareWorkspace(root) {
     writeFile(path.join(workspacePath, "directive-indent.hs"), "$ if ENABLED"),
   ]);
 
-  return { workspacePath, userDataPath, extensionsPath };
+  return { workspacePath, userDataPath, extensionsPath, gdbPath };
 }
 
 const tempRoot = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-host-"));
 
 try {
-  const { workspacePath, userDataPath, extensionsPath } =
+  const { workspacePath, userDataPath, extensionsPath, gdbPath } =
     await prepareWorkspace(tempRoot);
   const vscodeExecutablePath = requiresCppTools()
     ? await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath })
@@ -148,6 +148,7 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
+      HITSIMPLE_TEST_GDB_PATH: gdbPath,
     },
     launchArgs: [
       workspacePath,
