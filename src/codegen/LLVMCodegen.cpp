@@ -4,7 +4,6 @@
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/BinaryFormat/Dwarf.h>
-#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/Module.h>
@@ -85,6 +84,15 @@ bool isX86_64SysVElfTarget(std::string_view targetTriple) {
          target.getObjectFormat() == llvm::Triple::ELF && !target.isX32();
 }
 
+template <typename ModuleType>
+void useLegacyDebugInfoFormatIfAvailable(ModuleType& module) {
+  if constexpr (requires(ModuleType& value) {
+                  value.setIsNewDbgInfoFormat(false);
+                }) {
+    module.setIsNewDbgInfoFormat(false);
+  }
+}
+
 } // namespace
 
 LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
@@ -96,11 +104,9 @@ LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
                                 : options_.targetTriple;
   setModuleTargetTriple(*module_, targetTriple);
   if (options_.emitDebugInfo) {
-    // Clang 18 accepts intrinsic-form debug declarations but not LLVM 19's
-    // printed #dbg_declare records.
-#if LLVM_VERSION_MAJOR >= 19
-    module_->setNewDbgInfoFormatFlag(false);
-#endif
+    // Clang 18 accepts intrinsic-form debug declarations. LLVM versions that
+    // offer the transitional conversion API use it before any IR is emitted.
+    useLegacyDebugInfoFormatIfAvailable(*module_);
     initializeDebugInfo();
   }
 }
