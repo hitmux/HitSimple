@@ -4,6 +4,7 @@
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/BinaryFormat/Dwarf.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/Module.h>
@@ -97,7 +98,9 @@ LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
   if (options_.emitDebugInfo) {
     // Clang 18 accepts intrinsic-form debug declarations but not LLVM 19's
     // printed #dbg_declare records.
+#if LLVM_VERSION_MAJOR >= 19
     module_->setNewDbgInfoFormatFlag(false);
+#endif
     initializeDebugInfo();
   }
 }
