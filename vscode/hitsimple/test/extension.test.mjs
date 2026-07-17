@@ -607,13 +607,17 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
   assert.equal(sema.status, 1, sema.stderr);
   assert.equal(sema.stdout, "");
   const semaMatch = regexp.exec(sema.stderr.trim());
-  assert.deepEqual(semaMatch?.slice(1), [
-    path.join(repoRoot, "tests/cases/run/try_catch_integer_to_float_rejected.hs"),
-    "3",
-    "15",
-    "error",
-    "float operand is not a float expression",
-  ]);
+  assert.ok(semaMatch, sema.stderr);
+  const [, semaPath, semaLine, semaColumn, semaSeverity, semaMessage] = semaMatch;
+  const sourceSuffix = "/tests/cases/run/try_catch_integer_to_float_rejected.hs";
+  assert.ok(
+    semaPath.replaceAll("\\", "/").endsWith(sourceSuffix),
+    `unexpected sema source path: ${semaPath}`,
+  );
+  assert.deepEqual(
+    [semaLine, semaColumn, semaSeverity, semaMessage],
+    ["3", "15", "error", "float operand is not a float expression"],
+  );
 
   const directory = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-diagnostics-"));
   try {

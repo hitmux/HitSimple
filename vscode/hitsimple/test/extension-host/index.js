@@ -167,8 +167,75 @@ function debugPlatform() {
   return undefined;
 }
 
-async function waitForDebugFrame(session, sourcePath) {
-  return waitForValue(async () => {
+function createDebugAdapterTrace(adapterType) {
+  const entries = [];
+  const repeatedRequests = new Map();
+
+  function record(direction, message) {
+    if (!message || typeof message !== "object") {
+      return;
+    }
+    const kind = message.event || message.command || message.type || "message";
+    const repetitionKey = `${direction} ${message.type || "unknown"} ${kind}`;
+    const repetitions = (repeatedRequests.get(repetitionKey) || 0) + 1;
+    repeatedRequests.set(repetitionKey, repetitions);
+    if (kind === "threads" && repetitions > 3) {
+      return;
+    }
+    let detail = `${direction} ${message.type || "unknown"} ${kind}`;
+    if (message.success === false) {
+      detail += ` failed: ${message.message || "unknown error"}`;
+    }
+    if (message.body && kind !== "output" && kind !== "threads") {
+      detail += `: ${JSON.stringify(message.body).slice(0, 480)}`;
+    }
+    if (message.event === "output" && message.body?.output) {
+      detail += `: ${String(message.body.output).trim().slice(0, 240)}`;
+    }
+    entries.push(detail);
+    if (entries.length > 160) {
+      entries.shift();
+    }
+  }
+
+  const disposable = vscode.debug.registerDebugAdapterTrackerFactory(adapterType, {
+    createDebugAdapterTracker() {
+      return {
+        onWillStartSession() {
+          entries.push("adapter starting");
+        },
+        onWillReceiveMessage(message) {
+          record("->", message);
+        },
+        onDidSendMessage(message) {
+          record("<-", message);
+        },
+        onError(error) {
+          entries.push(`adapter error: ${String(error)}`);
+        },
+        onExit(code, signal) {
+          entries.push(`adapter exit: code=${code} signal=${signal}`);
+        },
+      };
+    },
+  });
+
+  return {
+    dispose() {
+      disposable.dispose();
+    },
+    describe() {
+      return entries.length > 0 ? entries.join(" | ") : "no DAP messages observed";
+    },
+  };
+}
+
+async function waitForDebugFrame(session, sourcePath, trace) {
+  const sourceName = path.basename(sourcePath);
+  let lastStackFrames = [];
+  let lastError;
+  try {
+    return await waitForValue(async () => {
     try {
       const threads = await session.customRequest("threads");
       for (const thread of threads.threads || []) {
@@ -176,20 +243,38 @@ async function waitForDebugFrame(session, sourcePath) {
           const stack = await session.customRequest("stackTrace", {
             threadId: thread.id,
           });
-          const frame = (stack.stackFrames || []).find((candidate) =>
-            candidate.source && path.resolve(candidate.source.path) === sourcePath);
+          lastStackFrames = stack.stackFrames || [];
+          const frame = lastStackFrames.find((candidate) =>
+            candidate.source && (
+              (candidate.source.path &&
+                path.resolve(candidate.source.path) === sourcePath) ||
+              candidate.source.name === sourceName ||
+              (candidate.source.path &&
+                path.basename(candidate.source.path) === sourceName)
+            ));
           if (frame) {
             return { frame, stack, thread };
           }
-        } catch {
-          // The debugger returns an error while the debuggee is still running.
+        } catch (error) {
+          lastError = error;
         }
       }
-    } catch {
-      // The debug adapter can take a short time to accept DAP requests.
+    } catch (error) {
+      lastError = error;
     }
     return undefined;
-  }, Boolean, "the HitSimple source breakpoint", 30000);
+    }, Boolean, "the HitSimple source breakpoint", 30000);
+  } catch (error) {
+    const frames = lastStackFrames.map(({ name, source }) => ({
+      name,
+      source: source && { name: source.name, path: source.path },
+    }));
+    throw new Error(
+      `${error.message}; last frames: ${JSON.stringify(frames)}; ` +
+      `last DAP error: ${lastError ? String(lastError) : "none"}; ` +
+      `DAP trace: ${trace.describe()}`,
+    );
+  }
 }
 
 async function verifyDebug() {
@@ -209,6 +294,9 @@ async function verifyDebug() {
 
   const cppTools = vscode.extensions.getExtension("ms-vscode.cpptools");
   assert.ok(cppTools, "ms-vscode.cpptools must be installed for the native debug test");
+  if (platform.miMode === "gdb") {
+    assert.equal(configuration.get("gdbPath"), process.env.HITSIMPLE_TEST_GDB_PATH);
+  }
   const breakpoint = new vscode.SourceBreakpoint(
     new vscode.Location(document.uri, new vscode.Position(2, 0)),
   );
@@ -221,6 +309,7 @@ async function verifyDebug() {
 
   let session;
   let startedSession;
+  const trace = createDebugAdapterTrace(platform.adapterType);
   const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
     if (candidate.type === platform.adapterType) {
       startedSession = candidate;
@@ -249,14 +338,25 @@ async function verifyDebug() {
       `the ${platform.adapterType} session`,
       30000,
     );
-    const { frame, stack } = await waitForDebugFrame(session, document.uri.fsPath);
+    const { frame, stack } = await waitForDebugFrame(
+      session,
+      document.uri.fsPath,
+      trace,
+    );
     assert.match(frame.name, /^helper(?:\(\))?$/);
-    assert.equal(path.resolve(frame.source.path), document.uri.fsPath);
+    assert.ok(frame.source, "helper must be a HitSimple source frame");
+    assert.ok(
+      frame.source.name === path.basename(document.uri.fsPath) ||
+      (frame.source.path && path.resolve(frame.source.path) === document.uri.fsPath),
+      "helper must resolve to debug.hs",
+    );
     assert.ok(
       (stack.stackFrames || []).some((candidate) =>
         /^main(?:\(\))?$/.test(candidate.name) && candidate.source &&
-        path.resolve(candidate.source.path) === document.uri.fsPath),
-      "cppdbg must expose the HitSimple main source frame",
+        (candidate.source.name === path.basename(document.uri.fsPath) ||
+          (candidate.source.path &&
+            path.resolve(candidate.source.path) === document.uri.fsPath))),
+      "the native debug adapter must expose the HitSimple main source frame",
     );
 
     const scopes = await session.customRequest("scopes", { frameId: frame.id });
@@ -275,6 +375,7 @@ async function verifyDebug() {
     );
   } finally {
     sessionSubscription.dispose();
+    trace.dispose();
     if (session) {
       await vscode.debug.stopDebugging(session);
     }

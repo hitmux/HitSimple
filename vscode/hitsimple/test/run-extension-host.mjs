@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +61,9 @@ async function prepareWorkspace(root) {
   const workspacePath = path.join(root, "workspace");
   const userDataPath = path.join(root, "user-data");
   const extensionsPath = path.join(root, "extensions");
+  const gdbPath = process.platform === "linux"
+    ? path.join(root, "gdb-without-debuginfod")
+    : undefined;
   await Promise.all([
     mkdir(path.join(workspacePath, ".vscode"), { recursive: true }),
     mkdir(path.join(userDataPath, "User"), { recursive: true }),
@@ -76,7 +79,6 @@ async function prepareWorkspace(root) {
         "hitsimple.mode": "unchecked",
         "hitsimple.outputDirectory": outputDirectory,
         "hitsimple.additionalArgs": [],
-        "hitsimple.gdbPath": "gdb",
         "hitsimple.lldbPath": "lldb",
         "hitsimple.debugArguments": [],
         "editor.autoIndent": "full",
@@ -92,8 +94,15 @@ async function prepareWorkspace(root) {
         "telemetry.telemetryLevel": "off",
         "extensions.autoCheckUpdates": false,
         "extensions.autoUpdate": false,
+        ...(gdbPath ? { "hitsimple.gdbPath": gdbPath } : {}),
       }, null, 2)}\n`,
     ),
+    ...(gdbPath ? [
+      writeFile(
+        gdbPath,
+        "#!/bin/sh\nexport DEBUGINFOD_URLS=\nexec /usr/bin/gdb \"$@\"\n",
+      ).then(() => chmod(gdbPath, 0o755)),
+    ] : []),
     writeFile(
       path.join(workspacePath, "main.hs"),
       "func main() {\n    return 0\n}\n",
@@ -124,13 +133,13 @@ async function prepareWorkspace(root) {
     writeFile(path.join(workspacePath, "directive-indent.hs"), "$ if ENABLED"),
   ]);
 
-  return { workspacePath, userDataPath, extensionsPath };
+  return { workspacePath, userDataPath, extensionsPath, gdbPath };
 }
 
 const tempRoot = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-host-"));
 
 try {
-  const { workspacePath, userDataPath, extensionsPath } =
+  const { workspacePath, userDataPath, extensionsPath, gdbPath } =
     await prepareWorkspace(tempRoot);
   const vscodeExecutablePath = requiresCppTools()
     ? await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath })
@@ -148,6 +157,7 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
+      HITSIMPLE_TEST_GDB_PATH: gdbPath || "",
     },
     launchArgs: [
       workspacePath,
