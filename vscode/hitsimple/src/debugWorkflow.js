@@ -1,5 +1,7 @@
 "use strict";
 
+const path = require("node:path");
+
 const { findExecutable } = require("./executable");
 const {
   createCppdbgLaunchConfiguration,
@@ -14,6 +16,20 @@ const {
 
 function errorText(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function bundledLldbMiPath(extension) {
+  if (!extension || typeof extension.extensionPath !== "string" ||
+      extension.extensionPath.length === 0) {
+    return undefined;
+  }
+  return path.join(
+    extension.extensionPath,
+    "debugAdapters",
+    "lldb-mi",
+    "bin",
+    "lldb-mi",
+  );
 }
 
 function createDebugWorkflow(vscodeApi, workflows, dependencies = {}) {
@@ -53,6 +69,15 @@ function createDebugWorkflow(vscodeApi, workflows, dependencies = {}) {
       );
     }
 
+    const cppToolsExtension = getCppToolsExtension();
+    if (!hasDebugger(cppToolsExtension, debugPlatform.adapterType)) {
+      return failed(
+        `${debugPlatform.adapterType}-check`,
+        `缺少 Microsoft C/C++ 扩展（ms-vscode.cpptools）的 ${debugPlatform.adapterType} 调试器；请安装并启用该扩展后重试。`,
+        { build: buildResult },
+      );
+    }
+
     const configuration = buildResult.configuration ||
       vscodeApi.workspace.getConfiguration("hitsimple", buildResult.document.uri);
     let debugArguments;
@@ -75,11 +100,15 @@ function createDebugWorkflow(vscodeApi, workflows, dependencies = {}) {
         settingName,
         debugPlatform.defaultDebuggerPath,
       );
+      const debuggerPath = debugPlatform.debuggerKind === "lldb" &&
+          configuredDebuggerPath === debugPlatform.defaultDebuggerPath
+        ? bundledLldbMiPath(cppToolsExtension) || configuredDebuggerPath
+        : configuredDebuggerPath;
       const validatePath = debugPlatform.debuggerKind === "gdb"
         ? validateGdbPath
         : validateLldbPath;
       try {
-        validatePath(configuredDebuggerPath);
+        validatePath(debuggerPath);
       } catch (error) {
         return failed(
           "debug-validation",
@@ -88,33 +117,24 @@ function createDebugWorkflow(vscodeApi, workflows, dependencies = {}) {
         );
       }
       try {
-        resolvedDebuggerPath = await locateExecutable(configuredDebuggerPath, {
+        resolvedDebuggerPath = await locateExecutable(debuggerPath, {
           cwd: buildResult.plan.cwd,
           platform,
         });
       } catch (error) {
         return failed(
           `${debugPlatform.debuggerKind}-check`,
-          `无法检查 ${debugPlatform.debuggerKind.toUpperCase()} ${configuredDebuggerPath}：${errorText(error)}。请检查 hitsimple.${settingName} 和 VS Code 的环境变量。`,
+          `无法检查 ${debugPlatform.debuggerKind.toUpperCase()} ${debuggerPath}：${errorText(error)}。请检查 hitsimple.${settingName} 和 VS Code 的环境变量。`,
           { error, build: buildResult },
         );
       }
       if (!resolvedDebuggerPath) {
         return failed(
           `${debugPlatform.debuggerKind}-check`,
-          `找不到可执行的 ${debugPlatform.debuggerKind.toUpperCase()} ${configuredDebuggerPath}。请安装 ${debugPlatform.debuggerKind.toUpperCase()} 或检查 hitsimple.${settingName}。`,
+          `找不到可执行的 ${debugPlatform.debuggerKind.toUpperCase()} ${debuggerPath}。请安装 ${debugPlatform.debuggerKind.toUpperCase()} 或检查 hitsimple.${settingName}。`,
           { build: buildResult },
         );
       }
-    }
-
-    const cppToolsExtension = getCppToolsExtension();
-    if (!hasDebugger(cppToolsExtension, debugPlatform.adapterType)) {
-      return failed(
-        `${debugPlatform.adapterType}-check`,
-        `缺少 Microsoft C/C++ 扩展（ms-vscode.cpptools）的 ${debugPlatform.adapterType} 调试器；请安装并启用该扩展后重试。`,
-        { build: buildResult },
-      );
     }
 
     let launchConfiguration;
@@ -177,6 +197,7 @@ function createDebugWorkflow(vscodeApi, workflows, dependencies = {}) {
 }
 
 module.exports = {
+  bundledLldbMiPath,
   createDebugWorkflow,
   errorText,
 };

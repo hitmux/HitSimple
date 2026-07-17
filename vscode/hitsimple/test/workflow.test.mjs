@@ -722,6 +722,7 @@ function createDebugHarness(options = {}) {
     extensions: {
       getExtension() {
         return options.cppTools === false ? undefined : {
+          extensionPath: options.cppToolsExtensionPath,
           packageJSON: {
             contributes: {
               debuggers: [{
@@ -754,7 +755,13 @@ function createDebugHarness(options = {}) {
       if (options.debuggerFound === false || options.gdbFound === false || options.lldbFound === false) {
         return undefined;
       }
-      return debuggerPath === "lldb" ? "/usr/bin/lldb" : "/usr/bin/gdb";
+      if (debuggerPath === "lldb") {
+        return "/usr/bin/lldb";
+      }
+      if (debuggerPath === "gdb") {
+        return "/usr/bin/gdb";
+      }
+      return debuggerPath;
     },
   });
   return { calls, debugWorkflow, errors, infos };
@@ -826,6 +833,28 @@ test("debug workflow builds first, launches cppdbg, and reports every preflight 
   assert.equal(macosResult.launchConfiguration.type, "cppdbg");
   assert.equal(macosResult.launchConfiguration.MIMode, "lldb");
   assert.equal(macosResult.launchConfiguration.miDebuggerPath, "/usr/bin/lldb");
+
+  const bundledMacos = createDebugHarness({
+    platform: "darwin",
+    architecture: "arm64",
+    cppToolsExtensionPath: "/extensions/ms-vscode.cpptools",
+  });
+  const bundledMacosResult = await bundledMacos.debugWorkflow.debugCurrentFile();
+  assert.equal(bundledMacosResult.ok, true);
+  assert.equal(
+    bundledMacosResult.launchConfiguration.miDebuggerPath,
+    "/extensions/ms-vscode.cpptools/debugAdapters/lldb-mi/bin/lldb-mi",
+  );
+
+  const customMacos = createDebugHarness({
+    platform: "darwin",
+    architecture: "arm64",
+    cppToolsExtensionPath: "/extensions/ms-vscode.cpptools",
+    configuration: { lldbPath: "/custom/lldb-mi" },
+  });
+  const customMacosResult = await customMacos.debugWorkflow.debugCurrentFile();
+  assert.equal(customMacosResult.ok, true);
+  assert.equal(customMacosResult.launchConfiguration.miDebuggerPath, "/custom/lldb-mi");
 
   const windows = createDebugHarness({ platform: "win32", architecture: "x64" });
   const windowsResult = await windows.debugWorkflow.debugCurrentFile();

@@ -171,10 +171,10 @@ Key settings:
 | `hitsimple.outputDirectory` | `.hitsimple/build` | Output directory inside the workspace. |
 | `hitsimple.additionalArgs` | `[]` | Additional arguments passed as separate argv entries. |
 | `hitsimple.gdbPath` | `gdb` | GDB executable name or path used by Debug Current File. |
-| `hitsimple.lldbPath` | `lldb` | LLDB executable name or path used by Debug Current File on macOS. |
+| `hitsimple.lldbPath` | `lldb` | MI-compatible LLDB executable name or path used by Debug Current File on macOS; the default uses cpptools' bundled signed `lldb-mi` when available. |
 | `hitsimple.debugArguments` | `[]` | Program arguments passed as separate argv entries when debugging. |
 
-Debug Current File supports native Linux x86_64/aarch64 through `cppdbg` with GDB, native macOS arm64/x86_64 through `cppdbg` with LLDB, and native Windows x64 through `cppvsdbg` with CodeView/PDB. It requires the Microsoft C/C++ extension (`ms-vscode.cpptools`); Linux also requires an executable GDB, and macOS an executable LLDB. Windows debug builds remove stale PDB files and require a new `.pdb` alongside the executable. Remote debugging, cross-target debugging, custom debug adapters, and custom `launch.json` configurations remain outside this command's scope.
+Debug Current File supports native Linux x86_64/aarch64 through `cppdbg` with GDB, native macOS arm64/x86_64 through `cppdbg` with LLDB, and native Windows x64 through `cppvsdbg` with CodeView/PDB. It requires the Microsoft C/C++ extension (`ms-vscode.cpptools`); Linux also requires an executable GDB. On macOS, the default `hitsimple.lldbPath` uses the signed `lldb-mi` bundled by cpptools; a custom path must name an executable MI-compatible LLDB. Windows debug builds remove stale PDB files and require a new `.pdb` alongside the executable. Remote debugging, cross-target debugging, custom debug adapters, and custom `launch.json` configurations remain outside this command's scope.
 
 Haskell also uses `.hs`. When both language extensions are installed, explicitly associate the extension in the workspace:
 
@@ -193,7 +193,7 @@ Haskell also uses `.hs`. When both language extensions are installed, explicitly
 ctest --test-dir build --output-on-failure --parallel 4
 ```
 
-VS Code Extension Host tests install `ms-vscode.cpptools` into an isolated extension directory. Headless Linux environments also require `xvfb-run` and GDB; macOS requires LLDB. Each supported native target verifies a HitSimple breakpoint, `helper` and `main` stack frames, and the `value` local:
+VS Code Extension Host tests install `ms-vscode.cpptools` into an isolated extension directory. Headless Linux environments also require `xvfb-run` and GDB; macOS uses cpptools' bundled signed `lldb-mi`. Each supported native target verifies a HitSimple breakpoint, `helper` and `main` stack frames, and the `value` local:
 
 ```bash
 cd vscode/hitsimple

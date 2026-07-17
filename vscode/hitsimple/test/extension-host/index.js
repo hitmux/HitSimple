@@ -326,6 +326,18 @@ async function verifyDebug() {
     assert.equal(result.launchConfiguration.type, platform.adapterType);
     if (platform.miMode) {
       assert.equal(result.launchConfiguration.MIMode, platform.miMode);
+      if (platform.miMode === "lldb") {
+        assert.equal(
+          result.launchConfiguration.miDebuggerPath,
+          path.join(
+            cppTools.extensionPath,
+            "debugAdapters",
+            "lldb-mi",
+            "bin",
+            "lldb-mi",
+          ),
+        );
+      }
     } else {
       assert.ok(result.build.pdbPath, "Windows debug builds must report their PDB path");
       assert.ok((await fs.stat(result.build.pdbPath)).isFile());

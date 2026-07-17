@@ -123,7 +123,7 @@
           "type": "string",
           "default": "lldb",
           "scope": "machine-overridable",
-          "description": "Path or executable name for LLDB used by Debug Current File on macOS."
+          "description": "Path or executable name for an MI-compatible LLDB used by Debug Current File on macOS. With the default lldb value, the extension uses the signed lldb-mi bundled by Microsoft C/C++ when available."
         },
         "hitsimple.debugArguments": {
           "type": "array",

@@ -150,7 +150,10 @@ entry with one `-g` flag and uses the Microsoft C/C++ extension
 (`ms-vscode.cpptools`). Linux x86_64/aarch64 uses `cppdbg` with GDB; macOS
 arm64/x86_64 uses `cppdbg` with LLDB; Windows x64 uses `cppvsdbg` with
 CodeView/PDB. `hitsimple.gdbPath` remains the GDB setting and
-`hitsimple.lldbPath` selects the LLDB executable, defaulting to `lldb`.
+`hitsimple.lldbPath` selects an MI-compatible LLDB executable, defaulting to
+`lldb`; with that default, macOS uses cpptools' bundled signed `lldb-mi` when
+available. A custom `hitsimple.lldbPath` must point to an executable
+MI-compatible LLDB.
 Windows does not require a debugger-path setting: debug builds remove any old
 PDB and fail unless the compiler creates a same-base-name `.pdb` next to the
 executable. The command uses the workspace root as its working directory and
