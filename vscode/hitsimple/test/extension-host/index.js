@@ -163,23 +163,26 @@ function createHeadlessDebugConsoleOverride() {
     return undefined;
   }
 
-  // The production command keeps integratedTerminal. GitHub's headless
+  // cppdbg only supports externalConsole on Linux. GitHub's headless
   // Extension Host has no usable integrated-terminal process, so route only
-  // the test adapter session through its debug console.
+  // the test adapter session through xterm under Xvfb.
   const originalStartDebugging = vscode.debug.startDebugging;
   let invocation;
   vscode.debug.startDebugging = (workspaceFolder, configuration, options) => {
     invocation = {
       console: configuration.console,
+      externalConsole: configuration.externalConsole,
       stopAtEntry: configuration.stopAtEntry,
     };
     console.log(
       `HitSimple Extension Host: headless cppdbg console=${configuration.console} ` +
+      `externalConsole=${configuration.externalConsole} ` +
       `stopAtEntry=${configuration.stopAtEntry}`,
     );
+    const { console: _console, ...cppdbgConfiguration } = configuration;
     return originalStartDebugging.call(vscode.debug, workspaceFolder, {
-      ...configuration,
-      console: "internalConsole",
+      ...cppdbgConfiguration,
+      externalConsole: true,
       stopAtEntry: true,
     }, options);
   };
@@ -299,6 +302,7 @@ async function verifyDebug() {
     if (consoleOverride) {
       assert.deepEqual(consoleOverride.getInvocation(), {
         console: "integratedTerminal",
+        externalConsole: undefined,
         stopAtEntry: undefined,
       });
     }
