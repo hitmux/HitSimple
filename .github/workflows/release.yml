@@ -10,7 +10,7 @@ on:
       version:
         description: Version to validate without publishing
         required: true
-        default: "0.2.2"
+        default: "0.3.0"
       scope:
         description: Validation jobs to run
         required: true
@@ -1057,6 +1057,8 @@ jobs:
           HitSimple ${HITSIMPLE_VERSION} 是正式 release。
 
           发布附件包括 Linux x86_64/aarch64 tar.gz、Linux amd64/arm64 DEB、macOS arm64/x86_64 tar.gz、Fedora 44 与 EL9 的 x86_64/aarch64 RPM、Windows x64 full/slim ZIP、VS Code 扩展 VSIX 和 SHA256SUMS。
+
+          新增的 C ABI 互操作支持可将 HitSimple、C、C++ 与 Rust staticlib 组合到同一程序。稳定边界仅为显式 `extern "C"`；C++ 必须使用 C wrapper，Rust 必须使用无修饰的 `pub extern "C"` 导出。C++ exception、Rust panic 和 HitSimple `throw`/`try` 不得跨越该边界。该能力正式支持 Linux x86_64/AArch64。
 
           Windows full 包内置 llvm-mingw-20240619-ucrt-x86_64，可直接编译当前 Windows x64 程序；slim 包需要通过 \`--clang\`、\`HITSIMPLE_CLANG\` 或 PATH 提供兼容的 llvm-mingw/Clang 18。Windows \`f128\` 使用 Boost 1.85.0 的 113-bit software backend，并按 IEEE binary128 位模式与 runtime 交互。
 
