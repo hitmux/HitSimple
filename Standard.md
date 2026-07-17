@@ -88,7 +88,17 @@ The semantics of HitSimple depend on an abstract execution platform. A conformin
 
 An `extern` declaration declares a HitSimple external symbol. Symbol-name encoding, calling convention, register usage, stack layout, argument passing, return-value storage, multiple-return ABI, vararg ABI, and compatibility with the C ABI are implementation-defined and MUST be documented.
 
-### 2.3 Execution Modes
+### 2.3 Explicit C ABI
+
+The forms `extern "C" name(...) -> ...` and `extern "C" func name(...) -> ... { ... }` declare, respectively, a C-ABI import and a C-ABI export. The source identifier is the unmangled external symbol name. An implementation MUST reject an ABI string other than `"C"`.
+
+A C-ABI parameter or single return value MUST use one of `bool`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `addr`, `cstr`, or `handle`; `()` denotes no return value. `addr`, `cstr`, and `handle` are passed as C pointers. Structure values, user templates, Views, `bytes`, `f16`, `f128`, multiple returns, and variadic functions are not C-ABI values and MUST produce a compile-time diagnostic. A C-ABI declaration MUST use the fixed byte length of its named template; an implementation MUST reject a conflicting explicit length.
+
+C++ code interoperates through an `extern "C"` wrapper, and Rust code interoperates through `pub extern "C"` with an unmangled symbol. C++ exceptions, Rust panics, and HitSimple `throw`/`try` control flow MUST NOT cross this boundary. A C-ABI export containing `throw` or `try`/`catch` is invalid. The `main` entry point is not a C-ABI export.
+
+The C ABI is a stable inter-language boundary only on targets documented by the implementation. It does not change the contract of an unannotated `extern` declaration or of `--c-compat`.
+
+### 2.4 Execution Modes
 
 HitSimple standardizes three execution modes. Execution modes modify only the safety-checking policy. Static-semantic diagnostics listed in Section 18.2, including syntax, name resolution, template matching, return signatures, and overload conflicts, MUST be performed in every mode.
 

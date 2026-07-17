@@ -359,12 +359,14 @@ struct ReturnItem final {
 struct FunctionDecl final : TopLevelDecl {
   FunctionDecl(std::string name, std::vector<Param> params,
                std::vector<ReturnItem> returns,
-               std::unique_ptr<BlockStmt> body);
+               std::unique_ptr<BlockStmt> body, std::string abiName = {});
 
   std::string name;
   std::vector<Param> params;
   std::vector<ReturnItem> returns;
   std::unique_ptr<BlockStmt> body;
+  // Empty for the core calling convention; quoted source spelling otherwise.
+  std::string abiName;
 };
 
 struct GlobalNewDecl final : TopLevelDecl {
@@ -390,11 +392,14 @@ struct ExternVarDecl final : TopLevelDecl {
 
 struct ExternFunctionDecl final : TopLevelDecl {
   ExternFunctionDecl(std::string name, std::vector<Param> params,
-                     std::vector<ReturnItem> returns);
+                     std::vector<ReturnItem> returns,
+                     std::string abiName = {});
 
   std::string name;
   std::vector<Param> params;
   std::vector<ReturnItem> returns;
+  // Empty for the core calling convention; quoted source spelling otherwise.
+  std::string abiName;
 };
 
 struct StructMember final {

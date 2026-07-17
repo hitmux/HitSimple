@@ -49,3 +49,11 @@ HS_TEST(Toolchain_UsesExplicitExecutableBeforeDiscovery) {
   HS_EXPECT_TRUE(selection.path.has_value());
   HS_EXPECT_EQ(selection.source, std::string("--clang"));
 }
+
+HS_TEST(Toolchain_UsesExplicitCxxExecutableBeforeDiscovery) {
+  const auto executable = hitsimple::support::currentExecutablePath();
+  HS_EXPECT_TRUE(executable.has_value());
+  const auto selection = hitsimple::support::resolveClangxx(*executable);
+  HS_EXPECT_TRUE(selection.path.has_value());
+  HS_EXPECT_EQ(selection.source, std::string("--clangxx"));
+}

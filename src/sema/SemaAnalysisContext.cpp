@@ -114,14 +114,156 @@ void setBuiltinTemplateNames(
 
 bool hasSameAbiSignature(const FunctionSignature &signature,
                          const std::vector<std::size_t> &parameters,
-                         const std::vector<std::size_t> &returns) {
+                         const std::vector<std::size_t> &returns,
+                         bool isCAbi = false) {
   return signature.parameterByteLengths == parameters &&
-         signature.returnByteLengths == returns;
+         signature.returnByteLengths == returns && signature.isCAbi == isCAbi;
 }
 
 bool isFloatTemplateName(std::string_view name) {
   return name == "f16" || name == "f32" || name == "f64" ||
          name == "f128";
+}
+
+bool isCAbiName(std::string_view abiName) { return abiName == "\"C\""; }
+
+bool containsCAbiForbiddenControlFlow(const ast::Stmt &statement) {
+  if (dynamic_cast<const ast::ThrowStmt *>(&statement) != nullptr ||
+      dynamic_cast<const ast::TryCatchStmt *>(&statement) != nullptr) {
+    return true;
+  }
+  if (const auto *ifStmt = dynamic_cast<const ast::IfStmt *>(&statement)) {
+    for (const auto &nested : ifStmt->thenBlock->statements) {
+      if (containsCAbiForbiddenControlFlow(*nested)) {
+        return true;
+      }
+    }
+    if (ifStmt->elseBlock) {
+      for (const auto &nested : ifStmt->elseBlock->statements) {
+        if (containsCAbiForbiddenControlFlow(*nested)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  if (const auto *whileStmt = dynamic_cast<const ast::WhileStmt *>(&statement)) {
+    for (const auto &nested : whileStmt->body->statements) {
+      if (containsCAbiForbiddenControlFlow(*nested)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (const auto *forStmt = dynamic_cast<const ast::ForStmt *>(&statement)) {
+    if (forStmt->init && containsCAbiForbiddenControlFlow(*forStmt->init)) {
+      return true;
+    }
+    for (const auto &nested : forStmt->body->statements) {
+      if (containsCAbiForbiddenControlFlow(*nested)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (const auto *label = dynamic_cast<const ast::LabelStmt *>(&statement)) {
+    return label->statement && containsCAbiForbiddenControlFlow(*label->statement);
+  }
+  return false;
+}
+
+bool containsCAbiForbiddenControlFlow(const ast::BlockStmt &block) {
+  for (const auto &statement : block.statements) {
+    if (containsCAbiForbiddenControlFlow(*statement)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::optional<hir::AbiType> cAbiTypeFor(std::string_view templateName,
+                                        std::size_t byteLength) {
+  const auto integer = [&](bool isSigned) -> std::optional<hir::AbiType> {
+    if (byteLength != 1 && byteLength != 2 && byteLength != 4 &&
+        byteLength != 8) {
+      return std::nullopt;
+    }
+    hir::AbiType type{hir::AbiValueKind::Integer, byteLength, isSigned};
+    type.alignment = byteLength;
+    return type;
+  };
+  if (templateName == "bool") {
+    return byteLength == 1 ? integer(false) : std::nullopt;
+  }
+  if (templateName.size() == 2 &&
+      (templateName.front() == 'i' || templateName.front() == 'u') &&
+      (templateName[1] == '8')) {
+    return byteLength == 1 ? integer(templateName.front() == 'i')
+                           : std::nullopt;
+  }
+  if (templateName.size() == 3 &&
+      (templateName.front() == 'i' || templateName.front() == 'u') &&
+      (templateName.substr(1) == "16" || templateName.substr(1) == "32" ||
+       templateName.substr(1) == "64")) {
+    const auto expected = templateName.substr(1) == "16"
+                              ? std::size_t{2}
+                              : (templateName.substr(1) == "32"
+                                     ? std::size_t{4}
+                                     : std::size_t{8});
+    return byteLength == expected ? integer(templateName.front() == 'i')
+                                  : std::nullopt;
+  }
+  if (templateName == "f32" || templateName == "f64") {
+    const auto expected = templateName == "f32" ? std::size_t{4}
+                                                  : std::size_t{8};
+    if (byteLength != expected) {
+      return std::nullopt;
+    }
+    hir::AbiType type{hir::AbiValueKind::Floating, byteLength, true};
+    type.alignment = byteLength;
+    return type;
+  }
+  if (templateName == "addr" || templateName == "cstr" ||
+      templateName == "handle") {
+    if (byteLength != pointerByteLength()) {
+      return std::nullopt;
+    }
+    hir::AbiType type{hir::AbiValueKind::Pointer, byteLength, false};
+    type.alignment = byteLength;
+    return type;
+  }
+  return std::nullopt;
+}
+
+std::optional<hir::FunctionAbiSignature>
+makeCAbiSignature(const FunctionSignature &signature) {
+  if (signature.returnByteLengths.size() > 1U ||
+      signature.parameterTemplateNames.size() !=
+          signature.parameterByteLengths.size() ||
+      signature.returnTemplateNames.size() != signature.returnByteLengths.size()) {
+    return std::nullopt;
+  }
+  hir::FunctionAbiSignature abi;
+  abi.isCCompatibility = true;
+  for (std::size_t index = 0; index < signature.parameterByteLengths.size();
+       ++index) {
+    auto type = cAbiTypeFor(signature.parameterTemplateNames[index],
+                            signature.parameterByteLengths[index]);
+    if (!type) {
+      return std::nullopt;
+    }
+    abi.parameterTypes.push_back(std::move(*type));
+  }
+  for (std::size_t index = 0; index < signature.returnByteLengths.size();
+       ++index) {
+    auto type = cAbiTypeFor(signature.returnTemplateNames[index],
+                            signature.returnByteLengths[index]);
+    if (!type) {
+      return std::nullopt;
+    }
+    abi.returnTypes.push_back(std::move(*type));
+  }
+  return abi;
 }
 
 bool isCCompatibilityConversion(stdlib::BuiltinId builtin) {
@@ -213,6 +355,11 @@ makeFloatingAbiSignature(const FunctionSignature &signature) {
 std::optional<hir::FunctionAbiSignature>
 floatingAbiSignature(const FunctionSignature &signature) {
   return makeFloatingAbiSignature(signature);
+}
+
+std::optional<hir::FunctionAbiSignature>
+cAbiSignature(const FunctionSignature &signature) {
+  return makeCAbiSignature(signature);
 }
 
 bool Analyzer::collectFunctionSignatures(
@@ -336,6 +483,12 @@ bool Analyzer::collectFunctionSignatures(
     signature.isExtern = true;
     signature.returnsKnown = true;
     signature.returnsExplicit = true;
+    signature.isCAbi = !externFunction->abiName.empty();
+    if (signature.isCAbi && !isCAbiName(externFunction->abiName)) {
+      addDiagnostic("unsupported extern ABI '" + externFunction->abiName +
+                    "'; only \"C\" is supported");
+      continue;
+    }
     if (isReservedIdentifier(externFunction->name)) {
       addDiagnostic("reserved identifier '" + externFunction->name +
                     "' cannot be used as an extern function name");
@@ -356,7 +509,7 @@ bool Analyzer::collectFunctionSignatures(
                       "' cannot be used as a parameter name");
         continue;
       }
-      if (isVariableLengthStandardTemplate(param.templateName)) {
+      if (!signature.isCAbi && isVariableLengthStandardTemplate(param.templateName)) {
         addDiagnostic("core extern parameter '" + param.name +
                       "' cannot pass " + param.templateName +
                       " by value; use [P] as addr");
@@ -365,7 +518,9 @@ bool Analyzer::collectFunctionSignatures(
 
       std::optional<std::size_t> length;
       if (param.length.empty()) {
-        length = templateByteLength(param.templateName);
+        length = signature.isCAbi && param.templateName == "cstr"
+                     ? std::optional<std::size_t>{pointerByteLength()}
+                     : templateByteLength(param.templateName);
         if (!length) {
           addDiagnostic("extern parameter '" + param.name +
                         "' requires an explicit byte length");
@@ -384,16 +539,19 @@ bool Analyzer::collectFunctionSignatures(
       }
       signature.parameterByteLengths.push_back(*length);
       signature.parameterTemplateNames.push_back(param.templateName);
+      signature.stringParameters.push_back(signature.isCAbi &&
+                                           param.templateName == "cstr");
     }
     auto returns = parseReturnSignature(externFunction->returns,
-                                        externFunction->name);
+                                        externFunction->name,
+                                        signature.isCAbi);
     if (!returns) {
       continue;
     }
     if (const auto found = functions_.find(externFunction->name);
         found != functions_.end()) {
       if (hasSameAbiSignature(found->second, signature.parameterByteLengths,
-                              *returns)) {
+                              *returns, signature.isCAbi)) {
         continue;
       }
       addDiagnostic("duplicate function declaration '" + externFunction->name +
@@ -407,9 +565,15 @@ bool Analyzer::collectFunctionSignatures(
       signature.returnHasExplicitUserTemplate.push_back(
           !item.templateName.empty() && templates_.contains(item.templateName));
     }
+    if (signature.isCAbi && !cAbiSignature(signature)) {
+      addDiagnostic("C ABI declaration '" + signature.name +
+                    "' uses an unsupported parameter or return type");
+      continue;
+    }
     externs.emplace_back(signature.name, signature.parameterByteLengths,
                          signature.returnByteLengths);
-    if (const auto abi = floatingAbiSignature(signature)) {
+    if (const auto abi = signature.isCAbi ? cAbiSignature(signature)
+                                          : floatingAbiSignature(signature)) {
       externs.back().abiSignature = *abi;
     }
     functions_.emplace(signature.name, std::move(signature));
@@ -435,6 +599,22 @@ bool Analyzer::collectFunctionSignatures(
     }
     FunctionSignature signature;
     signature.name = function->name;
+    signature.isCAbi = !function->abiName.empty();
+    if (signature.isCAbi && !isCAbiName(function->abiName)) {
+      addDiagnostic("unsupported extern ABI '" + function->abiName +
+                    "'; only \"C\" is supported");
+      continue;
+    }
+    if (signature.isCAbi && function->name == "main") {
+      addDiagnostic("C ABI export cannot define main");
+      continue;
+    }
+    if (signature.isCAbi &&
+        containsCAbiForbiddenControlFlow(*function->body)) {
+      addDiagnostic("C ABI export '" + signature.name +
+                    "' cannot contain throw or try/catch");
+      continue;
+    }
     for (const auto &param : function->params) {
       if (isReservedIdentifier(param.name)) {
         addDiagnostic("reserved identifier '" + param.name +
@@ -443,9 +623,11 @@ bool Analyzer::collectFunctionSignatures(
       }
       std::optional<std::size_t> length;
       if (param.length.empty()) {
-        length = param.templateName.empty()
+        length = signature.isCAbi && param.templateName == "cstr"
+                     ? std::optional<std::size_t>{pointerByteLength()}
+                     : (param.templateName.empty()
                      ? std::optional<std::size_t>{4}
-                     : templateByteLength(param.templateName);
+                     : templateByteLength(param.templateName));
       } else {
         length = parseDeclaredLength(param.length, param.templateName);
       }
@@ -455,9 +637,12 @@ bool Analyzer::collectFunctionSignatures(
       }
       signature.parameterByteLengths.push_back(*length);
       signature.parameterTemplateNames.push_back(param.templateName);
+      signature.stringParameters.push_back(signature.isCAbi &&
+                                           param.templateName == "cstr");
     }
     if (!function->returns.empty()) {
-      auto returns = parseReturnSignature(function->returns, function->name);
+      auto returns = parseReturnSignature(function->returns, function->name,
+                                          signature.isCAbi);
       if (!returns) {
         continue;
       }
@@ -470,6 +655,9 @@ bool Analyzer::collectFunctionSignatures(
       }
       signature.returnsKnown = true;
       signature.returnsExplicit = true;
+    } else if (signature.isCAbi) {
+      signature.returnsKnown = true;
+      signature.returnsExplicit = true;
     } else if (function->name == "main") {
       // The host entry point uses the documented i32 ABI even when source
       // omits an explicit return signature.
@@ -477,6 +665,11 @@ bool Analyzer::collectFunctionSignatures(
       signature.returnTemplateNames = {"i32"};
       signature.returnsKnown = true;
       signature.returnsExplicit = false;
+    }
+    if (signature.isCAbi && !cAbiSignature(signature)) {
+      addDiagnostic("C ABI export '" + signature.name +
+                    "' uses an unsupported parameter or return type");
+      continue;
     }
     functions_.emplace(signature.name, std::move(signature));
   }
@@ -524,7 +717,7 @@ bool Analyzer::rejectUnavailableStandardBuiltin(const ast::CallExpr &call) {
 
 std::optional<std::vector<std::size_t>>
 Analyzer::parseReturnSignature(const std::vector<ast::ReturnItem> &returns,
-                               std::string_view owner) {
+                               std::string_view owner, bool cAbi) {
   std::vector<std::size_t> byteLengths;
   for (const auto &item : returns) {
     std::size_t length = 0;
@@ -533,7 +726,9 @@ Analyzer::parseReturnSignature(const std::vector<ast::ReturnItem> &returns,
     } else {
       const auto templateName = item.templateName.empty() ? item.name
                                                            : item.templateName;
-      const auto templateLength = templateByteLength(templateName);
+      const auto templateLength = cAbi && templateName == "cstr"
+                                      ? std::optional<std::size_t>{pointerByteLength()}
+                                      : templateByteLength(templateName);
       if (templateLength) {
         length = *templateLength;
       }

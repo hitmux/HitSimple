@@ -76,7 +76,7 @@ jobs:
               sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
           fi
           sudo apt-get update
-          sudo apt-get install -y bison clang-18 dpkg-dev file gdb llvm-18-dev ninja-build re2c
+          sudo apt-get install -y bison cargo clang-18 dpkg-dev file gdb llvm-18-dev ninja-build re2c
 
       - name: Configure and build
         run: |
@@ -108,7 +108,7 @@ jobs:
           ./hello-checked | grep -Fx 42
           ./build-release/hsc tests/cases/run/f16_f128_fallback.hs -o f128-smoke
           ./f128-smoke
-          ctest --test-dir build-release --output-on-failure -R '^hsc_debug_info_gdb$'
+          ctest --test-dir build-release --output-on-failure -R '^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*)$'
 
       - name: Verify native preprocessor macro
         shell: bash

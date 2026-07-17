@@ -50,7 +50,10 @@ private:
   }
 
   void dump(const ExternFunction &function) {
-    line("ExternFunction name=" + function.name);
+    line("ExternFunction name=" + function.name +
+         (function.abiSignature && function.abiSignature->isCCompatibility
+              ? " c_abi=true"
+              : ""));
     ++indent_;
     for (const auto byteLength : function.parameterByteLengths) {
       line("Param bytes=" + std::to_string(byteLength));
@@ -103,6 +106,9 @@ private:
   void dump(const Function &function) {
     line("Function name=" + function.name + " linkage=" +
          std::string(toString(function.linkage)) +
+         (function.abiSignature && function.abiSignature->isCCompatibility
+              ? " c_abi=true"
+              : "") +
          (function.usesViewAbi ? " view_abi=true" : ""));
     ++indent_;
     for (const auto &parameter : function.parameters) {

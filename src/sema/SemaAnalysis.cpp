@@ -255,7 +255,8 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
   auto parameters = std::move(currentParameters_);
   currentParameters_.clear();
   auto returns = currentFunction_->returnByteLengths;
-  const auto abi = floatingAbiSignature(*currentFunction_);
+  const auto abi = currentFunction_->isCAbi ? cAbiSignature(*currentFunction_)
+                                            : floatingAbiSignature(*currentFunction_);
   currentFunction_ = nullptr;
   auto lowered = std::make_unique<hir::Function>(
       function.name, std::move(parameters), std::move(returns), std::move(body));
