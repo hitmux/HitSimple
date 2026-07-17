@@ -535,6 +535,17 @@ async function run() {
 
   const main = await openEditor("main.hs");
   assert.equal(main.document.languageId, "hitsimple");
+  if (!isLinuxX64()) {
+    await extension.activate();
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(commands.includes("hitsimple.buildCurrentFile"));
+    assert.ok(commands.includes("hitsimple.runCurrentFile"));
+    assert.ok(commands.includes("hitsimple.debugCurrentFile"));
+    await runStep("unsupported debug", verifyDebug);
+    console.log("HitSimple Extension Host assertions passed");
+    return;
+  }
+
   await runStep("Build and Run", () => verifyBuildAndRun(main.document.uri, extension));
   const commands = await vscode.commands.getCommands(true);
   assert.ok(commands.includes("hitsimple.buildCurrentFile"));

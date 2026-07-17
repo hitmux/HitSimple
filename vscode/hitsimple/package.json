@@ -10,6 +10,11 @@
     "url": "https://github.com/hitmux/HitSimple.git"
   },
   "main": "./src/extension.js",
+  "activationEvents": [
+    "onCommand:hitsimple.buildCurrentFile",
+    "onCommand:hitsimple.runCurrentFile",
+    "onCommand:hitsimple.debugCurrentFile"
+  ],
   "extensionKind": [
     "workspace"
   ],

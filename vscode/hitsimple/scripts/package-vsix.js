@@ -19,7 +19,10 @@ const result = spawnSync(executable, [
   "package",
   "--out",
   outputPath,
-], { stdio: "inherit" });
+], {
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
 
 if (result.error) {
   throw result.error;

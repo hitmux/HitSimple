@@ -165,6 +165,11 @@ test("contribution JSON files parse and all referenced paths exist", async () =>
 
   assert.equal(manifest.name, "hitsimple-vscode");
   assert.equal(manifest.main, "./src/extension.js");
+  assert.deepEqual(manifest.activationEvents, [
+    "onCommand:hitsimple.buildCurrentFile",
+    "onCommand:hitsimple.runCurrentFile",
+    "onCommand:hitsimple.debugCurrentFile",
+  ]);
   assert.deepEqual(manifest.extensionKind, ["workspace"]);
   assert.deepEqual(manifest.extensionDependencies, ["ms-vscode.cpptools"]);
   assert.ok(manifest.categories.includes("Debuggers"));
@@ -213,6 +218,7 @@ test("contribution JSON files parse and all referenced paths exist", async () =>
     "utf8",
   );
   assert.match(packageScript, /manifest\.version/);
+  assert.match(packageScript, /shell: process\.platform === "win32"/);
 
   const referencedPaths = [
     manifest.contributes.languages[0].configuration,

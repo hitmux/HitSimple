@@ -125,36 +125,60 @@ test("real hsc builds and runs all three configured safety modes", async () => {
   }
 });
 
-test("executable lookup resolves PATH and relative compiler paths", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-path-"));
-  const compiler = path.join(directory, "hsc-test");
-  try {
-    await writeFile(compiler, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    assert.equal(
-      await findExecutable("hsc-test", {
-        environment: { PATH: directory },
-        platform: "linux",
-      }),
-      compiler,
-    );
-    assert.equal(
-      await findExecutable("./hsc-test", {
-        cwd: directory,
-        environment: { PATH: "" },
-        platform: "linux",
-      }),
-      compiler,
-    );
-    assert.equal(
-      await findExecutable("missing-hsc", {
-        environment: { PATH: directory },
-        platform: "linux",
-      }),
-      undefined,
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+function executableFileSystem(executables) {
+  return {
+    async stat(filePath) {
+      if (!executables.has(filePath)) {
+        throw new Error("missing file");
+      }
+      return { isFile: () => true };
+    },
+    async access(filePath) {
+      if (!executables.has(filePath)) {
+        throw new Error("missing file");
+      }
+    },
+  };
+}
+
+test("executable lookup resolves Linux and Windows compiler paths", async () => {
+  const linuxCompiler = "/workspace/bin/hsc-test";
+  const linuxFileSystem = executableFileSystem(new Set([linuxCompiler]));
+  assert.equal(
+    await findExecutable("hsc-test", {
+      environment: { PATH: "/workspace/bin" },
+      fileSystem: linuxFileSystem,
+      platform: "linux",
+    }),
+    linuxCompiler,
+  );
+  assert.equal(
+    await findExecutable("./hsc-test", {
+      cwd: "/workspace/bin",
+      environment: { PATH: "" },
+      fileSystem: linuxFileSystem,
+      platform: "linux",
+    }),
+    linuxCompiler,
+  );
+  assert.equal(
+    await findExecutable("missing-hsc", {
+      environment: { PATH: "/workspace/bin" },
+      fileSystem: linuxFileSystem,
+      platform: "linux",
+    }),
+    undefined,
+  );
+
+  const windowsCompiler = "C:\\toolchain\\hsc-test.EXE";
+  assert.equal(
+    await findExecutable("hsc-test", {
+      environment: { Path: "C:\\toolchain", PATHEXT: ".EXE" },
+      fileSystem: executableFileSystem(new Set([windowsCompiler])),
+      platform: "win32",
+    }),
+    windowsCompiler,
+  );
 });
 
 test("build plan rejects path escape and extension-controlled arguments", () => {
