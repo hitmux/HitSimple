@@ -619,6 +619,19 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     ["3", "15", "error", "float operand is not a float expression"],
   );
 
+  function assertLocatedDiagnostic(match, sourcePath, line, column, severity, message) {
+    assert.ok(match, "expected a located compiler diagnostic");
+    const [, diagnosticPath, actualLine, actualColumn, actualSeverity, actualMessage] = match;
+    assert.ok(
+      diagnosticPath.replaceAll("\\", "/").endsWith(sourcePath.replaceAll("\\", "/")),
+      `unexpected diagnostic source path: ${diagnosticPath}`,
+    );
+    assert.deepEqual(
+      [actualLine, actualColumn, actualSeverity, actualMessage],
+      [line, column, severity, message],
+    );
+  }
+
   const directory = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-diagnostics-"));
   try {
     const directPath = path.join(directory, "direct-error.hs");
@@ -626,25 +639,28 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     const direct = runHsc(["--dump-ast", directPath]);
     assert.equal(direct.status, 1, direct.stderr);
     const directMatch = regexp.exec(direct.stderr.trim());
-    assert.deepEqual(directMatch?.slice(1, 5), [
+    assertLocatedDiagnostic(
+      directMatch,
       directPath,
       "1",
       "11",
       "error",
-    ]);
+      directMatch?.[5],
+    );
     assert.match(directMatch?.[5] ?? "", /^syntax error, unexpected \]/);
 
     const lexerPath = path.join(directory, "direct-lexer-error.hs");
     await writeFile(lexerPath, "@\n", "utf8");
     const directLexer = runHsc(["--dump-tokens", lexerPath]);
     assert.equal(directLexer.status, 1, directLexer.stderr);
-    assert.deepEqual(regexp.exec(directLexer.stderr.trim())?.slice(1), [
+    assertLocatedDiagnostic(
+      regexp.exec(directLexer.stderr.trim()),
       lexerPath,
       "1",
       "1",
       "error",
       "invalid token `@`",
-    ]);
+    );
 
     const includePath = path.join(directory, "broken.hsi");
     const mainPath = path.join(directory, "include-error.hs");
@@ -653,12 +669,14 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     const included = runHsc(["--dump-ast", mainPath]);
     assert.equal(included.status, 1, included.stderr);
     const includedMatch = regexp.exec(included.stderr.trim());
-    assert.deepEqual(includedMatch?.slice(1, 5), [
+    assertLocatedDiagnostic(
+      includedMatch,
       includePath,
       "1",
       "11",
       "error",
-    ]);
+      includedMatch?.[5],
+    );
     assert.match(includedMatch?.[5] ?? "", /^syntax error, unexpected \]/);
 
     const lexerIncludePath = path.join(directory, "broken-lexer.hsi");
@@ -667,13 +685,14 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     await writeFile(lexerMainPath, '$ include "broken-lexer.hsi"\n', "utf8");
     const includedLexer = runHsc(["--dump-ast", lexerMainPath]);
     assert.equal(includedLexer.status, 1, includedLexer.stderr);
-    assert.deepEqual(regexp.exec(includedLexer.stderr.trim())?.slice(1), [
+    assertLocatedDiagnostic(
+      regexp.exec(includedLexer.stderr.trim()),
       lexerIncludePath,
       "1",
       "1",
       "error",
       "bare # is not valid HitSimple source",
-    ]);
+    );
 
     const noMainPath = path.join(directory, "no-main.hs");
     await writeFile(noMainPath, "func helper() {\n    return 0\n}\n", "utf8");

@@ -46,6 +46,7 @@ function installCppTools(vscodeExecutablePath, extensionsPath, userDataPath) {
   ], {
     encoding: "utf8",
     timeout: 300000,
+    shell: process.platform === "win32",
   });
   if (result.error) {
     throw result.error;

@@ -136,7 +136,7 @@ test("executable lookup resolves PATH and relative compiler paths", async () => 
     assert.equal(
       await findExecutable("hsc-test", {
         environment: { PATH: directory },
-        platform: "linux",
+        platform: process.platform,
       }),
       compiler,
     );
@@ -144,14 +144,14 @@ test("executable lookup resolves PATH and relative compiler paths", async () => 
       await findExecutable("./hsc-test", {
         cwd: directory,
         environment: { PATH: "" },
-        platform: "linux",
+        platform: process.platform,
       }),
       compiler,
     );
     assert.equal(
       await findExecutable("missing-hsc", {
         environment: { PATH: directory },
-        platform: "linux",
+        platform: process.platform,
       }),
       undefined,
     );

@@ -11,7 +11,10 @@ const result = spawnSync(executable, [
   "package",
   "--out",
   `dist/hitsimple-vscode-${manifest.version}.vsix`,
-], { stdio: "inherit" });
+], {
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
 
 if (result.error) {
   throw result.error;
