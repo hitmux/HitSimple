@@ -221,6 +221,40 @@ function createDebugAdapterTrace() {
   };
 }
 
+function installDebuginfodGuard() {
+  let applied = false;
+  const command = {
+    description: "Disable debuginfod for the isolated Extension Host debug test",
+    text: "-gdb-set debuginfod enabled off",
+    ignoreFailures: false,
+  };
+  const disposable = vscode.debug.registerDebugConfigurationProvider("cppdbg", {
+    resolveDebugConfiguration(_folder, debugConfiguration) {
+      if (debugConfiguration.name !== "HitSimple: Debug Current File") {
+        return debugConfiguration;
+      }
+      applied = true;
+      return {
+        ...debugConfiguration,
+        setupCommands: [
+          ...(Array.isArray(debugConfiguration.setupCommands)
+            ? debugConfiguration.setupCommands
+            : []),
+          command,
+        ],
+      };
+    },
+  });
+  return {
+    dispose() {
+      disposable.dispose();
+    },
+    wasApplied() {
+      return applied;
+    },
+  };
+}
+
 async function waitForDebugFrame(session, sourcePath, trace) {
   const sourceName = path.basename(sourcePath);
   let lastStackFrames = [];
@@ -272,7 +306,6 @@ async function verifyDebug() {
   const { document } = await openEditor("debug.hs");
   const configuration = vscode.workspace.getConfiguration("hitsimple", document.uri);
   const originalArguments = configuration.get("debugArguments");
-  const expectedGdbPath = process.env.HITSIMPLE_TEST_GDB_PATH;
 
   if (!isLinuxX64()) {
     const result = await vscode.commands.executeCommand(
@@ -285,9 +318,7 @@ async function verifyDebug() {
 
   const cppTools = vscode.extensions.getExtension("ms-vscode.cpptools");
   assert.ok(cppTools, "ms-vscode.cpptools must be installed for the Linux debug test");
-  if (expectedGdbPath) {
-    assert.equal(configuration.get("gdbPath"), expectedGdbPath);
-  }
+  assert.equal(configuration.get("gdbPath"), "gdb");
   const breakpoint = new vscode.SourceBreakpoint(
     new vscode.Location(document.uri, new vscode.Position(2, 0)),
   );
@@ -301,6 +332,7 @@ async function verifyDebug() {
   let session;
   let startedSession;
   const trace = createDebugAdapterTrace();
+  const debuginfodGuard = installDebuginfodGuard();
   const sessionSubscription = vscode.debug.onDidStartDebugSession((candidate) => {
     if (candidate.type === "cppdbg") {
       startedSession = candidate;
@@ -322,6 +354,10 @@ async function verifyDebug() {
       Boolean,
       "the cppdbg session",
       30000,
+    );
+    assert.ok(
+      debuginfodGuard.wasApplied(),
+      "the isolated debug test must add its debuginfod setup command",
     );
     const { frame, stack } = await waitForDebugFrame(
       session,
@@ -362,6 +398,7 @@ async function verifyDebug() {
   } finally {
     sessionSubscription.dispose();
     trace.dispose();
+    debuginfodGuard.dispose();
     if (session) {
       await vscode.debug.stopDebugging(session);
     }
