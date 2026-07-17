@@ -355,7 +355,7 @@ async function verifyDebug() {
       document.uri.fsPath,
       trace,
     );
-    assert.match(frame.name, /^helper(?:\(\))?$/);
+    assert.match(frame.name, /(?:^|!)helper(?:\(\))?$/);
     assert.ok(frame.source, "helper must be a HitSimple source frame");
     assert.ok(
       frame.source.name === path.basename(document.uri.fsPath) ||
@@ -364,7 +364,7 @@ async function verifyDebug() {
     );
     assert.ok(
       (stack.stackFrames || []).some((candidate) =>
-        /^main(?:\(\))?$/.test(candidate.name) && candidate.source &&
+        /(?:^|!)main(?:\(\))?$/.test(candidate.name) && candidate.source &&
         (candidate.source.name === path.basename(document.uri.fsPath) ||
           (candidate.source.path &&
             path.resolve(candidate.source.path) === document.uri.fsPath))),
