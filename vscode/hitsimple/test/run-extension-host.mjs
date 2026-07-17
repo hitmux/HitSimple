@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +57,7 @@ async function prepareWorkspace(root) {
   const workspacePath = path.join(root, "workspace");
   const userDataPath = path.join(root, "user-data");
   const extensionsPath = path.join(root, "extensions");
+  const gdbPath = path.join(root, "gdb-no-debuginfod");
   await Promise.all([
     mkdir(path.join(workspacePath, ".vscode"), { recursive: true }),
     mkdir(path.join(userDataPath, "User"), { recursive: true }),
@@ -72,7 +73,7 @@ async function prepareWorkspace(root) {
         "hitsimple.mode": "unchecked",
         "hitsimple.outputDirectory": outputDirectory,
         "hitsimple.additionalArgs": [],
-        "hitsimple.gdbPath": "gdb",
+        "hitsimple.gdbPath": gdbPath,
         "hitsimple.debugArguments": [],
         "editor.autoIndent": "full",
         "editor.insertSpaces": true,
@@ -89,6 +90,10 @@ async function prepareWorkspace(root) {
         "extensions.autoUpdate": false,
       }, null, 2)}\n`,
     ),
+    writeFile(
+      gdbPath,
+      "#!/bin/sh\nexec /usr/bin/gdb -ex 'set debuginfod enabled off' \"$@\"\n",
+    ).then(() => chmod(gdbPath, 0o755)),
     writeFile(
       path.join(workspacePath, "main.hs"),
       "func main() {\n    return 0\n}\n",
@@ -143,7 +148,6 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
-      HITSIMPLE_TEST_MI_DEBUGGER_ARGS: '-iex "set debuginfod enabled off"',
     },
     launchArgs: [
       workspacePath,
