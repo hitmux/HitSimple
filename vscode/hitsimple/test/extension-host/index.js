@@ -159,7 +159,7 @@ function isLinuxX64() {
 }
 
 function createHeadlessDebugConsoleOverride() {
-  if (process.env.CI !== "true") {
+  if (process.env.HITSIMPLE_TEST_HEADLESS_DEBUG !== "true") {
     return undefined;
   }
 
@@ -167,16 +167,43 @@ function createHeadlessDebugConsoleOverride() {
   // Extension Host has no usable integrated-terminal process, so route only
   // the test adapter session through its debug console.
   const originalStartDebugging = vscode.debug.startDebugging;
-  vscode.debug.startDebugging = (workspaceFolder, configuration, options) =>
-    originalStartDebugging.call(vscode.debug, workspaceFolder, {
+  let invocation;
+  vscode.debug.startDebugging = (workspaceFolder, configuration, options) => {
+    invocation = {
+      console: configuration.console,
+      stopAtEntry: configuration.stopAtEntry,
+    };
+    console.log(
+      `HitSimple Extension Host: headless cppdbg console=${configuration.console} ` +
+      `stopAtEntry=${configuration.stopAtEntry}`,
+    );
+    return originalStartDebugging.call(vscode.debug, workspaceFolder, {
       ...configuration,
       console: "internalConsole",
+      stopAtEntry: true,
     }, options);
+  };
   return {
+    getInvocation() {
+      return invocation;
+    },
     dispose() {
       vscode.debug.startDebugging = originalStartDebugging;
     },
   };
+}
+
+async function continueFromDebugEntry(session) {
+  const threads = await waitForValue(
+    async () => {
+      const response = await session.customRequest("threads");
+      return response.threads && response.threads[0];
+    },
+    Boolean,
+    "the cppdbg entry thread",
+    30000,
+  );
+  await session.customRequest("continue", { threadId: threads.id });
 }
 
 async function waitForDebugFrame(session, sourcePath) {
@@ -269,6 +296,12 @@ async function verifyDebug() {
     assert.deepEqual(result.launchConfiguration.args, ["argument with spaces"]);
     assert.equal(result.launchConfiguration.MIMode, "gdb");
     assert.equal(result.launchConfiguration.console, "integratedTerminal");
+    if (consoleOverride) {
+      assert.deepEqual(consoleOverride.getInvocation(), {
+        console: "integratedTerminal",
+        stopAtEntry: undefined,
+      });
+    }
 
     session = await waitForValue(
       () => startedSession,
@@ -276,6 +309,9 @@ async function verifyDebug() {
       "the cppdbg session",
       30000,
     );
+    if (consoleOverride) {
+      await continueFromDebugEntry(session);
+    }
     const { frame, stack } = await waitForDebugFrame(session, document.uri.fsPath);
     assert.match(frame.name, /^helper(?:\(\))?$/);
     assert.ok(frame.source, "helper must be a HitSimple source frame");

@@ -143,6 +143,7 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
+      HITSIMPLE_TEST_HEADLESS_DEBUG: process.env.CI === "true" ? "true" : "false",
     },
     launchArgs: [
       workspacePath,
