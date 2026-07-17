@@ -10,7 +10,7 @@ on:
       version:
         description: Version to validate without publishing
         required: true
-        default: "0.2.1"
+        default: "0.2.2"
       scope:
         description: Validation jobs to run
         required: true
@@ -76,7 +76,7 @@ jobs:
               sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
           fi
           sudo apt-get update
-          sudo apt-get install -y bison clang-18 dpkg-dev file llvm-18-dev ninja-build re2c
+          sudo apt-get install -y bison clang-18 dpkg-dev file gdb llvm-18-dev ninja-build re2c
 
       - name: Configure and build
         run: |
@@ -981,6 +981,8 @@ jobs:
           DEB 安装到 \`/usr/bin\`、\`/usr/libexec/hitsimple\`、\`/usr/lib/hitsimple\` 和 \`/usr/share/hitsimple\`。Ubuntu 22.04 与 Debian 12 需要从 apt.llvm.org 安装 Clang 18；软件包不会自动添加软件源。
 
           macOS 使用 Boost software binary128 backend，要求外部 Clang 18 或更高版本。Fedora 44 和 EL9 RPM 也要求外部 \`clang >= 18\`，不内置 Clang。
+
+          VS Code 扩展提供 Linux x86_64 上的 Debug Current File：它以 \`-g\` 构建当前 \`.hs\` 文件，并通过 Microsoft C/C++ 扩展的 \`cppdbg\` 与 GDB 启动调试。macOS、Windows、LLDB 和自定义 DAP 不在此支持范围内。
 
           当前仍是实验性 Beta。C compatibility 的 struct 传值 ABI 只支持 x86_64 SysV ELF；Windows 和 Darwin 会明确拒绝该范围。
           EOF

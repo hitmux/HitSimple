@@ -49,6 +49,7 @@ void printHelp(std::ostream& out) {
       << "  --dump-ast        Print parser AST\n"
       << "  --dump-hir        Print semantic HIR\n"
       << "  --emit-llvm       Emit LLVM IR\n"
+      << "  -g                Emit DWARF debug information\n"
       << "  --c-compat        Parse all inputs as C compatibility source\n"
       << "  -E, --preprocess-only\n"
       << "                   Print preprocessed source\n"
@@ -795,6 +796,9 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
 #if defined(__APPLE__)
   arguments.push_back("-lc++");
 #endif
+  if (codegenOptions.emitDebugInfo) {
+    arguments.push_back("-g");
+  }
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);
   for (const auto& tempPath : tempPaths) {
@@ -871,6 +875,11 @@ int hscMain(const std::vector<std::string>& arguments) {
 
     if (arg == "--emit-llvm") {
       shouldEmitLlvm = true;
+      continue;
+    }
+
+    if (arg == "-g") {
+      codegenOptions.emitDebugInfo = true;
       continue;
     }
 
@@ -961,6 +970,11 @@ int hscMain(const std::vector<std::string>& arguments) {
       std::cerr << ' ' << action;
     }
     std::cerr << '\n';
+    return EXIT_FAILURE;
+  }
+
+  if (codegenOptions.emitDebugInfo && !(shouldEmitLlvm || actions.empty())) {
+    std::cerr << "hsc: -g is only supported for executable builds and --emit-llvm\n";
     return EXIT_FAILURE;
   }
 

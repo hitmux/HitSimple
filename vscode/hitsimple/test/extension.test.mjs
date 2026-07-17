@@ -166,13 +166,19 @@ test("contribution JSON files parse and all referenced paths exist", async () =>
   assert.equal(manifest.name, "hitsimple-vscode");
   assert.equal(manifest.main, "./src/extension.js");
   assert.deepEqual(manifest.extensionKind, ["workspace"]);
+  assert.deepEqual(manifest.extensionDependencies, ["ms-vscode.cpptools"]);
+  assert.ok(manifest.categories.includes("Debuggers"));
   assert.equal(manifest.contributes.languages.length, 1);
   assert.equal(manifest.contributes.grammars.length, 1);
   assert.equal(manifest.contributes.snippets.length, 1);
   assert.equal(manifest.contributes.problemMatchers.length, 1);
   assert.deepEqual(
     manifest.contributes.commands.map(({ command }) => command),
-    ["hitsimple.buildCurrentFile", "hitsimple.runCurrentFile"],
+    [
+      "hitsimple.buildCurrentFile",
+      "hitsimple.runCurrentFile",
+      "hitsimple.debugCurrentFile",
+    ],
   );
 
   const settings = manifest.contributes.configuration.properties;
@@ -185,8 +191,28 @@ test("contribution JSON files parse and all referenced paths exist", async () =>
   ]);
   assert.equal(settings["hitsimple.outputDirectory"].default, ".hitsimple/build");
   assert.equal(settings["hitsimple.additionalArgs"].type, "array");
+  assert.equal(settings["hitsimple.gdbPath"].default, "gdb");
+  assert.equal(settings["hitsimple.gdbPath"].scope, "machine-overridable");
+  assert.deepEqual(settings["hitsimple.debugArguments"].default, []);
+  assert.equal(settings["hitsimple.debugArguments"].type, "array");
   assert.equal(manifest.capabilities.untrustedWorkspaces.supported, "limited");
+  assert.ok(
+    manifest.capabilities.untrustedWorkspaces.restrictedConfigurations.includes(
+      "hitsimple.gdbPath",
+    ),
+  );
+  assert.ok(
+    manifest.capabilities.untrustedWorkspaces.restrictedConfigurations.includes(
+      "hitsimple.debugArguments",
+    ),
+  );
   assert.equal(manifest.capabilities.virtualWorkspaces, false);
+
+  const packageScript = await readFile(
+    path.join(extensionRoot, "scripts", "package-vsix.js"),
+    "utf8",
+  );
+  assert.match(packageScript, /manifest\.version/);
 
   const referencedPaths = [
     manifest.contributes.languages[0].configuration,

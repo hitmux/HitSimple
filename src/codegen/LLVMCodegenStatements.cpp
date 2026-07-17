@@ -77,6 +77,7 @@ void LlvmEmitter::emit(const hir::Block &block) {
 }
 
 void LlvmEmitter::emit(const hir::Stmt &statement) {
+  DebugLocationScope debugLocation(*this, statement.range);
   if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
     for (const auto &item : list->statements) {
       emit(*item);
@@ -220,6 +221,7 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
     locals_.emplace(local.bindingName,
                     Local{storage, storageType, local.byteLength, std::nullopt});
     registerStaticObject(storage, local.byteLength);
+    declareDebugVariable(local.name, local.range, local.byteLength, storage);
     return;
   }
 
@@ -228,6 +230,7 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
   locals_.emplace(local.bindingName,
                   Local{storage, storageType, local.byteLength, std::nullopt});
   registerLocalObject(storage, local.byteLength);
+  declareDebugVariable(local.name, local.range, local.byteLength, storage);
 }
 
 void LlvmEmitter::emit(const hir::IntegerStore &store) {

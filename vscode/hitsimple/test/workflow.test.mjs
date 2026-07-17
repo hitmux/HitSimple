@@ -17,6 +17,14 @@ const {
 } = require("../src/buildPlan");
 const { findExecutable } = require("../src/executable");
 const {
+  DebugPlanError,
+  createCppdbgLaunchConfiguration,
+  normalizeDebugBuildArgs,
+  validateDebugArguments,
+  validateGdbPath,
+} = require("../src/debugPlan");
+const { createDebugWorkflow } = require("../src/debugWorkflow");
+const {
   createTaskRunner,
   executeProcessTask,
 } = require("../src/taskRunner");
@@ -165,6 +173,65 @@ test("build plan rejects path escape and extension-controlled arguments", () => 
       (error) => error instanceof BuildPlanError && error.code === "controlled-additional-arg",
     );
   }
+});
+
+test("debug plan injects one -g and preserves program argv without shell parsing", () => {
+  assert.deepEqual(
+    normalizeDebugBuildArgs([
+      "--checked",
+      "-g",
+      "--timing",
+      "-g",
+      "/workspace/main.hs",
+      "-o",
+      "/workspace/main",
+    ]),
+    [
+      "-g",
+      "--checked",
+      "--timing",
+      "/workspace/main.hs",
+      "-o",
+      "/workspace/main",
+    ],
+  );
+  assert.deepEqual(validateDebugArguments(["", "argument with spaces", "$()"]), [
+    "",
+    "argument with spaces",
+    "$()",
+  ]);
+  assert.throws(
+    () => validateDebugArguments(["ok", 42]),
+    (error) => error instanceof DebugPlanError &&
+      error.code === "invalid-debug-argument",
+  );
+  assert.throws(
+    () => validateDebugArguments(["bad\0argument"]),
+    (error) => error instanceof DebugPlanError &&
+      error.code === "nul-debug-argument",
+  );
+  assert.throws(
+    () => validateGdbPath(""),
+    (error) => error instanceof DebugPlanError &&
+      error.code === "invalid-gdb-path",
+  );
+
+  assert.deepEqual(createCppdbgLaunchConfiguration({
+    program: "/workspace/.hitsimple/build/main",
+    args: ["one", "two words"],
+    cwd: "/workspace",
+    gdbPath: "/usr/bin/gdb",
+  }), {
+    type: "cppdbg",
+    request: "launch",
+    name: "HitSimple: Debug Current File",
+    program: "/workspace/.hitsimple/build/main",
+    args: ["one", "two words"],
+    cwd: "/workspace",
+    MIMode: "gdb",
+    miDebuggerPath: "/usr/bin/gdb",
+    console: "integratedTerminal",
+  });
 });
 
 function createTaskEvents({
@@ -431,6 +498,27 @@ test("build workflow saves, removes stale output, builds, and verifies executabl
   assert.deepEqual(harness.errors, []);
 });
 
+test("debug build normalizes configured -g flags before creating the task", async () => {
+  const harness = createWorkflowHarness({
+    configuration: { additionalArgs: ["-g", "--timing", "-g"] },
+  });
+  const result = await harness.workflows.buildCurrentFile({
+    announceSuccess: false,
+    debugInfo: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.plan.debugInfo, true);
+  assert.deepEqual(result.plan.args, [
+    "-g",
+    "--checked",
+    "--timing",
+    "/workspace/src/demo.hs",
+    "-o",
+    "/workspace/.hitsimple/build/src/demo",
+  ]);
+});
+
 test("run workflow is gated by build exit and output existence", async () => {
   const compileFailure = createWorkflowHarness({ buildExitCode: 2 });
   const failed = await compileFailure.workflows.runCurrentFile();
@@ -501,6 +589,139 @@ test("workflow rejects unsafe editor and workspace contexts", async () => {
   }
 });
 
+function createDebugHarness(options = {}) {
+  const calls = [];
+  const errors = [];
+  const infos = [];
+  const values = {
+    gdbPath: "gdb",
+    debugArguments: ["argument with spaces"],
+    ...options.configuration,
+  };
+  const configuration = {
+    get(key, fallback) {
+      return values[key] ?? fallback;
+    },
+  };
+  const build = options.build || {
+    ok: true,
+    outputPath: "/workspace/.hitsimple/build/src/demo",
+    plan: { cwd: "/workspace" },
+    workspaceFolder: { name: "workspace" },
+    document: { uri: { fsPath: "/workspace/src/demo.hs" } },
+    configuration,
+  };
+  const workflows = {
+    async buildCurrentFile(buildOptions) {
+      calls.push(["build", buildOptions]);
+      return build;
+    },
+  };
+  const vscodeApi = {
+    window: {
+      showErrorMessage(message) {
+        errors.push(message);
+      },
+      showInformationMessage(message) {
+        infos.push(message);
+      },
+    },
+    workspace: {
+      getConfiguration() {
+        return configuration;
+      },
+    },
+    extensions: {
+      getExtension() {
+        return options.cppTools === false ? undefined : {
+          packageJSON: { contributes: { debuggers: [{ type: "cppdbg" }] } },
+        };
+      },
+    },
+    debug: {
+      async startDebugging(workspaceFolder, launchConfiguration) {
+        calls.push(["start-debug", workspaceFolder, launchConfiguration]);
+        if (options.startDebugError) {
+          throw new Error("debug adapter failed");
+        }
+        return options.startDebugging ?? true;
+      },
+    },
+  };
+  const debugWorkflow = createDebugWorkflow(vscodeApi, workflows, {
+    platform: options.platform || "linux",
+    architecture: options.architecture || "x64",
+    findExecutable: async () => {
+      if (options.gdbCheckError) {
+        throw new Error("EACCES");
+      }
+      return options.gdbFound === false ? undefined : "/usr/bin/gdb";
+    },
+  });
+  return { calls, debugWorkflow, errors, infos };
+}
+
+test("debug workflow builds first, launches cppdbg, and reports every preflight failure", async () => {
+  const success = createDebugHarness();
+  const result = await success.debugWorkflow.debugCurrentFile();
+  assert.equal(result.ok, true);
+  assert.equal(result.stage, "debug");
+  assert.deepEqual(success.calls[0], ["build", {
+    announceSuccess: false,
+    debugInfo: true,
+  }]);
+  assert.equal(success.calls[1][0], "start-debug");
+  assert.deepEqual(success.calls[1][2], result.launchConfiguration);
+  assert.deepEqual(result.launchConfiguration.args, ["argument with spaces"]);
+  assert.equal(result.launchConfiguration.miDebuggerPath, "/usr/bin/gdb");
+  assert.equal(success.errors.length, 0);
+  assert.equal(success.infos.length, 1);
+
+  const buildFailure = createDebugHarness({ build: { ok: false, stage: "compile" } });
+  const failedBuild = await buildFailure.debugWorkflow.debugCurrentFile();
+  assert.equal(failedBuild.stage, "compile");
+  assert.equal(buildFailure.calls.length, 1);
+
+  const unsupported = createDebugHarness({ platform: "win32", architecture: "x64" });
+  const unsupportedResult = await unsupported.debugWorkflow.debugCurrentFile();
+  assert.equal(unsupportedResult.stage, "unsupported-platform");
+  assert.equal(unsupported.calls.length, 1);
+
+  const badArguments = createDebugHarness({ configuration: { debugArguments: "bad" } });
+  const badArgumentsResult = await badArguments.debugWorkflow.debugCurrentFile();
+  assert.equal(badArgumentsResult.stage, "debug-validation");
+  assert.equal(badArgumentsResult.code, "invalid-debug-arguments");
+
+  const badGdbPath = createDebugHarness({ configuration: { gdbPath: "" } });
+  const badGdbPathResult = await badGdbPath.debugWorkflow.debugCurrentFile();
+  assert.equal(badGdbPathResult.stage, "debug-validation");
+  assert.equal(badGdbPathResult.code, "invalid-gdb-path");
+
+  const missingGdb = createDebugHarness({ gdbFound: false });
+  const missingGdbResult = await missingGdb.debugWorkflow.debugCurrentFile();
+  assert.equal(missingGdbResult.stage, "gdb-check");
+  assert.equal(missingGdb.calls.some((call) => call[0] === "start-debug"), false);
+
+  const unreadableGdb = createDebugHarness({ gdbCheckError: true });
+  const unreadableGdbResult = await unreadableGdb.debugWorkflow.debugCurrentFile();
+  assert.equal(unreadableGdbResult.stage, "gdb-check");
+  assert.equal(unreadableGdb.calls.some((call) => call[0] === "start-debug"), false);
+
+  const missingCppTools = createDebugHarness({ cppTools: false });
+  const missingCppToolsResult = await missingCppTools.debugWorkflow.debugCurrentFile();
+  assert.equal(missingCppToolsResult.stage, "cppdbg-check");
+  assert.equal(missingCppTools.calls.some((call) => call[0] === "start-debug"), false);
+
+  const rejectedLaunch = createDebugHarness({ startDebugging: false });
+  const rejectedLaunchResult = await rejectedLaunch.debugWorkflow.debugCurrentFile();
+  assert.equal(rejectedLaunchResult.stage, "start-debug");
+
+  const throwingLaunch = createDebugHarness({ startDebugError: true });
+  const throwingLaunchResult = await throwingLaunch.debugWorkflow.debugCurrentFile();
+  assert.equal(throwingLaunchResult.stage, "start-debug");
+  assert.match(throwingLaunchResult.message, /debug adapter failed/);
+});
+
 test("extension registers and returns both commands", async () => {
   const registrations = new Map();
   const vscodeApi = {
@@ -522,15 +743,23 @@ test("extension registers and returns both commands", async () => {
       return { ok: true };
     },
   };
+  const debugWorkflow = {
+    async debugCurrentFile() {
+      calls.push("debug");
+      return { ok: true };
+    },
+  };
   const context = { subscriptions: [] };
 
-  assert.equal(registerExtension(vscodeApi, context, workflows), workflows);
+  assert.equal(registerExtension(vscodeApi, context, workflows, debugWorkflow), workflows);
   assert.deepEqual([...registrations], [
     ["hitsimple.buildCurrentFile", registrations.get("hitsimple.buildCurrentFile")],
     ["hitsimple.runCurrentFile", registrations.get("hitsimple.runCurrentFile")],
+    ["hitsimple.debugCurrentFile", registrations.get("hitsimple.debugCurrentFile")],
   ]);
-  assert.equal(context.subscriptions.length, 2);
+  assert.equal(context.subscriptions.length, 3);
   await registrations.get("hitsimple.buildCurrentFile")();
   await registrations.get("hitsimple.runCurrentFile")();
-  assert.deepEqual(calls, ["build", "run"]);
+  await registrations.get("hitsimple.debugCurrentFile")();
+  assert.deepEqual(calls, ["build", "run", "debug"]);
 });

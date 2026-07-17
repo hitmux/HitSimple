@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,7 +6,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const { runTests } = require("@vscode/test-electron");
+const {
+  downloadAndUnzipVSCode,
+  resolveCliArgsFromVSCodeExecutablePath,
+  runTests,
+} = require("@vscode/test-electron");
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const extensionDevelopmentPath = path.resolve(testDirectory, "..");
@@ -17,6 +22,36 @@ const compilerPath = process.env.HSC_PATH
 const outputDirectory = ".hitsimple/extension-host";
 const cachePath = path.join(tmpdir(), "hitsimple-vscode-test-electron-cache");
 const vscodeVersion = process.env.VSCODE_TEST_VERSION || "1.128.0";
+
+function requiresCppTools() {
+  return process.platform === "linux" && process.arch === "x64";
+}
+
+function installCppTools(vscodeExecutablePath, extensionsPath, userDataPath) {
+  const [cli, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(
+    vscodeExecutablePath,
+    { reuseMachineInstall: true },
+  );
+  const result = spawnSync(cli, [
+    ...cliArgs,
+    `--extensions-dir=${extensionsPath}`,
+    `--user-data-dir=${userDataPath}`,
+    "--install-extension",
+    "ms-vscode.cpptools",
+    "--force",
+  ], {
+    encoding: "utf8",
+    timeout: 300000,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Failed to install ms-vscode.cpptools: ${result.stderr || result.stdout}`,
+    );
+  }
+}
 
 async function prepareWorkspace(root) {
   const workspacePath = path.join(root, "workspace");
@@ -37,6 +72,8 @@ async function prepareWorkspace(root) {
         "hitsimple.mode": "unchecked",
         "hitsimple.outputDirectory": outputDirectory,
         "hitsimple.additionalArgs": [],
+        "hitsimple.gdbPath": "gdb",
+        "hitsimple.debugArguments": [],
         "editor.autoIndent": "full",
         "editor.insertSpaces": true,
         "editor.tabSize": 4,
@@ -59,6 +96,10 @@ async function prepareWorkspace(root) {
     writeFile(
       path.join(workspacePath, "sema-error.hs"),
       "func main() {\n    return add_two(1)\n}\n",
+    ),
+    writeFile(
+      path.join(workspacePath, "debug.hs"),
+      "func helper() {\n    new value[4]\n    value %d= 41\n}\n\nfunc main() {\n    helper()\n    return 0\n}\n",
     ),
     writeFile(
       path.join(workspacePath, "missing-main.hs"),
@@ -86,9 +127,16 @@ const tempRoot = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-host-"));
 try {
   const { workspacePath, userDataPath, extensionsPath } =
     await prepareWorkspace(tempRoot);
+  const vscodeExecutablePath = requiresCppTools()
+    ? await downloadAndUnzipVSCode({ version: vscodeVersion, cachePath })
+    : undefined;
+  if (vscodeExecutablePath) {
+    installCppTools(vscodeExecutablePath, extensionsPath, userDataPath);
+  }
   await runTests({
     version: vscodeVersion,
     cachePath,
+    vscodeExecutablePath,
     extensionDevelopmentPath,
     extensionTestsPath,
     extensionTestsEnv: {

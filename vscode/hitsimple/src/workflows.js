@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const fsPromises = require("node:fs/promises");
 
 const { createBuildPlan } = require("./buildPlan");
+const { normalizeDebugBuildArgs } = require("./debugPlan");
 const { findExecutable } = require("./executable");
 const { createTaskRunner } = require("./taskRunner");
 
@@ -115,8 +116,8 @@ function createWorkflows(vscodeApi, dependencies = {}) {
     };
   }
 
-  function planForContext(context) {
-    return makeBuildPlan({
+  function planForContext(context, options = {}) {
+    const plan = makeBuildPlan({
       sourcePath: context.document.uri.fsPath,
       workspacePath: context.workspaceFolder.uri.fsPath,
       compilerPath: context.configuration.get("compilerPath", "hsc"),
@@ -128,6 +129,11 @@ function createWorkflows(vscodeApi, dependencies = {}) {
       additionalArgs: context.configuration.get("additionalArgs", []),
       platform,
     });
+    if (options.debugInfo === true) {
+      plan.args = normalizeDebugBuildArgs(plan.args);
+      plan.debugInfo = true;
+    }
+    return plan;
   }
 
   function failed(stage, message, extra = {}) {
@@ -145,7 +151,7 @@ function createWorkflows(vscodeApi, dependencies = {}) {
     let plan;
     try {
       context = await resolveActiveContext();
-      plan = planForContext(context);
+      plan = planForContext(context, options);
     } catch (error) {
       return failed("validation", errorText(error), {
         error,
@@ -261,6 +267,7 @@ function createWorkflows(vscodeApi, dependencies = {}) {
       execution: processResult.execution,
       workspaceFolder: context.workspaceFolder,
       document: context.document,
+      configuration: context.configuration,
     };
     if (options.announceSuccess !== false) {
       vscodeApi.window.showInformationMessage(

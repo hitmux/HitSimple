@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(HitSimple
-  VERSION 0.2.1
+  VERSION 0.2.2
   LANGUAGES C CXX
 )
 
@@ -24,6 +24,10 @@ find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
+find_program(LLVM_DWARFDUMP_EXECUTABLE
+  NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
+)
+find_program(GDB_EXECUTABLE gdb)
 
 # LLVM packages may append host SDK paths. Propagate only actual LLVM headers.
 set(HITSIMPLE_LLVM_INCLUDE_DIRS)
@@ -44,6 +48,7 @@ llvm_map_components_to_libnames(
   TargetParser
   MC
   AsmPrinter
+  DebugInfoDWARF
   native
 )
 
@@ -1333,6 +1338,20 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_run_checked_scanf_left_context
     PROPERTIES FIXTURES_REQUIRED checked_scanf_left_context_executable
   )
+
+  add_hsc_shell_test(hsc_emit_llvm_debug_metadata
+    "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o plain.ll && ! grep -Fq '!llvm.dbg.cu' plain.ll && $<TARGET_FILE:hsc> -g --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o debug.ll && grep -Fq '!llvm.dbg.cu' debug.ll && grep -Fq '!DISubprogram' debug.ll && grep -Fq '!DILocalVariable(name: \"value\"' debug.ll && grep -Fq 'llvm.dbg.declare' debug.ll"
+  )
+  add_hsc_shell_test(hsc_rejects_debug_info_for_non_compile_action
+    "! $<TARGET_FILE:hsc> -g --dump-hir ${PROJECT_SOURCE_DIR}/examples/hello.hs 2>stderr && grep -Fq -- '-g is only supported for executable builds and --emit-llvm' stderr"
+  )
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$" AND
+     LLVM_DWARFDUMP_EXECUTABLE AND GDB_EXECUTABLE)
+    add_hsc_shell_test(hsc_debug_info_gdb
+      "$<TARGET_FILE:hsc> -g ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o debug-info && ${LLVM_DWARFDUMP_EXECUTABLE} --verify debug-info && readelf --debug-dump=info debug-info | grep -Fq 'DW_TAG_variable' && ${GDB_EXECUTABLE} -q -batch -ex 'break debug_info.hs:6' -ex run -ex bt -ex 'info locals' --args ./debug-info >gdb.out 2>&1 && grep -Fq 'helper' gdb.out && grep -Fq 'main' gdb.out && grep -Fq 'value =' gdb.out"
+    )
+  endif()
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")

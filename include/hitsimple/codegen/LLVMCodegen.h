@@ -23,6 +23,7 @@ struct CodegenOptions {
   SafetyMode safetyMode = SafetyMode::Unchecked;
   // An empty value selects LLVM's default target triple.
   std::string targetTriple;
+  bool emitDebugInfo = false;
 };
 
 EmitResult emitLlvmIr(const hir::TranslationUnit& unit,

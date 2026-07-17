@@ -222,6 +222,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                                            std::size_t byteLength,
                                            bool unsignedInterpretation) {
+  DebugLocationScope debugLocation(*this, expression.range);
   auto *integerType = integerTypeForByteLength(byteLength);
   if (!integerType) {
     return nullptr;
@@ -920,6 +921,7 @@ ViewValue LlvmEmitter::emitUserTemplateOpCall(
 }
 
 ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
+  DebugLocationScope debugLocation(*this, expression.range);
   auto makeStorage = [&](llvm::Type *type, llvm::Value *value,
                          std::size_t byteLength,
                          std::string_view name) -> ViewValue {
@@ -1217,6 +1219,7 @@ llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
 }
 
 llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
+  DebugLocationScope debugLocation(*this, call.range);
   auto *ptrTy = builder_.getPtrTy();
   auto *i32Ty = builder_.getInt32Ty();
   auto *i64Ty = builder_.getInt64Ty();
@@ -1623,6 +1626,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
 
 llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
                                          std::size_t byteLength) {
+  DebugLocationScope debugLocation(*this, expression.range);
   auto *floatType = floatTypeForByteLength(byteLength);
   if (!floatType) {
     return nullptr;

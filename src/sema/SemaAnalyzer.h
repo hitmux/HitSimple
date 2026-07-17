@@ -158,10 +158,12 @@ private:
     CurrentRangeGuard(Analyzer &analyzer, const ast::Node &node)
         : analyzer_(analyzer), previous_(std::move(analyzer.currentRange_)) {
       analyzer_.currentRange_ = node.range;
+      hir::setActiveSourceRange(analyzer_.currentRange_);
     }
 
     ~CurrentRangeGuard() {
       analyzer_.currentRange_ = std::move(previous_);
+      hir::setActiveSourceRange(analyzer_.currentRange_);
     }
 
     CurrentRangeGuard(const CurrentRangeGuard &) = delete;

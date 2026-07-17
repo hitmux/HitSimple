@@ -4,6 +4,8 @@
 #include "hitsimple/hir/HIR.h"
 
 #include <llvm/IR/Function.h>
+#include <llvm/IR/DebugInfoMetadata.h>
+#include <llvm/IR/DebugLoc.h>
 #include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Instructions.h>
@@ -20,6 +22,10 @@
 #include <utility>
 #include <unordered_map>
 #include <vector>
+
+namespace llvm {
+class DIBuilder;
+}
 
 namespace hitsimple::codegen {
 
@@ -61,6 +67,17 @@ public:
   EmitResult emit(const hir::TranslationUnit &unit);
 
 private:
+  class DebugLocationScope final {
+  public:
+    DebugLocationScope(
+        LlvmEmitter& emitter,
+        const std::optional<diagnostic::SourceRange>& range);
+    ~DebugLocationScope();
+
+  private:
+    LlvmEmitter& emitter_;
+    llvm::DebugLoc previous_;
+  };
   struct StaticAddressRange {
     std::int64_t lowerBound = 0;
     std::int64_t offset = 0;
@@ -245,12 +262,26 @@ private:
   void addDiagnostic(std::string diagnostic);
   bool hasStaticSafetyChecks() const;
   bool hasRuntimeSafetyChecks() const;
+  void initializeDebugInfo();
+  void finalizeDebugInfo();
+  void beginDebugFunction(const hir::Function& function,
+                          llvm::Function& llvmFunction);
+  llvm::DILocation* debugLocation(
+      const std::optional<diagnostic::SourceRange>& range);
+  void declareDebugVariable(std::string_view name,
+                            const std::optional<diagnostic::SourceRange>& range,
+                            std::size_t byteLength, llvm::Value* storage,
+                            unsigned argumentIndex = 0);
 
   std::string moduleName_;
   CodegenOptions options_;
   llvm::LLVMContext context_;
   std::unique_ptr<llvm::Module> module_;
   llvm::IRBuilder<> builder_;
+  std::unique_ptr<llvm::DIBuilder> debugBuilder_;
+  llvm::DICompileUnit* debugCompileUnit_ = nullptr;
+  llvm::DIFile* debugFile_ = nullptr;
+  llvm::DIScope* debugScope_ = nullptr;
   std::unordered_map<std::string, Local> locals_;
   std::unordered_map<std::string, Local> globals_;
   std::unordered_map<std::string, std::optional<std::int64_t>>

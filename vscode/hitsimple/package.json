@@ -1,8 +1,8 @@
 {
   "name": "hitsimple-vscode",
   "displayName": "HitSimple",
-  "description": "HitSimple language support for VS Code: syntax highlighting, snippets, diagnostics, and safe Build/Run commands.",
-  "version": "0.2.1",
+  "description": "HitSimple language support for VS Code: syntax highlighting, snippets, diagnostics, Build/Run, and Linux GDB debugging.",
+  "version": "0.2.2",
   "publisher": "hitmux",
   "license": "AGPL-3.0-only",
   "repository": {
@@ -13,11 +13,14 @@
   "extensionKind": [
     "workspace"
   ],
+  "extensionDependencies": [
+    "ms-vscode.cpptools"
+  ],
   "scripts": {
     "test": "node --test test/extension.test.mjs test/workflow.test.mjs",
     "test:extension": "node test/run-extension-host.mjs",
     "verify:vsix": "vsce ls --tree",
-    "package:vsix": "vsce package --out dist/hitsimple-vscode-0.2.1.vsix"
+    "package:vsix": "node scripts/package-vsix.js"
   },
   "devDependencies": {
     "@vscode/test-electron": "^3.0.0",
@@ -30,18 +33,21 @@
   },
   "categories": [
     "Programming Languages",
-    "Snippets"
+    "Snippets",
+    "Debuggers"
   ],
   "capabilities": {
     "virtualWorkspaces": false,
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Syntax highlighting remains available, but Build and Run execute the configured compiler.",
+      "description": "Syntax highlighting remains available, but Build, Run, and Debug execute configured tools.",
       "restrictedConfigurations": [
         "hitsimple.compilerPath",
         "hitsimple.mode",
         "hitsimple.outputDirectory",
-        "hitsimple.additionalArgs"
+        "hitsimple.additionalArgs",
+        "hitsimple.gdbPath",
+        "hitsimple.debugArguments"
       ]
     }
   },
@@ -56,6 +62,12 @@
       {
         "command": "hitsimple.runCurrentFile",
         "title": "Run Current File",
+        "category": "HitSimple",
+        "enablement": "editorLangId == hitsimple && processExecutionSupported && isWorkspaceTrusted && !virtualWorkspace"
+      },
+      {
+        "command": "hitsimple.debugCurrentFile",
+        "title": "Debug Current File",
         "category": "HitSimple",
         "enablement": "editorLangId == hitsimple && processExecutionSupported && isWorkspaceTrusted && !virtualWorkspace"
       }
@@ -99,6 +111,21 @@
           "default": [],
           "scope": "resource",
           "description": "Additional hsc arguments passed as individual argv entries without shell parsing."
+        },
+        "hitsimple.gdbPath": {
+          "type": "string",
+          "default": "gdb",
+          "scope": "machine-overridable",
+          "description": "Path or executable name for GDB used by Debug Current File."
+        },
+        "hitsimple.debugArguments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "description": "Program arguments passed as individual argv entries when debugging."
         }
       }
     },
