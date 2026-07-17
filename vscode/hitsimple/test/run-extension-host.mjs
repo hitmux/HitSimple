@@ -143,6 +143,8 @@ try {
       HITSIMPLE_TEST_WORKSPACE: workspacePath,
       HITSIMPLE_TEST_COMPILER: compilerPath,
       HITSIMPLE_TEST_OUTPUT_DIRECTORY: outputDirectory,
+      // Prevent GDB from blocking CI on optional system debug-info downloads.
+      DEBUGINFOD_URLS: "",
     },
     launchArgs: [
       workspacePath,
