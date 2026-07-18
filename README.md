@@ -226,4 +226,4 @@ xvfb-run -a npm run test:extension
 
 ## License and Third-Party Components
 
-HitSimple is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [LICENSE](LICENSE). Release packages include this license and licenses or copyright notices for used third-party components, including mcpp, LLVM/llvm-mingw, and the Boost Software License 1.0. Review those terms separately before using or redistributing them.
+HitSimple is licensed under the GNU Lesser General Public License v3.0 or later (`LGPL-3.0-or-later`); see [LICENSE](LICENSE). Release packages include this license and licenses or copyright notices for used third-party components, including mcpp, LLVM/llvm-mingw, and the Boost Software License 1.0. Review those terms separately before using or redistributing them.
