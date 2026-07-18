@@ -9,6 +9,7 @@ source -> preprocessor -> lexer -> parser -> AST -> sema -> HIR -> LLVM IR -> ex
 ```
 
 `Standard.md` is the authority for language semantics. The current tests validate implemented behavior; they do not replace a clause-by-clause review of the Standard.
+
 `hitsimple-language-skill.zip` is a Skill for AI Agents that allows AI to learn how to write HitSimple programs
 
 ## Current Status
