@@ -27,6 +27,12 @@ Windows builds programs only for the current Windows x64 platform, with the targ
 
 On Windows and macOS, `f128` uses Boost 1.85.0 `cpp_bin_float` as a 113-bit software backend and passes raw IEEE 754 binary128 bit patterns across runtime boundaries. Decimal conversion and binary128 encoding explicitly use `roundTiesToEven`; preservation and propagation of NaN payloads remain implementation-defined. Linux continues to use native LLVM `fp128` and glibc interfaces.
 
+The generated standard-library headers expose one public View contract per API.
+`--stdlib-provider=optimized` is the default. `--stdlib-provider=reference`
+selects a manifest-declared reference implementation when one exists, and uses
+the default provider for the remaining APIs. Provider selection happens at
+compile time and does not alter public semantics or the selected safety mode.
+
 ## Build from Source
 
 Requirements:
@@ -219,7 +225,7 @@ xvfb-run -a npm run test:extension
 
 ## Known Boundaries
 
-- Checked mode does not yet fully track boundaries for `extern` globals, raw FFI addresses, or file handles.
+- Checked mode does not yet fully track boundaries for `extern` globals, raw FFI addresses, or file-handle ownership/open state; null handles passed to checked file I/O are rejected.
 - C compatibility is a restricted subset. C struct pass-by-value ABI supports only covered x86_64 SysV ELF layouts; Windows and Darwin reject it explicitly.
 - `f16` arithmetic computes through `f32` before writing back. Linux `f128` depends on platform binary128/glibc support; Windows and macOS use the software backend.
 - `mut self` and ordinary `mut` parameters remain reserved semantics and produce explicit diagnostics.

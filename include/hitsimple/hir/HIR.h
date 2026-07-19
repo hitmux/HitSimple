@@ -136,17 +136,20 @@ struct FloatLiteral final : Expr {
 };
 
 struct VariableRef final : Expr {
-  VariableRef(std::string name, std::size_t byteLength);
+  VariableRef(std::string name, std::size_t byteLength,
+              std::string templateName = {});
   VariableRef(std::string name, std::string bindingName, std::size_t byteLength,
-              MemoryStorage storage);
+              MemoryStorage storage, std::string templateName = {});
   VariableRef(std::string name, std::string bindingName, std::size_t byteLength,
-              MemoryStorage storage, std::size_t offset);
+              MemoryStorage storage, std::size_t offset,
+              std::string templateName = {});
 
   std::string name;
   std::string bindingName;
   std::size_t byteLength = 0;
   MemoryStorage storage = MemoryStorage::Local;
   std::size_t offset = 0;
+  std::string templateName;
 };
 
 struct AddressOfExpr final : Expr {
@@ -317,14 +320,19 @@ struct CallExpr final : Expr {
   CallExpr(std::string callee, std::vector<std::unique_ptr<Expr>> arguments,
            std::size_t byteLength, bool isFloating = false,
            stdlib::BuiltinId builtin = stdlib::BuiltinId::None,
-           std::vector<FormatArgKind> formatArgumentKinds = {});
+           std::vector<FormatArgKind> formatArgumentKinds = {},
+           std::uint16_t overloadIndex = 0, std::string templateName = {});
 
   std::string callee;
   std::vector<std::unique_ptr<Expr>> arguments;
   std::size_t byteLength = 0;
   bool isFloating = false;
   stdlib::BuiltinId builtin = stdlib::BuiltinId::None;
+  stdlib::BuiltinProvider provider = stdlib::BuiltinProvider::None;
+  stdlib::BuiltinReturnMode returnMode = stdlib::BuiltinReturnMode::Void;
+  std::uint16_t overloadIndex = 0;
   std::vector<FormatArgKind> formatArgumentKinds;
+  std::string templateName;
 };
 
 enum class DynamicByteViewOperation : std::uint8_t {
@@ -582,11 +590,15 @@ struct PointerStore final : Stmt {
 struct Call final : Stmt {
   Call(std::string callee, std::vector<std::unique_ptr<Expr>> arguments,
        stdlib::BuiltinId builtin = stdlib::BuiltinId::None,
-       std::vector<FormatArgKind> formatArgumentKinds = {});
+       std::vector<FormatArgKind> formatArgumentKinds = {},
+       std::uint16_t overloadIndex = 0);
 
   std::string callee;
   std::vector<std::unique_ptr<Expr>> arguments;
   stdlib::BuiltinId builtin = stdlib::BuiltinId::None;
+  stdlib::BuiltinProvider provider = stdlib::BuiltinProvider::None;
+  stdlib::BuiltinReturnMode returnMode = stdlib::BuiltinReturnMode::Void;
+  std::uint16_t overloadIndex = 0;
   std::vector<FormatArgKind> formatArgumentKinds;
 };
 

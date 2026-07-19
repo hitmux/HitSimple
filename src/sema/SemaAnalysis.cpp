@@ -32,6 +32,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
   memberTemplateOverrides_.clear();
   standardHeaders_ = options.standardHeaders;
   cCompatibilityMode_ = options.cCompatibilityMode;
+  internalStandardModule_ = options.internalStandardModule;
   beginScope();
 
   std::vector<hir::StructLayout> structLayouts;
@@ -62,6 +63,13 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     if (templateName.empty() && globalNew->initializer &&
         isHandleExpression(*globalNew->initializer)) {
       templateName = "handle";
+    }
+    if (templateName.empty() && globalNew->initializer) {
+      const auto initializerTemplate =
+          operatorTemplateName(*globalNew->initializer);
+      if (initializerTemplate && *initializerTemplate == "addr") {
+        templateName = "addr";
+      }
     }
 
     std::size_t length = 0;

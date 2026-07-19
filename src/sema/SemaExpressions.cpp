@@ -49,8 +49,7 @@ bool isLoweredFloatByteLength(std::size_t byteLength) {
 }
 
 bool isFloatTemplate(std::string_view name) {
-  return name == "f16" || name == "f32" || name == "f64" ||
-         name == "f128";
+  return name == "f16" || name == "f32" || name == "f64" || name == "f128";
 }
 
 bool isSupportedFloatMathFunction(stdlib::BuiltinId builtin) {
@@ -76,14 +75,20 @@ bool isSupportedBinaryFloatMathFunction(stdlib::BuiltinId builtin) {
   return builtin == stdlib::BuiltinId::FPow;
 }
 
-std::optional<std::size_t> floatConversionByteLength(stdlib::BuiltinId builtin) {
+std::optional<std::size_t>
+floatConversionByteLength(stdlib::BuiltinId builtin) {
   using enum stdlib::BuiltinId;
   switch (builtin) {
-  case ToF16: return 2;
-  case ToF32: return 4;
-  case ToF64: return 8;
-  case ToF128: return 16;
-  default: return std::nullopt;
+  case ToF16:
+    return 2;
+  case ToF32:
+    return 4;
+  case ToF64:
+    return 8;
+  case ToF128:
+    return 16;
+  default:
+    return std::nullopt;
   }
 }
 
@@ -92,19 +97,27 @@ struct IntegerConversion final {
   bool isUnsigned = false;
 };
 
-std::optional<IntegerConversion>
-integerConversion(stdlib::BuiltinId builtin) {
+std::optional<IntegerConversion> integerConversion(stdlib::BuiltinId builtin) {
   using enum stdlib::BuiltinId;
   switch (builtin) {
-  case ToI8: return IntegerConversion{1, false};
-  case ToI16: return IntegerConversion{2, false};
-  case ToI32: return IntegerConversion{4, false};
-  case ToI64: return IntegerConversion{8, false};
-  case ToU8: return IntegerConversion{1, true};
-  case ToU16: return IntegerConversion{2, true};
-  case ToU32: return IntegerConversion{4, true};
-  case ToU64: return IntegerConversion{8, true};
-  default: return std::nullopt;
+  case ToI8:
+    return IntegerConversion{1, false};
+  case ToI16:
+    return IntegerConversion{2, false};
+  case ToI32:
+    return IntegerConversion{4, false};
+  case ToI64:
+    return IntegerConversion{8, false};
+  case ToU8:
+    return IntegerConversion{1, true};
+  case ToU16:
+    return IntegerConversion{2, true};
+  case ToU32:
+    return IntegerConversion{4, true};
+  case ToU64:
+    return IntegerConversion{8, true};
+  default:
+    return std::nullopt;
   }
 }
 
@@ -129,10 +142,9 @@ bool isRelationalOperator(std::string_view op) {
 bool isLogicalOperator(std::string_view op) { return op == "&&" || op == "||"; }
 
 std::string_view integerOperatorSymbol(std::string_view op) {
-  const std::string_view suffixes[] = {"**", "<<", ">>", "==", "!=",
-                                       "<=", ">=", "+",  "-",  "*",
-                                       "/",  "%",  "&",  "|",  "^",
-                                       "<",  ">"};
+  const std::string_view suffixes[] = {
+      "**", "<<", ">>", "==", "!=", "<=", ">=", "+", "-",
+      "*",  "/",  "%",  "&",  "|",  "^",  "<",  ">"};
   for (const auto suffix : suffixes) {
     if (op.ends_with(suffix)) {
       return suffix;
@@ -164,8 +176,7 @@ bool isZeroIntegerLiteral(const ast::Expr &expression) {
 std::optional<std::uint64_t> power(std::uint64_t base, std::uint64_t exponent) {
   std::uint64_t value = 1;
   for (std::uint64_t index = 0; index < exponent; ++index) {
-    if (base != 0 &&
-        value > std::numeric_limits<std::uint64_t>::max() / base) {
+    if (base != 0 && value > std::numeric_limits<std::uint64_t>::max() / base) {
       return std::nullopt;
     }
     value *= base;
@@ -202,19 +213,18 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       return nullptr;
     }
     return std::make_unique<hir::VariableRef>(
-        symbol->name, symbol->bindingName, symbol->byteLength, symbol->storage);
+        symbol->name, symbol->bindingName, symbol->byteLength, symbol->storage,
+        symbol->templateName);
   }
 
   if (const auto *integer =
           dynamic_cast<const ast::IntegerLiteral *>(&expression)) {
     const auto byteLength = inferIntegerLiteralByteLength(*integer);
     if (byteLength == 0) {
-      addDiagnostic("integer literal '" + integer->value +
-                    "' is out of range");
+      addDiagnostic("integer literal '" + integer->value + "' is out of range");
       return nullptr;
     }
-    return std::make_unique<hir::IntegerLiteral>(
-        integer->value, byteLength);
+    return std::make_unique<hir::IntegerLiteral>(integer->value, byteLength);
   }
 
   if (const auto *character =
@@ -230,8 +240,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       addDiagnostic("character literal is too long for integer lowering");
       return nullptr;
     }
-    return std::make_unique<hir::IntegerLiteral>(
-        std::to_string(*value), decoded.bytes.size());
+    return std::make_unique<hir::IntegerLiteral>(std::to_string(*value),
+                                                 decoded.bytes.size());
   }
 
   if (const auto *boolean =
@@ -265,7 +275,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression)) {
     const auto byteLength = inferByteLength(*asExpr->operand);
     if (!byteLength || *byteLength == 0) {
-      addDiagnostic("expression template view requires a fixed positive byte length");
+      addDiagnostic(
+          "expression template view requires a fixed positive byte length");
       return nullptr;
     }
     if (asExpr->templateName != "none" && asExpr->templateName != "bytes" &&
@@ -276,8 +287,9 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         return nullptr;
       }
       if (*templateLength != *byteLength) {
-        addDiagnostic("expression template view byte length does not match template '" +
-                      asExpr->templateName + "'");
+        addDiagnostic(
+            "expression template view byte length does not match template '" +
+            asExpr->templateName + "'");
         return nullptr;
       }
     }
@@ -302,8 +314,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
                     "': " + *decoded.error);
       return nullptr;
     }
-    return std::make_unique<hir::StringLiteral>(
-        string->value, decoded.bytes.size() + 1);
+    return std::make_unique<hir::StringLiteral>(string->value,
+                                                decoded.bytes.size() + 1);
   }
 
   if (const auto *floating =
@@ -329,16 +341,30 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
 
   if (const auto *call = dynamic_cast<const ast::CallExpr *>(&expression)) {
     if (stdlib::isRemovedLegacyName(call->callee)) {
-      addDiagnostic("legacy standard library name '" + call->callee +
-                    "' is not accepted; use " +
-                    std::string(stdlib::replacementForRemovedLegacyName(
-                        call->callee)));
+      addDiagnostic(
+          "legacy standard library name '" + call->callee +
+          "' is not accepted; use " +
+          std::string(stdlib::replacementForRemovedLegacyName(call->callee)));
       return nullptr;
     }
     if (rejectUnavailableStandardBuiltin(*call)) {
       return nullptr;
     }
     const auto builtin = builtinForCall(*call);
+    const auto floatingOverloadIndex = [](std::size_t byteLength) {
+      switch (byteLength) {
+      case 2:
+        return std::uint16_t{0};
+      case 4:
+        return std::uint16_t{1};
+      case 8:
+        return std::uint16_t{2};
+      case 16:
+        return std::uint16_t{3};
+      default:
+        return std::uint16_t{0};
+      }
+    };
     if (const auto found = functions_.find(call->callee);
         found != functions_.end() &&
         !validateHandleCallArguments(*call, found->second)) {
@@ -369,8 +395,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
           }
           std::vector<std::unique_ptr<hir::Expr>> arguments;
           arguments.push_back(std::move(value));
-          return std::make_unique<hir::CallExpr>(
-              "put", std::move(arguments), 4, false, stdlib::BuiltinId::Put);
+          return std::make_unique<hir::CallExpr>("put", std::move(arguments), 4,
+                                                 false, stdlib::BuiltinId::Put);
         }
       }
       const std::size_t formatIndex =
@@ -384,11 +410,20 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic("fprintf file argument must be a handle");
         return nullptr;
       }
+      if ((builtin == stdlib::BuiltinId::Printf ||
+           builtin == stdlib::BuiltinId::Fprintf) &&
+          !expressionTemplateName(*call->arguments[formatIndex]) &&
+          !isCStringExpression(*call->arguments[formatIndex])) {
+        addDiagnostic("function call '" + call->callee + "' argument " +
+                      std::to_string(formatIndex + 1U) +
+                      " must be a cstr View");
+        return nullptr;
+      }
       if (call->arguments.size() == formatIndex + 1U) {
         if (const auto templateName =
                 expressionTemplateName(*call->arguments[formatIndex])) {
-          auto lowered = lowerUserTemplateFormatCall(*call, *builtin,
-                                                     *templateName, formatIndex);
+          auto lowered = lowerUserTemplateFormatCall(
+              *call, *builtin, *templateName, formatIndex);
           if (!lowered) {
             return nullptr;
           }
@@ -399,15 +434,17 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         }
       }
       if (expressionTemplateName(*call->arguments[formatIndex])) {
-        addDiagnostic("user template formatting requires a direct print(value), "
-                      "printf(value), or fprintf(file, value) call");
+        addDiagnostic(
+            "user template formatting requires a direct print(value), "
+            "printf(value), or fprintf(file, value) call");
         return nullptr;
       }
-      for (std::size_t index = formatIndex + 1U;
-           index < call->arguments.size(); ++index) {
+      for (std::size_t index = formatIndex + 1U; index < call->arguments.size();
+           ++index) {
         if (expressionTemplateName(*call->arguments[index])) {
-          addDiagnostic("user template formatting requires a direct print(value), "
-                        "printf(value), or fprintf(file, value) call");
+          addDiagnostic(
+              "user template formatting requires a direct print(value), "
+              "printf(value), or fprintf(file, value) call");
           return nullptr;
         }
       }
@@ -421,9 +458,10 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         formatArgumentKinds.push_back(formatArgumentKind(*argument, *lowered));
         arguments.push_back(std::move(lowered));
       }
-      return std::make_unique<hir::CallExpr>(call->callee, std::move(arguments),
-                                             4, false, *builtin,
-                                             std::move(formatArgumentKinds));
+      return std::make_unique<hir::CallExpr>(
+          call->callee, std::move(arguments), 4, false, *builtin,
+          std::move(formatArgumentKinds),
+          builtinOverloadIndex(*call, *builtin));
     }
     if (builtin == stdlib::BuiltinId::Length) {
       if (call->arguments.size() != 1U) {
@@ -438,8 +476,7 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       return std::make_unique<hir::IntegerLiteral>(std::to_string(*length),
                                                    pointerByteLength());
     }
-    if (builtin == stdlib::BuiltinId::Calloc &&
-        call->arguments.size() == 2U) {
+    if (builtin == stdlib::BuiltinId::Calloc && call->arguments.size() == 2U) {
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       for (const auto &argument : call->arguments) {
         auto lowered = analyze(*argument);
@@ -509,9 +546,9 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       if (*length == 1 || *length == 2 || *length == 4 || *length == 8) {
         std::vector<std::unique_ptr<hir::Expr>> arguments;
         arguments.push_back(std::move(operand));
-        return std::make_unique<hir::CallExpr>("byte_swap", std::move(arguments),
-                                               *length, false,
-                                               stdlib::BuiltinId::ByteSwap);
+        return std::make_unique<hir::CallExpr>(
+            "byte_swap", std::move(arguments), *length, false,
+            stdlib::BuiltinId::ByteSwap);
       }
       return std::make_unique<hir::ByteSwapExpr>(std::move(operand), *length);
     }
@@ -528,14 +565,38 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic("abs data is not an integer expression");
         return nullptr;
       }
+      if (isUnsignedExpression(*operand)) {
+        addDiagnostic("abs requires a signed integer expression");
+        return nullptr;
+      }
       const auto length = integerExpressionByteLength(*operand).value_or(4);
+      std::uint16_t overloadIndex = 0;
+      switch (length) {
+      case 1:
+        overloadIndex = 0;
+        break;
+      case 2:
+        overloadIndex = 1;
+        break;
+      case 4:
+        overloadIndex = 2;
+        break;
+      case 8:
+        overloadIndex = 3;
+        break;
+      default:
+        addDiagnostic("abs requires an i8, i16, i32, or i64 expression");
+        return nullptr;
+      }
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       arguments.push_back(std::move(operand));
-      return std::make_unique<hir::CallExpr>("abs", std::move(arguments),
-                                             length, false,
-                                             stdlib::BuiltinId::Abs);
+      return std::make_unique<hir::CallExpr>(
+          "abs", std::move(arguments), length, false, stdlib::BuiltinId::Abs,
+          std::vector<hir::FormatArgKind>{}, overloadIndex,
+          "i" + std::to_string(length * 8U));
     }
-    if (builtin == stdlib::BuiltinId::Min || builtin == stdlib::BuiltinId::Max) {
+    if (builtin == stdlib::BuiltinId::Min ||
+        builtin == stdlib::BuiltinId::Max) {
       if (call->arguments.size() != 2U) {
         addDiagnostic(call->callee + " expects 2 arguments");
         return nullptr;
@@ -551,12 +612,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         if (dynamic_cast<const ast::FloatLiteral *>(&argument) != nullptr) {
           return true;
         }
-        const auto *identifier = dynamic_cast<const ast::IdentifierExpr *>(&argument);
-        if (identifier == nullptr) {
-          return false;
-        }
-        const auto *symbol = lookup(identifier->name);
-        return symbol != nullptr && isFloatTemplate(symbol->templateName);
+        const auto templateName = operatorTemplateName(argument);
+        return templateName && isFloatTemplate(*templateName);
       };
       const bool leftIsFloating = isFloatingArgument(*call->arguments[0]);
       const bool rightIsFloating = isFloatingArgument(*call->arguments[1]);
@@ -565,17 +622,58 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
                       " arguments must use the same numeric interpretation");
         return nullptr;
       }
+      const auto overloadFor =
+          [this, &call,
+           leftLength](bool floating,
+                       bool unsignedInteger) -> std::optional<std::uint16_t> {
+        if (floating) {
+          switch (*leftLength) {
+          case 2:
+            return std::uint16_t{8};
+          case 4:
+            return std::uint16_t{9};
+          case 8:
+            return std::uint16_t{10};
+          case 16:
+            return std::uint16_t{11};
+          default:
+            return std::nullopt;
+          }
+        }
+        const auto base = unsignedInteger ? std::uint16_t{4} : std::uint16_t{0};
+        switch (*leftLength) {
+        case 1:
+          return base;
+        case 2:
+          return static_cast<std::uint16_t>(base + 1U);
+        case 4:
+          return static_cast<std::uint16_t>(base + 2U);
+        case 8:
+          return static_cast<std::uint16_t>(base + 3U);
+        default:
+          addDiagnostic(call->callee +
+                        " requires i8/i16/i32/i64, u8/u16/u32/u64, or "
+                        "f16/f32/f64/f128 arguments");
+          return std::nullopt;
+        }
+      };
       if (leftIsFloating) {
         auto left = analyzeFloatOperand(*call->arguments[0], *leftLength);
         auto right = analyzeFloatOperand(*call->arguments[1], *rightLength);
         if (!left || !right) {
           return nullptr;
         }
+        const auto overloadIndex = overloadFor(true, false);
+        if (!overloadIndex) {
+          return nullptr;
+        }
         std::vector<std::unique_ptr<hir::Expr>> arguments;
         arguments.push_back(std::move(left));
         arguments.push_back(std::move(right));
-        return std::make_unique<hir::CallExpr>(call->callee, std::move(arguments),
-                                               *leftLength, true, *builtin);
+        return std::make_unique<hir::CallExpr>(
+            call->callee, std::move(arguments), *leftLength, true, *builtin,
+            std::vector<hir::FormatArgKind>{}, *overloadIndex,
+            "f" + std::to_string(*leftLength * 8U));
       }
       auto left = analyze(*call->arguments[0]);
       auto right = analyze(*call->arguments[1]);
@@ -586,11 +684,24 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic(call->callee + " arguments must be numeric expressions");
         return nullptr;
       }
+      const auto unsignedInteger = isUnsignedExpression(*left);
+      if (unsignedInteger != isUnsignedExpression(*right)) {
+        addDiagnostic(call->callee +
+                      " arguments must use the same numeric interpretation");
+        return nullptr;
+      }
+      const auto overloadIndex = overloadFor(false, unsignedInteger);
+      if (!overloadIndex) {
+        return nullptr;
+      }
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       arguments.push_back(std::move(left));
       arguments.push_back(std::move(right));
       return std::make_unique<hir::CallExpr>(
-          call->callee, std::move(arguments), *leftLength, false, *builtin);
+          call->callee, std::move(arguments), *leftLength, false, *builtin,
+          std::vector<hir::FormatArgKind>{}, *overloadIndex,
+          std::string(unsignedInteger ? "u" : "i") +
+              std::to_string(*leftLength * 8U));
     }
     if (builtin && floatConversionByteLength(*builtin)) {
       if (call->arguments.size() != 1U) {
@@ -603,23 +714,21 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic(call->callee + " argument has no known byte length");
         return nullptr;
       }
-      bool sourceIsFloating =
+      const auto sourceTemplate = operatorTemplateName(*call->arguments[0]);
+      const bool sourceIsFloating =
           dynamic_cast<const ast::FloatLiteral *>(call->arguments[0].get()) !=
-          nullptr;
-      if (const auto *identifier = dynamic_cast<const ast::IdentifierExpr *>(
-              call->arguments[0].get())) {
-        if (const auto *symbol = lookup(identifier->name)) {
-          sourceIsFloating = isFloatTemplate(symbol->templateName);
-        }
-      }
-      std::unique_ptr<hir::Expr> operand = sourceIsFloating
-                                               ? analyzeFloatOperand(*call->arguments[0], *sourceLength)
-                                               : analyze(*call->arguments[0]);
+              nullptr ||
+          (sourceTemplate && isFloatTemplate(*sourceTemplate));
+      std::unique_ptr<hir::Expr> operand =
+          sourceIsFloating
+              ? analyzeFloatOperand(*call->arguments[0], *sourceLength)
+              : analyze(*call->arguments[0]);
       if (!operand) {
         return nullptr;
       }
       if (!sourceIsFloating && !isIntegerExpression(*operand)) {
-        addDiagnostic(call->callee + " data must be an integer or floating expression");
+        addDiagnostic(call->callee +
+                      " data must be an integer or floating expression");
         return nullptr;
       }
       const bool sourceUnsigned =
@@ -638,15 +747,11 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic(call->callee + " argument has no known byte length");
         return nullptr;
       }
-      bool sourceIsFloating =
+      const auto sourceTemplate = operatorTemplateName(*call->arguments[0]);
+      const bool sourceIsFloating =
           dynamic_cast<const ast::FloatLiteral *>(call->arguments[0].get()) !=
-          nullptr;
-      if (const auto *identifier = dynamic_cast<const ast::IdentifierExpr *>(
-              call->arguments[0].get())) {
-        if (const auto *symbol = lookup(identifier->name)) {
-          sourceIsFloating = isFloatTemplate(symbol->templateName);
-        }
-      }
+              nullptr ||
+          (sourceTemplate && isFloatTemplate(*sourceTemplate));
       if (sourceIsFloating) {
         if (!isLoweredFloatByteLength(*sourceLength)) {
           addDiagnostic(call->callee +
@@ -680,7 +785,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       }
       const auto length = inferByteLength(*call->arguments[0]);
       if (!length || !isLoweredFloatByteLength(*length)) {
-        addDiagnostic(call->callee + " requires an f16, f32, f64, or f128 input");
+        addDiagnostic(call->callee +
+                      " requires an f16, f32, f64, or f128 input");
         return nullptr;
       }
       auto operand = analyzeFloatOperand(*call->arguments[0], *length);
@@ -689,9 +795,10 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       }
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       arguments.push_back(std::move(operand));
-      return std::make_unique<hir::CallExpr>(call->callee,
-                                             std::move(arguments), *length,
-                                             true, *builtin);
+      return std::make_unique<hir::CallExpr>(
+          call->callee, std::move(arguments), *length, true, *builtin,
+          std::vector<hir::FormatArgKind>{}, floatingOverloadIndex(*length),
+          "f" + std::to_string(*length * 8U));
     }
     if (builtin && isSupportedBinaryFloatMathFunction(*builtin)) {
       if (call->arguments.size() != 2U) {
@@ -700,7 +807,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       }
       const auto length = inferByteLength(*call->arguments[0]);
       if (!length || !isLoweredFloatByteLength(*length)) {
-        addDiagnostic(call->callee + " requires an f16, f32, f64, or f128 input");
+        addDiagnostic(call->callee +
+                      " requires an f16, f32, f64, or f128 input");
         return nullptr;
       }
       auto base = analyzeFloatOperand(*call->arguments[0], *length);
@@ -711,14 +819,16 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       arguments.push_back(std::move(base));
       arguments.push_back(std::move(exponent));
-      return std::make_unique<hir::CallExpr>(call->callee,
-                                             std::move(arguments), *length,
-                                             true, *builtin);
+      return std::make_unique<hir::CallExpr>(
+          call->callee, std::move(arguments), *length, true, *builtin,
+          std::vector<hir::FormatArgKind>{}, floatingOverloadIndex(*length),
+          "f" + std::to_string(*length * 8U));
     }
     return analyzeCallExpr(*call);
   }
 
-  if (const auto *call = dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
+  if (const auto *call =
+          dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
     return analyzeMethodCallExpr(*call);
   }
 
@@ -730,7 +840,7 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   if (const auto reference = resolveMemoryReference(expression)) {
     return std::make_unique<hir::VariableRef>(
         reference->name, reference->bindingName, reference->byteLength,
-        reference->storage, reference->offset);
+        reference->storage, reference->offset, reference->templateName);
   }
 
   if (const auto *deref = dynamic_cast<const ast::DerefExpr *>(&expression)) {
@@ -758,7 +868,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         return nullptr;
       }
     }
-    if (integerExpressionByteLength(*address).value_or(0) > pointerByteLength()) {
+    if (integerExpressionByteLength(*address).value_or(0) >
+        pointerByteLength()) {
       addDiagnostic("dereference address is wider than pointer length");
       return nullptr;
     }
@@ -797,7 +908,8 @@ Analyzer::analyze(const ast::AssignmentExpr &expression) {
                                                lowered->byteLength);
 }
 
-std::unique_ptr<hir::Expr> Analyzer::analyzeCallExpr(const ast::CallExpr &call) {
+std::unique_ptr<hir::Expr>
+Analyzer::analyzeCallExpr(const ast::CallExpr &call) {
   const auto found = functions_.find(call.callee);
   if (found == functions_.end()) {
     if (isUnsupportedStandardFunction(call.callee)) {
@@ -815,7 +927,8 @@ std::unique_ptr<hir::Expr> Analyzer::analyzeCallExpr(const ast::CallExpr &call) 
     return nullptr;
   }
   if (signature.returnByteLengths.empty()) {
-    addDiagnostic("function call '" + call.callee + "' does not return a value");
+    addDiagnostic("function call '" + call.callee +
+                  "' does not return a value");
     return nullptr;
   }
   if (signature.returnByteLengths.size() != 1U) {
@@ -830,9 +943,13 @@ std::unique_ptr<hir::Expr> Analyzer::analyzeCallExpr(const ast::CallExpr &call) 
   const bool isFloating =
       !signature.returnTemplateNames.empty() &&
       isFloatTemplate(signature.returnTemplateNames.front());
-  return std::make_unique<hir::CallExpr>(call.callee, std::move(arguments),
-                                         signature.returnByteLengths.front(),
-                                         isFloating, signature.builtin);
+  return std::make_unique<hir::CallExpr>(
+      call.callee, std::move(arguments), signature.returnByteLengths.front(),
+      isFloating, signature.builtin, std::vector<hir::FormatArgKind>{},
+      builtinOverloadIndex(call, signature.builtin),
+      signature.returnTemplateNames.empty()
+          ? std::string{}
+          : signature.returnTemplateNames.front());
 }
 
 std::optional<MethodCallLowering>
@@ -858,17 +975,17 @@ Analyzer::lowerImplMethodCall(const ast::MethodCallExpr &call) {
   const auto *method =
       findImplMethod(*receiverTemplate, call.method, parameterTemplateNames);
   if (method == nullptr) {
-    addDiagnostic("no matching impl method '" + call.method + "' for template '" +
-                  *receiverTemplate + "'");
+    addDiagnostic("no matching impl method '" + call.method +
+                  "' for template '" + *receiverTemplate + "'");
     return std::nullopt;
   }
 
   std::vector<std::unique_ptr<hir::Expr>> arguments;
   arguments.reserve(call.arguments.size() + 1U);
-  const auto lowerArgument = [this, &arguments](
-                                 const ast::Expr &argument,
-                                 std::string_view templateName,
-                                 std::size_t expectedLength) -> bool {
+  const auto lowerArgument = [this,
+                              &arguments](const ast::Expr &argument,
+                                          std::string_view templateName,
+                                          std::size_t expectedLength) -> bool {
     const auto actualLength = inferByteLength(argument);
     if (!actualLength || *actualLength != expectedLength) {
       addDiagnostic("method argument byte length does not match template '" +
@@ -882,11 +999,11 @@ Analyzer::lowerImplMethodCall(const ast::MethodCallExpr &call) {
       return false;
     }
     if (hasRuntimeDynamicView(*lowered)) {
-      addDiagnostic("dynamic View cannot be passed to a fixed impl method parameter");
+      addDiagnostic(
+          "dynamic View cannot be passed to a fixed impl method parameter");
       return false;
     }
-    if (!isIntegerExpression(*lowered) &&
-        !isFloatTemplate(templateName)) {
+    if (!isIntegerExpression(*lowered) && !isFloatTemplate(templateName)) {
       addDiagnostic("method argument is not a fixed View value");
       return false;
     }
@@ -968,9 +1085,11 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
       }
     }
     if (usesUserTemplate) {
-      addDiagnostic(leftTemplate && rightTemplate
-                        ? "user template binary operator requires a matching impl op"
-                        : "user template binary operator requires both operands to use templates");
+      addDiagnostic(
+          leftTemplate && rightTemplate
+              ? "user template binary operator requires a matching impl op"
+              : "user template binary operator requires both operands to use "
+                "templates");
       return nullptr;
     }
   }
@@ -982,8 +1101,8 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
     if (!leftProbe || !rightProbe) {
       return nullptr;
     }
-    const auto hasFloatInterpretation = [this](const ast::Expr& operand) {
-      if (dynamic_cast<const ast::FloatLiteral*>(&operand) != nullptr) {
+    const auto hasFloatInterpretation = [this](const ast::Expr &operand) {
+      if (dynamic_cast<const ast::FloatLiteral *>(&operand) != nullptr) {
         return true;
       }
       const auto templateName = operatorTemplateName(operand);
@@ -1132,7 +1251,8 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
   }
 
   if (fixedWidthOp) {
-    const auto *leftLiteral = dynamic_cast<const hir::IntegerLiteral *>(left.get());
+    const auto *leftLiteral =
+        dynamic_cast<const hir::IntegerLiteral *>(left.get());
     const auto *rightLiteral =
         dynamic_cast<const hir::IntegerLiteral *>(right.get());
     if (leftLiteral != nullptr && rightLiteral != nullptr) {
@@ -1148,8 +1268,8 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
       const auto op = integerOperatorSymbol(expression.op);
       std::optional<std::uint64_t> folded;
       if (op == "+") {
-        if (*leftValue <= std::numeric_limits<std::uint64_t>::max() -
-                              *rightValue) {
+        if (*leftValue <=
+            std::numeric_limits<std::uint64_t>::max() - *rightValue) {
           folded = *leftValue + *rightValue;
         }
       } else if (op == "-") {
@@ -1158,8 +1278,8 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
         }
       } else if (op == "*") {
         if (*rightValue == 0 ||
-            *leftValue <= std::numeric_limits<std::uint64_t>::max() /
-                              *rightValue) {
+            *leftValue <=
+                std::numeric_limits<std::uint64_t>::max() / *rightValue) {
           folded = *leftValue * *rightValue;
         }
       } else if (op == "/") {
@@ -1205,6 +1325,19 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::UnaryExpr &expression) {
     return nullptr;
   }
   if (expression.op == "&") {
+    if (const auto *index =
+            dynamic_cast<const ast::IndexExpr *>(expression.operand.get())) {
+      return lowerIndexAddress(*index);
+    }
+    if (const auto *slice =
+            dynamic_cast<const ast::SliceExpr *>(expression.operand.get())) {
+      auto lowered = lowerSlice(*slice);
+      return lowered ? std::move(lowered->address) : nullptr;
+    }
+    if (const auto *deref =
+            dynamic_cast<const ast::DerefExpr *>(expression.operand.get())) {
+      return analyze(*deref->address);
+    }
     const auto reference = resolveAddressableReference(*expression.operand);
     if (!reference) {
       return nullptr;
@@ -1294,14 +1427,14 @@ Analyzer::analyze(const ast::UnsignedExpr &expression) {
     return nullptr;
   }
   if (expression.byteLength != 0) {
-    if (const auto *integer =
-            dynamic_cast<const ast::IntegerLiteral *>(expression.operand.get())) {
+    if (const auto *integer = dynamic_cast<const ast::IntegerLiteral *>(
+            expression.operand.get())) {
       const auto value = literal::parseUnsignedIntegerLiteral(integer->value);
-      const auto fits = value &&
-                        (expression.byteLength == 8 ||
-                         (expression.byteLength < 8 &&
-                          *value < (std::uint64_t{1}
-                                    << (expression.byteLength * 8U))));
+      const auto fits =
+          value &&
+          (expression.byteLength == 8 ||
+           (expression.byteLength < 8 &&
+            *value < (std::uint64_t{1} << (expression.byteLength * 8U))));
       if (!fits) {
         addDiagnostic("unsigned integer literal '" + integer->value +
                       "' does not fit its compatibility width");
@@ -1309,7 +1442,7 @@ Analyzer::analyze(const ast::UnsignedExpr &expression) {
       }
       return std::make_unique<hir::UnsignedExpr>(
           std::make_unique<hir::IntegerLiteral>(integer->value,
-                                                 expression.byteLength),
+                                                expression.byteLength),
           expression.byteLength);
     }
   }
@@ -1322,9 +1455,10 @@ Analyzer::analyze(const ast::UnsignedExpr &expression) {
                   "expression");
     return nullptr;
   }
-  const auto byteLength = expression.byteLength != 0
-                              ? expression.byteLength
-                              : integerExpressionByteLength(*operand).value_or(4);
+  const auto byteLength =
+      expression.byteLength != 0
+          ? expression.byteLength
+          : integerExpressionByteLength(*operand).value_or(4);
   return std::make_unique<hir::UnsignedExpr>(std::move(operand), byteLength);
 }
 

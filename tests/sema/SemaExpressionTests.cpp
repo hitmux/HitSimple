@@ -1,12 +1,13 @@
 #include "SemaTestSupport.h"
 
 #include "hitsimple/hir/HIR.h"
+#include "hitsimple/stdlib/StandardLibraryModules.h"
 
 #include <algorithm>
 #include <string>
 
-using hitsimple::testing::sema::analyzeSource;
 using hitsimple::testing::sema::analyzePreprocessedSource;
+using hitsimple::testing::sema::analyzeSource;
 using hitsimple::testing::sema::minimalProgram;
 
 HS_TEST(Sema_InfersDeclarationInitializerLength) {
@@ -76,6 +77,27 @@ HS_TEST(Sema_FoldsTypedIntegerLiteralExpressions) {
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("IntegerLiteral value=7 bytes=2") !=
                  std::string::npos);
+}
+
+HS_TEST(Sema_SelectsCoreHsReferenceProviderAndModule) {
+  auto result = analyzePreprocessedSource("$include <ctype.hsh>\n"
+                                          "func main() {\n"
+                                          "    return is_digit(48) ? 0 : 1\n"
+                                          "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto modules = hitsimple::stdlib::selectStandardLibraryProviders(
+      *result.unit, hitsimple::stdlib::BuiltinProviderSelection::Reference);
+  HS_EXPECT_EQ(modules.size(), 1U);
+  HS_EXPECT_EQ(modules.front(), std::string("Ctype"));
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("ExternFunction name=__hs_stdlib_ctype_is_digit") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=__hs_stdlib_ctype_is_digit") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("provider=CoreHs") != std::string::npos);
 }
 
 HS_TEST(Sema_RejectsTypedIntegerConstantOverflow) {
@@ -233,6 +255,10 @@ HS_TEST(Sema_LowersFloatMathHelpers) {
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=f_sqrt bytes=8") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(
+      dump.find("CallExpr callee=f_sqrt bytes=8 floating=true builtin=52 "
+                "provider=Intrinsic returnRule=ArgumentLength overload=2") !=
+      std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=f_pow bytes=4") !=
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=f_sin bytes=4") !=
@@ -305,12 +331,13 @@ HS_TEST(Sema_AllowsDiscardingPutResult) {
 }
 
 HS_TEST(Sema_LowersDynamicResizeBytesForAnExplicitlySizedTarget) {
-  auto result = analyzeSource("func main() {\n"
-                              "    new source[3] = 0x030201\n"
-                              "    new requested[8] = 3\n"
-                              "    new result[3] = resize_bytes(source, requested)\n"
-                              "    return result\n"
-                              "}\n");
+  auto result =
+      analyzeSource("func main() {\n"
+                    "    new source[3] = 0x030201\n"
+                    "    new requested[8] = 3\n"
+                    "    new result[3] = resize_bytes(source, requested)\n"
+                    "    return result\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -366,13 +393,12 @@ HS_TEST(Sema_LowersFormattedAndRawOutputAsValueExpressions) {
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=memset bytes=8") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("CallExpr callee=put bytes=4") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=put bytes=4") != std::string::npos);
 }
 
 HS_TEST(Sema_AllowsDynamicFormatInScanfLeftContext) {
   auto result = analyzeSource("func main() {\n"
-                              "    new format[3] = \"%d\"\n"
+                              "    new format[3] as cstr = \"%d\"\n"
                               "    new count[4]\n"
                               "    new value[4]\n"
                               "    count, value = scanf(format)\n"
@@ -383,73 +409,74 @@ HS_TEST(Sema_AllowsDynamicFormatInScanfLeftContext) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find("InputCallStore callee=scanf") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("InputCallStore callee=scanf") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("VariableRef name=format") != std::string::npos);
 }
 
 HS_TEST(Sema_RequiresIncludedStandardLibraryHeader) {
   auto result = analyzePreprocessedSource("func main() {\n"
-                                         "    new ptr = alloc(8)\n"
-                                         "    return 0\n"
-                                         "}\n");
+                                          "    new ptr = alloc(8)\n"
+                                          "    return 0\n"
+                                          "}\n");
 
   HS_EXPECT_TRUE(result.unit == nullptr);
   HS_EXPECT_TRUE(!result.diagnostics.empty());
-  HS_EXPECT_TRUE(std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
-                             [](const auto& diagnostic) {
-                               return diagnostic.find("stdlib.hsh") !=
-                                      std::string::npos;
-                             }));
+  HS_EXPECT_TRUE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const auto &diagnostic) {
+                    return diagnostic.find("stdlib.hsh") != std::string::npos;
+                  }));
 }
 
 HS_TEST(Sema_ImportsStandardLibraryFunctionFromMatchingHeader) {
   auto result = analyzePreprocessedSource("$include <stdlib.hsh>\n"
-                                         "func main() {\n"
-                                         "    new ptr = alloc(8)\n"
-                                         "    free(ptr)\n"
-                                         "    return 0\n"
-                                         "}\n");
+                                          "func main() {\n"
+                                          "    new ptr = alloc(8)\n"
+                                          "    free(ptr)\n"
+                                          "    return 0\n"
+                                          "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
 }
 
 HS_TEST(Sema_ImportsMemoryFunctionsFromStringHeader) {
-  auto result = analyzePreprocessedSource("$include <string.hsh>\n"
-                                          "func main() {\n"
-                                          "    new source[1] = 42\n"
-                                          "    new destination[1]\n"
-                                          "    new copied = memcpy(destination, source, 1)\n"
-                                          "    return 0\n"
-                                          "}\n");
+  auto result = analyzePreprocessedSource(
+      "$include <string.hsh>\n"
+      "func main() {\n"
+      "    new source[1] = 42\n"
+      "    new destination[1]\n"
+      "    new copied = memcpy(destination, source, 1)\n"
+      "    return 0\n"
+      "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
 }
 
 HS_TEST(Sema_RejectsMemoryFunctionFromWrongHeader) {
-  auto result = analyzePreprocessedSource("$include <stdlib.hsh>\n"
-                                          "func main() {\n"
-                                          "    new source[1] = 42\n"
-                                          "    new destination[1]\n"
-                                          "    new copied = memcpy(destination, source, 1)\n"
-                                          "    return 0\n"
-                                          "}\n");
+  auto result = analyzePreprocessedSource(
+      "$include <stdlib.hsh>\n"
+      "func main() {\n"
+      "    new source[1] = 42\n"
+      "    new destination[1]\n"
+      "    new copied = memcpy(destination, source, 1)\n"
+      "    return 0\n"
+      "}\n");
 
   HS_EXPECT_TRUE(result.unit == nullptr);
   HS_EXPECT_TRUE(!result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.diagnostics[0].find("string.hsh") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].find("string.hsh") != std::string::npos);
 }
 
 HS_TEST(Sema_RejectsRemovedStandardLibraryNames) {
   for (const auto name : {"to_float", "to_int", "reinterpret"}) {
-    auto result = analyzePreprocessedSource(
-        "func main() {\n"
-        "    new value = " + std::string(name) + "(1)\n"
-        "    return 0\n"
-        "}\n");
+    auto result = analyzePreprocessedSource("func main() {\n"
+                                            "    new value = " +
+                                            std::string(name) +
+                                            "(1)\n"
+                                            "    return 0\n"
+                                            "}\n");
 
     HS_EXPECT_TRUE(result.unit == nullptr);
     HS_EXPECT_TRUE(!result.diagnostics.empty());
@@ -468,6 +495,150 @@ HS_TEST(Sema_ImportsIntegerMathFromStdlibHeader) {
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
+}
+
+HS_TEST(Sema_RejectsUnsignedAbsOperand) {
+  auto result = analyzePreprocessedSource("$include <stdlib.hsh>\n"
+                                          "func main() {\n"
+                                          "    new value as u8 = 255\n"
+                                          "    new magnitude = abs(value)\n"
+                                          "    return magnitude\n"
+                                          "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(
+      result.diagnostics[0].find("abs requires a signed integer expression") !=
+      std::string::npos);
+}
+
+HS_TEST(Sema_RequiresCstrViewsForStandardLibraryStringArguments) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new text[4] as bytes\n"
+                              "    new length as u64 = strlen(text)\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics.front().find(
+                     "function call 'strlen' argument 1 must be a cstr View") !=
+                 std::string::npos);
+}
+
+HS_TEST(Sema_RequiresCstrViewsInsteadOfAddresses) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new text[4] as cstr = \"ok\"\n"
+                              "    new length as u64 = strlen(&text)\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics.front().find(
+                     "function call 'strlen' argument 1 must be a cstr View") !=
+                 std::string::npos);
+}
+
+HS_TEST(Sema_RequiresWritableLviewsForStandardLibraryWrites) {
+  const auto stringResult =
+      analyzeSource("func main() {\n"
+                    "    new copied as addr = strcpy(\"immutable\", \"x\")\n"
+                    "    return 0\n"
+                    "}\n");
+  HS_EXPECT_TRUE(stringResult.unit == nullptr);
+  HS_EXPECT_EQ(stringResult.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(stringResult.diagnostics.front().find(
+                     "function call 'strcpy' argument 1 must be a writable "
+                     "lvalue View") != std::string::npos);
+
+  const auto fileResult =
+      analyzeSource("func main() {\n"
+                    "    new file as handle = fopen(\"/dev/null\", \"r\")\n"
+                    "    new destination[1] as bytes\n"
+                    "    new count as u64 = fread(&destination, 1, 1, file)\n"
+                    "    return 0\n"
+                    "}\n");
+  HS_EXPECT_TRUE(fileResult.unit == nullptr);
+  HS_EXPECT_EQ(fileResult.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(fileResult.diagnostics.front().find(
+                     "function call 'fread' argument 1 must be a writable "
+                     "lvalue View") != std::string::npos);
+}
+
+HS_TEST(Sema_RequiresWritableMemoryViewsForMemoryWrites) {
+  const auto rejected =
+      analyzeSource("func main() {\n"
+                    "    new address as addr = memset(\"immutable\", 0, 1)\n"
+                    "    return 0\n"
+                    "}\n");
+  HS_EXPECT_TRUE(rejected.unit == nullptr);
+  HS_EXPECT_EQ(rejected.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(rejected.diagnostics.front().find(
+                     "function call 'memset' argument 1 must be a writable "
+                     "memory View or addr") != std::string::npos);
+
+  const auto accepted =
+      analyzeSource("func main() {\n"
+                    "    new destination[1] as bytes\n"
+                    "    new address as addr = memset(destination, 0, 1)\n"
+                    "    return 0\n"
+                    "}\n");
+  HS_EXPECT_TRUE(accepted.unit != nullptr);
+  HS_EXPECT_TRUE(accepted.diagnostics.empty());
+}
+
+HS_TEST(Sema_EnforcesAddrParametersAndKeepsViewParametersPolymorphic) {
+  const auto rejected = analyzeSource("func main() {\n"
+                                      "    free(1)\n"
+                                      "    return 0\n"
+                                      "}\n");
+  HS_EXPECT_TRUE(rejected.unit == nullptr);
+  HS_EXPECT_EQ(rejected.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(rejected.diagnostics.front().find(
+                     "function call 'free' argument 1 must be an addr View") !=
+                 std::string::npos);
+
+  const auto accepted =
+      analyzeSource("func main() {\n"
+                    "    new file as handle = fopen(\"/dev/null\", \"w\")\n"
+                    "    new value[8] as bytes\n"
+                    "    new written as i32 = fput(file, value)\n"
+                    "    return written\n"
+                    "}\n");
+  HS_EXPECT_TRUE(accepted.unit != nullptr);
+  HS_EXPECT_TRUE(accepted.diagnostics.empty());
+}
+
+HS_TEST(Sema_RequiresCstrViewsForFormatProtocols) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new format[3] as bytes\n"
+                              "    new value as i32 = 1\n"
+                              "    new written as i32 = printf(format, value)\n"
+                              "    return written\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics.front().find(
+                     "function call 'printf' argument 1 must be a cstr View") !=
+                 std::string::npos);
+}
+
+HS_TEST(Sema_PreservesFormatArgumentKindsForDynamicFormat) {
+  const auto result = analyzeSource("func main() {\n"
+                                    "    new format[3] as cstr = \"%f\"\n"
+                                    "    new value as f64 = 1.5\n"
+                                    "    new written as i32 = printf(format, value)\n"
+                                    "    return written\n"
+                                    "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=printf") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("formatArgs=string,float") != std::string::npos);
 }
 
 HS_TEST(Sema_AcceptsStdlibDeclarationsFromSystemInclude) {
@@ -505,8 +676,7 @@ HS_TEST(Sema_LowersStandardTemplatePrintToPrintfStyleCall) {
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("Call callee=print") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("StringLiteral value=\"%d\"") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("StringLiteral value=\"%d\"") != std::string::npos);
 }
 
 HS_TEST(Sema_LowersStandardTemplatePrintF64) {
@@ -521,8 +691,7 @@ HS_TEST(Sema_LowersStandardTemplatePrintF64) {
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("Call callee=print") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("StringLiteral value=\"%f\"") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("StringLiteral value=\"%f\"") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("VariableRef name=n binding=n bytes=8") !=
                  std::string::npos);
 }
@@ -553,19 +722,20 @@ HS_TEST(Sema_LowersUserTemplateOperatorThroughInternalViewAbi) {
 }
 
 HS_TEST(Sema_LowersImplTemplateMethodCallThroughInternalViewAbi) {
-  auto result = analyzeSource("template Counter {\n"
-                              "    value[4] as i32\n"
-                              "}\n"
-                              "impl Counter {\n"
-                              "    func identity(self as Counter) -> as Counter {\n"
-                              "        return self\n"
-                              "    }\n"
-                              "}\n"
-                              "func main() {\n"
-                              "    new value as Counter\n"
-                              "    new copy as Counter = value.identity()\n"
-                              "    return 0\n"
-                              "}\n");
+  auto result =
+      analyzeSource("template Counter {\n"
+                    "    value[4] as i32\n"
+                    "}\n"
+                    "impl Counter {\n"
+                    "    func identity(self as Counter) -> as Counter {\n"
+                    "        return self\n"
+                    "    }\n"
+                    "}\n"
+                    "func main() {\n"
+                    "    new value as Counter\n"
+                    "    new copy as Counter = value.identity()\n"
+                    "    return 0\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -578,21 +748,22 @@ HS_TEST(Sema_LowersImplTemplateMethodCallThroughInternalViewAbi) {
 }
 
 HS_TEST(Sema_LowersUserTemplateOperatorWithStandardTemplateOperand) {
-  auto result = analyzeSource("template Vec2 {\n"
-                              "    x[8] as f64\n"
-                              "    y[8] as f64\n"
-                              "}\n"
-                              "impl Vec2 {\n"
-                              "    op * (lhs as Vec2, scalar as f64) -> [16] {\n"
-                              "        return lhs\n"
-                              "    }\n"
-                              "}\n"
-                              "func main() {\n"
-                              "    new lhs as Vec2\n"
-                              "    new scalar as f64 = 2.0\n"
-                              "    new out as Vec2 = lhs * scalar\n"
-                              "    return 0\n"
-                              "}\n");
+  auto result =
+      analyzeSource("template Vec2 {\n"
+                    "    x[8] as f64\n"
+                    "    y[8] as f64\n"
+                    "}\n"
+                    "impl Vec2 {\n"
+                    "    op * (lhs as Vec2, scalar as f64) -> [16] {\n"
+                    "        return lhs\n"
+                    "    }\n"
+                    "}\n"
+                    "func main() {\n"
+                    "    new lhs as Vec2\n"
+                    "    new scalar as f64 = 2.0\n"
+                    "    new out as Vec2 = lhs * scalar\n"
+                    "    return 0\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -715,20 +886,21 @@ HS_TEST(Sema_RejectsPostfixIncrementForNonIntegerViews) {
 }
 
 HS_TEST(Sema_ResolvesUserTemplatePrintFormatCandidate) {
-  auto result = analyzeSource("template Vec2 {\n"
-                              "    x[8] as f64\n"
-                              "    y[8] as f64\n"
-                              "}\n"
-                              "impl Vec2 {\n"
-                              "    op format(value as Vec2, out as addr) -> [4] {\n"
-                              "        return 0\n"
-                              "    }\n"
-                              "}\n"
-                              "func main() {\n"
-                              "    new v as Vec2\n"
-                              "    print(v as Vec2)\n"
-                              "    return 0\n"
-                              "}\n");
+  auto result =
+      analyzeSource("template Vec2 {\n"
+                    "    x[8] as f64\n"
+                    "    y[8] as f64\n"
+                    "}\n"
+                    "impl Vec2 {\n"
+                    "    op format(value as Vec2, out as addr) -> [4] {\n"
+                    "        return 0\n"
+                    "    }\n"
+                    "}\n"
+                    "func main() {\n"
+                    "    new v as Vec2\n"
+                    "    print(v as Vec2)\n"
+                    "    return 0\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -736,61 +908,62 @@ HS_TEST(Sema_ResolvesUserTemplatePrintFormatCandidate) {
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("ImplOp template=Vec2 op=format") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find(
-                     "UserTemplateFormatCall callee=__hitsimple.implop.Vec2.0 "
-                     "sink=stdout resultBytes=4") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(dump.find("print.format.") ==
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      dump.find("UserTemplateFormatCall callee=__hitsimple.implop.Vec2.0 "
+                "sink=stdout resultBytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("print.format.") == std::string::npos);
 }
 
 HS_TEST(Sema_LowersUserTemplateFormatAsI32Expression) {
-  auto result = analyzeSource("template FailFmt {\n"
-                              "    value[4] as i32\n"
-                              "}\n"
-                              "impl FailFmt {\n"
-                              "    op format(value as FailFmt, out as addr) -> [4] {\n"
-                              "        return -7\n"
-                              "    }\n"
-                              "}\n"
-                              "func main() {\n"
-                              "    new value as FailFmt\n"
-                              "    return print(value as FailFmt)\n"
-                              "}\n");
+  auto result =
+      analyzeSource("template FailFmt {\n"
+                    "    value[4] as i32\n"
+                    "}\n"
+                    "impl FailFmt {\n"
+                    "    op format(value as FailFmt, out as addr) -> [4] {\n"
+                    "        return -7\n"
+                    "    }\n"
+                    "}\n"
+                    "func main() {\n"
+                    "    new value as FailFmt\n"
+                    "    return print(value as FailFmt)\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find(
-                     "UserTemplateFormatCallExpr callee=__hitsimple.implop.FailFmt.0 "
-                     "sink=stdout bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(
+      dump.find(
+          "UserTemplateFormatCallExpr callee=__hitsimple.implop.FailFmt.0 "
+          "sink=stdout bytes=4") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("print.format.") == std::string::npos);
 }
 
 HS_TEST(Sema_LowersUserTemplateFprintfFormatAsI32Expression) {
-  auto result = analyzeSource("template Marker {\n"
-                              "    value[1]\n"
-                              "}\n"
-                              "impl Marker {\n"
-                              "    op format(value as Marker, out as addr) -> [4] {\n"
-                              "        new written = fput(out as handle, 'E')\n"
-                              "        return written\n"
-                              "    }\n"
-                              "}\n"
-                              "func main() {\n"
-                              "    new file = fopen(\"/dev/null\", \"w\")\n"
-                              "    new value as Marker\n"
-                              "    return fprintf(file, value as Marker)\n"
-                              "}\n");
+  auto result =
+      analyzeSource("template Marker {\n"
+                    "    value[1]\n"
+                    "}\n"
+                    "impl Marker {\n"
+                    "    op format(value as Marker, out as addr) -> [4] {\n"
+                    "        new written = fput(out as handle, 'E')\n"
+                    "        return written\n"
+                    "    }\n"
+                    "}\n"
+                    "func main() {\n"
+                    "    new file = fopen(\"/dev/null\", \"w\")\n"
+                    "    new value as Marker\n"
+                    "    return fprintf(file, value as Marker)\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find(
-                     "UserTemplateFormatCallExpr callee=__hitsimple.implop.Marker.0 "
-                     "sink=file bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(
+      dump.find("UserTemplateFormatCallExpr callee=__hitsimple.implop.Marker.0 "
+                "sink=file bytes=4") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("print.format.") == std::string::npos);
 }
 
@@ -812,8 +985,7 @@ HS_TEST(Sema_LowersInputAndFormattedOutputBuiltins) {
   HS_EXPECT_TRUE(dump.find("CountTarget name=count") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("ScanTarget name=x") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("Call callee=print") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("CallExpr callee=get bytes=4") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=get bytes=4") != std::string::npos);
 }
 
 HS_TEST(Sema_LowersScanfStringWithRuntimeCapacityDescriptor) {
@@ -827,10 +999,8 @@ HS_TEST(Sema_LowersScanfStringWithRuntimeCapacityDescriptor) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find("InputCallStore callee=scanf") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(dump.find("StringLiteral value=\"%s\"") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("InputCallStore callee=scanf") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("StringLiteral value=\"%s\"") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("ScanTarget name=text binding=text bytes=8") !=
                  std::string::npos);
 }
@@ -902,11 +1072,9 @@ HS_TEST(Sema_LowersCstrDefaultAssignmentMatrixEntry) {
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("LocalMemory name=text binding=text bytes=8 "
-                           "storage=local template=cstr") !=
-                 std::string::npos);
+                           "storage=local template=cstr") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("StringStore target=text binding=text bytes=8 "
-                           "storage=local value=\"Kai\"") !=
-                 std::string::npos);
+                           "storage=local value=\"Kai\"") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("StringStore target=text binding=text bytes=8 "
                            "storage=local value=\"HitSimple\"") !=
                  std::string::npos);
@@ -1033,6 +1201,78 @@ HS_TEST(Sema_LowersAddressRebindingAndDereference) {
   HS_EXPECT_TRUE(dump.find("DerefExpr bytes=4") != std::string::npos);
 }
 
+HS_TEST(Sema_LowersAddressOfIndexedMemoryForLibraryCalls) {
+  auto result = analyzeSource(
+      "func main() {\n"
+      "    new buffer[4] = 0x03020100\n"
+      "    new copied as addr = memcpy(&buffer[1], &buffer[0], 3)\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=memcpy bytes=8") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=+ bytes=8") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("AddressOf name=buffer binding=buffer targetBytes=4 "
+                           "storage=local bytes=8") != std::string::npos);
+}
+
+HS_TEST(Sema_LowersConcreteMinOverloadsAndResultTemplates) {
+  auto result =
+      analyzeSource("func main() {\n"
+                    "    new signed as i16 = 1\n"
+                    "    new unsigned as u8 = 1\n"
+                    "    new floating as f32 = 1.0\n"
+                    "    new signed_result as i16 = min(signed, signed)\n"
+                    "    new unsigned_result as u8 = max(unsigned, unsigned)\n"
+                    "    new floating_result as f32 = min(floating, floating)\n"
+                    "    return 0\n"
+                    "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=min bytes=2 builtin=49 "
+                           "provider=Intrinsic returnRule=ArgumentLength "
+                           "overload=1 template=i16") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=max bytes=1 builtin=50 "
+                           "provider=Intrinsic returnRule=ArgumentLength "
+                           "overload=4 template=u8") != std::string::npos);
+  HS_EXPECT_TRUE(
+      dump.find("CallExpr callee=min bytes=4 floating=true builtin=49 "
+                "provider=Intrinsic returnRule=ArgumentLength "
+                "overload=9 template=f32") != std::string::npos);
+}
+
+HS_TEST(Sema_PropagatesNestedFloatingBuiltinTemplates) {
+  auto result = analyzeSource(
+      "func main() {\n"
+      "    new value as f32 = 4.0\n"
+      "    new minimum as f32 = min(f_sqrt(value), f_sqrt(value))\n"
+      "    new integral as i32 = to_i32(f_sqrt(value))\n"
+      "    return integral\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(
+      dump.find("CallExpr callee=min bytes=4 floating=true builtin=49 "
+                "provider=Intrinsic returnRule=ArgumentLength "
+                "overload=9 template=f32") != std::string::npos);
+  HS_EXPECT_TRUE(
+      dump.find("CallExpr callee=f_sqrt bytes=4 floating=true builtin=52 "
+                "provider=Intrinsic returnRule=ArgumentLength "
+                "overload=1 template=f32") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("ToIntExpr floatBytes=4 bytes=4") !=
+                 std::string::npos);
+}
+
 HS_TEST(Sema_LowersAddressRebindingDeclarationInitializer) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[4]\n"
@@ -1067,8 +1307,7 @@ HS_TEST(Sema_LowersCompoundAssignmentForDereferenceTarget) {
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("PointerStore bytes=4") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=%4d+ bytes=4") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=%4d+ bytes=4") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("DerefExpr bytes=4") != std::string::npos);
 }
 
@@ -1202,14 +1441,15 @@ HS_TEST(Sema_LowersAddressOfGlobalAndStaticStorage) {
 }
 
 HS_TEST(Sema_LowersHandleFileIoAssignmentComparisonAndFormatting) {
-  auto result = analyzeSource("func main() {\n"
-                              "    new file = fopen(\"/tmp/hitsimple-handle\", \"w\")\n"
-                              "    new copy as handle = file\n"
-                              "    new equal as bool = file == copy\n"
-                              "    print(file as handle)\n"
-                              "    new status[4] = fclose(copy)\n"
-                              "    return equal\n"
-                              "}\n");
+  auto result =
+      analyzeSource("func main() {\n"
+                    "    new file = fopen(\"/tmp/hitsimple-handle\", \"w\")\n"
+                    "    new copy as handle = file\n"
+                    "    new equal as bool = file == copy\n"
+                    "    print(file as handle)\n"
+                    "    new status[4] = fclose(copy)\n"
+                    "    return equal\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -1221,8 +1461,7 @@ HS_TEST(Sema_LowersHandleFileIoAssignmentComparisonAndFormatting) {
   HS_EXPECT_TRUE(dump.find("LocalMemory name=copy binding=copy bytes=8 "
                            "storage=local template=handle") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=== bytes=1") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=== bytes=1") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("Call callee=print") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=fclose bytes=4") !=
                  std::string::npos);

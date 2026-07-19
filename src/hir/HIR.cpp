@@ -93,19 +93,24 @@ StringLiteral::StringLiteral(std::string value, std::size_t byteLength)
 FloatLiteral::FloatLiteral(std::string value, std::size_t byteLength)
     : value(std::move(value)), byteLength(byteLength) {}
 
-VariableRef::VariableRef(std::string name, std::size_t byteLength)
-    : name(std::move(name)), bindingName(this->name), byteLength(byteLength) {}
-
-VariableRef::VariableRef(std::string name, std::string bindingName,
-                         std::size_t byteLength, MemoryStorage storage)
-    : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength), storage(storage) {}
+VariableRef::VariableRef(std::string name, std::size_t byteLength,
+                         std::string templateName)
+    : name(std::move(name)), bindingName(this->name), byteLength(byteLength),
+      templateName(std::move(templateName)) {}
 
 VariableRef::VariableRef(std::string name, std::string bindingName,
                          std::size_t byteLength, MemoryStorage storage,
-                         std::size_t offset)
+                         std::string templateName)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      byteLength(byteLength), storage(storage), offset(offset) {}
+      byteLength(byteLength), storage(storage),
+      templateName(std::move(templateName)) {}
+
+VariableRef::VariableRef(std::string name, std::string bindingName,
+                         std::size_t byteLength, MemoryStorage storage,
+                         std::size_t offset, std::string templateName)
+    : name(std::move(name)), bindingName(std::move(bindingName)),
+      byteLength(byteLength), storage(storage), offset(offset),
+      templateName(std::move(templateName)) {}
 
 AddressOfExpr::AddressOfExpr(std::string name, std::string bindingName,
                              std::size_t targetByteLength,
@@ -180,10 +185,15 @@ CallExpr::CallExpr(std::string callee,
                    std::vector<std::unique_ptr<Expr>> arguments,
                    std::size_t byteLength, bool isFloating,
                    stdlib::BuiltinId builtin,
-                   std::vector<FormatArgKind> formatArgumentKinds)
+                   std::vector<FormatArgKind> formatArgumentKinds,
+                   std::uint16_t overloadIndex, std::string templateName)
     : callee(std::move(callee)), arguments(std::move(arguments)),
       byteLength(byteLength), isFloating(isFloating), builtin(builtin),
-      formatArgumentKinds(std::move(formatArgumentKinds)) {}
+      provider(stdlib::builtinCallMetadata(builtin, overloadIndex).provider),
+      returnMode(stdlib::builtinCallMetadata(builtin, overloadIndex).returnMode),
+      overloadIndex(overloadIndex),
+      formatArgumentKinds(std::move(formatArgumentKinds)),
+      templateName(std::move(templateName)) {}
 
 UserTemplateFormatCallExpr::UserTemplateFormatCallExpr(
     std::string callee, std::unique_ptr<Expr> value, FormatOutputSink sink,
@@ -380,9 +390,14 @@ PointerStore::PointerStore(std::unique_ptr<Expr> address,
 
 Call::Call(std::string callee, std::vector<std::unique_ptr<Expr>> arguments,
            stdlib::BuiltinId builtin,
-           std::vector<FormatArgKind> formatArgumentKinds)
+           std::vector<FormatArgKind> formatArgumentKinds,
+           std::uint16_t overloadIndex)
     : callee(std::move(callee)), arguments(std::move(arguments)),
-      builtin(builtin), formatArgumentKinds(std::move(formatArgumentKinds)) {}
+      builtin(builtin),
+      provider(stdlib::builtinCallMetadata(builtin, overloadIndex).provider),
+      returnMode(stdlib::builtinCallMetadata(builtin, overloadIndex).returnMode),
+      overloadIndex(overloadIndex),
+      formatArgumentKinds(std::move(formatArgumentKinds)) {}
 
 MultiReturnCallStore::Target::Target(std::string name, std::string bindingName,
                                      std::size_t byteLength,

@@ -5,6 +5,7 @@
 #include "hitsimple/sema/Sema.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -293,8 +294,11 @@ private:
   userTemplateViewAssignmentCompatibility(
       std::string_view destinationTemplate, const ast::Expr &source);
   bool isHandleExpression(const ast::Expr &expression);
+  bool isCStringExpression(const ast::Expr &expression);
   bool validateHandleCallArguments(const ast::CallExpr &call,
                                    const FunctionSignature &signature);
+  bool validateBuiltinViewArguments(const ast::CallExpr &call,
+                                    const FunctionSignature &signature);
   std::optional<MemoryReference> resolveMemoryReference(const ast::Expr &expr);
   std::optional<MemoryReference> resolveAddressableReference(
       const ast::Expr &expr);
@@ -315,6 +319,8 @@ private:
   bool isStandardHeaderIncluded(stdlib::StandardHeader header) const;
   std::optional<stdlib::BuiltinId>
   builtinForCall(const ast::CallExpr &call) const;
+  std::uint16_t builtinOverloadIndex(const ast::CallExpr &call,
+                                     stdlib::BuiltinId builtin);
   bool rejectUnavailableStandardBuiltin(const ast::CallExpr &call);
   bool registerReturnLengths(const std::vector<std::size_t> &byteLengths);
   void addDiagnostic(std::string diagnostic);
@@ -326,6 +332,7 @@ private:
   std::unordered_map<std::string, FunctionSignature> functions_;
   std::vector<stdlib::StandardHeader> standardHeaders_;
   bool cCompatibilityMode_ = false;
+  bool internalStandardModule_ = false;
   std::unordered_map<std::string, StructInfo> structs_;
   std::unordered_map<std::string, TemplateInfo> templates_;
   std::unordered_set<std::string> topLevelNames_;

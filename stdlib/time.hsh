@@ -1,7 +1,0 @@
-$ifndef HITSIMPLE_TIME_HSH
-$define HITSIMPLE_TIME_HSH 1
-
-extern time_ms() -> u64
-extern clock_ms() -> u64
-
-$endif

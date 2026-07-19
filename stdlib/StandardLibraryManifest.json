@@ -1,0 +1,3864 @@
+{
+  "version": 1,
+  "headers": [
+    {
+      "id": "Stdlib",
+      "file": "stdlib.hsh",
+      "guard": "HITSIMPLE_STDLIB_HSH",
+      "summary": "Allocation, conversion, integer mathematics, random numbers, and process control."
+    },
+    {
+      "id": "String",
+      "file": "string.hsh",
+      "guard": "HITSIMPLE_STRING_HSH",
+      "summary": "Memory copy and comparison plus C string operations."
+    },
+    {
+      "id": "Stdio",
+      "file": "stdio.hsh",
+      "guard": "HITSIMPLE_STDIO_HSH",
+      "summary": "Standard input/output, formatted I/O, and file I/O."
+    },
+    {
+      "id": "Math",
+      "file": "math.hsh",
+      "guard": "HITSIMPLE_MATH_HSH",
+      "summary": "Mathematical functions for f16, f32, f64, and f128."
+    },
+    {
+      "id": "Ctype",
+      "file": "ctype.hsh",
+      "guard": "HITSIMPLE_CTYPE_HSH",
+      "summary": "ASCII character classification and case conversion."
+    },
+    {
+      "id": "Time",
+      "file": "time.hsh",
+      "guard": "HITSIMPLE_TIME_HSH",
+      "summary": "Wall-clock and monotonic millisecond clocks."
+    },
+    {
+      "id": "Assert",
+      "file": "assert.hsh",
+      "guard": "HITSIMPLE_ASSERT_HSH",
+      "summary": "Diagnostic assertion and panic support."
+    }
+  ],
+  "sourceModules": [
+    {
+      "id": "Ctype",
+      "file": "ctype.hs",
+      "dependencies": []
+    }
+  ],
+  "defaultTestOwners": [
+    "tests/stdlib/StandardLibraryTests.cpp"
+  ],
+  "builtins": [
+    {
+      "id": "Length",
+      "name": "length",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Pointer",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Semantic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "sema:length",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern length(value as addr) -> u64"
+    },
+    {
+      "id": "Alloc",
+      "name": "alloc",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_alloc",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern alloc(size as u64) -> addr"
+    },
+    {
+      "id": "Calloc",
+      "name": "calloc",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "U64",
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_calloc",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "multiplication_overflow"
+      ],
+      "headerDeclaration": "extern calloc(count as u64, size as u64) -> addr"
+    },
+    {
+      "id": "Realloc",
+      "name": "realloc",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Addr",
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_realloc",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "dynamic_base_address"
+      ],
+      "headerDeclaration": "extern realloc(ptr as addr, size as u64) -> addr"
+    },
+    {
+      "id": "Free",
+      "name": "free",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "results": [],
+      "overloads": [
+        [
+          [
+            "Addr"
+          ],
+          []
+        ]
+      ],
+      "returnMode": "Void",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_free",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "dynamic_base_address"
+      ],
+      "headerDeclaration": "extern free(ptr as addr) -> ()"
+    },
+    {
+      "id": "Memset",
+      "name": "memset",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "String",
+      "parameters": [
+        [
+          "MemLView",
+          "Pointer",
+          ""
+        ],
+        [
+          "View",
+          "Bytes4",
+          ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "MemLView",
+            "View",
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:memset",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds"
+      ],
+      "headerDeclaration": "extern memset(dst as addr, value as u64, len as u64) -> addr"
+    },
+    {
+      "id": "Memcpy",
+      "name": "memcpy",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "String",
+      "parameters": [
+        [
+          "MemLView",
+          "Pointer",
+          ""
+        ],
+        [
+          "MemView",
+          "Pointer",
+          ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "MemLView",
+            "MemView",
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:memcpy",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds",
+        "overlap"
+      ],
+      "headerDeclaration": "extern memcpy(dst as addr, src as addr, len as u64) -> addr"
+    },
+    {
+      "id": "Memmove",
+      "name": "memmove",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "String",
+      "parameters": [
+        [
+          "MemLView",
+          "Pointer",
+          ""
+        ],
+        [
+          "MemView",
+          "Pointer",
+          ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "MemLView",
+            "MemView",
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:memmove",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds"
+      ],
+      "headerDeclaration": "extern memmove(dst as addr, src as addr, len as u64) -> addr"
+    },
+    {
+      "id": "Memcmp",
+      "name": "memcmp",
+      "visibility": "Public",
+      "standardSection": "14.1",
+      "header": "String",
+      "parameters": [
+        [
+          "MemView",
+          "Pointer",
+          ""
+        ],
+        [
+          "MemView",
+          "Pointer",
+          ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+      [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "MemView",
+            "MemView",
+            "U64"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:memcmp",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds"
+      ],
+      "headerDeclaration": "extern memcmp(left as addr, right as addr, len as u64) -> i32"
+    },
+    {
+      "id": "ResizeBytes",
+      "name": "resize_bytes",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "None",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View",
+            "U64"
+          ],
+          [
+            "None"
+          ]
+        ]
+      ],
+      "returnMode": "DynamicLength",
+      "provider": "Semantic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "sema:resize_bytes",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "dynamic_length_requires_static_context"
+      ],
+      "headerDeclaration": "extern resize_bytes(value as addr, length as u64) -> addr"
+    },
+    {
+      "id": "ByteSwap",
+      "name": "byte_swap",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "None",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "None"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:byte_swap",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern byte_swap(value as u64) -> u64"
+    },
+    {
+      "id": "ToF16",
+      "name": "to_f16",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "F16",
+          "Bytes2",
+          "f16"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "F16"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_f16",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_f16(value as u64) -> f16"
+    },
+    {
+      "id": "ToF32",
+      "name": "to_f32",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "F32",
+          "Bytes4",
+          "f32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "F32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_f32",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_f32(value as u64) -> f32"
+    },
+    {
+      "id": "ToF64",
+      "name": "to_f64",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "F64",
+          "Bytes8",
+          "f64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "F64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_f64",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_f64(value as u64) -> f64"
+    },
+    {
+      "id": "ToF128",
+      "name": "to_f128",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "F128",
+          "Bytes16",
+          "f128"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_f128",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_f128(value as u64) -> f128"
+    },
+    {
+      "id": "ToI8",
+      "name": "to_i8",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I8",
+          "Bytes1",
+          "i8"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "I8"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_i8",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_i8(value as u64) -> i8"
+    },
+    {
+      "id": "ToI16",
+      "name": "to_i16",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I16",
+          "Bytes2",
+          "i16"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "I16"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_i16",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_i16(value as u64) -> i16"
+    },
+    {
+      "id": "ToI32",
+      "name": "to_i32",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_i32",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_i32(value as u64) -> i32"
+    },
+    {
+      "id": "ToI64",
+      "name": "to_i64",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I64",
+          "Bytes8",
+          "i64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "I64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_i64",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_i64(value as u64) -> i64"
+    },
+    {
+      "id": "ToU8",
+      "name": "to_u8",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U8",
+          "Bytes1",
+          "u8"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U8"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_u8",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_u8(value as u64) -> u8"
+    },
+    {
+      "id": "ToU16",
+      "name": "to_u16",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U16",
+          "Bytes2",
+          "u16"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U16"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_u16",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_u16(value as u64) -> u16"
+    },
+    {
+      "id": "ToU32",
+      "name": "to_u32",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U32",
+          "Bytes4",
+          "u32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_u32",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_u32(value as u64) -> u32"
+    },
+    {
+      "id": "ToU64",
+      "name": "to_u64",
+      "visibility": "Public",
+      "standardSection": "14.2",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "View",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:to_u64",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_u64(value as u64) -> u64"
+    },
+    {
+      "id": "Strlen",
+      "name": "strlen",
+      "visibility": "Public",
+      "standardSection": "14.3",
+      "header": "String",
+      "parameters": [
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "CStrView"
+          ],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:strlen",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern strlen(value as cstr) -> u64"
+    },
+    {
+      "id": "Strcmp",
+      "name": "strcmp",
+      "visibility": "Public",
+      "standardSection": "14.3",
+      "header": "String",
+      "parameters": [
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "CStrView",
+            "CStrView"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:strcmp",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern strcmp(left as cstr, right as cstr) -> i32"
+    },
+    {
+      "id": "Strcpy",
+      "name": "strcpy",
+      "visibility": "Public",
+      "standardSection": "14.3",
+      "header": "String",
+      "parameters": [
+        [
+          "LView",
+          "Pointer",
+          ""
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "LView",
+            "CStrView"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:strcpy",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds",
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern strcpy(dst as addr, src as cstr) -> addr"
+    },
+    {
+      "id": "Strncpy",
+      "name": "strncpy",
+      "visibility": "Public",
+      "standardSection": "14.3",
+      "header": "String",
+      "parameters": [
+        [
+          "LView",
+          "Pointer",
+          ""
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "LView",
+            "CStrView",
+            "U64"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:strncpy",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds",
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern strncpy(dst as addr, src as cstr, count as u64) -> addr"
+    },
+    {
+      "id": "Strcat",
+      "name": "strcat",
+      "visibility": "Public",
+      "standardSection": "14.3",
+      "header": "String",
+      "parameters": [
+        [
+          "LView",
+          "Pointer",
+          ""
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "LView",
+            "CStrView"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:strcat",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "view_bounds",
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern strcat(dst as addr, src as cstr) -> addr"
+    },
+    {
+      "id": "Strchr",
+      "name": "strchr",
+      "visibility": "Public",
+      "standardSection": "14.3",
+      "header": "String",
+      "parameters": [
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ],
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Addr",
+          "Pointer",
+          "addr"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "CStrView",
+            "View"
+          ],
+          [
+            "Addr"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:strchr",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern strchr(value as cstr, ch as u64) -> addr"
+    },
+    {
+      "id": "Get",
+      "name": "get",
+      "visibility": "Public",
+      "standardSection": "14.4",
+      "header": "Stdio",
+      "parameters": [],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:get",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern get() -> i32"
+    },
+    {
+      "id": "Put",
+      "name": "put",
+      "visibility": "Public",
+      "standardSection": "14.4",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:put",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern put(value as u64) -> i32"
+    },
+    {
+      "id": "Print",
+      "name": "print",
+      "visibility": "Public",
+      "standardSection": "14.4",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "View",
+          "Pointer",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "FormatProtocol",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "format:print",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern print(value as addr) -> i32"
+    },
+    {
+      "id": "Printf",
+      "name": "printf",
+      "visibility": "Public",
+      "standardSection": "14.4",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "CStrView",
+            "Varargs"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "FormatProtocol",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "format:printf",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "format_descriptor",
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern printf(format as cstr) -> i32"
+    },
+    {
+      "id": "Scanf",
+      "name": "scanf",
+      "visibility": "Public",
+      "standardSection": "14.4",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "LeftContext",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "CStrView"
+          ],
+          [
+            "LeftContext"
+          ]
+        ]
+      ],
+      "returnMode": "LeftContext",
+      "provider": "FormatProtocol",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "format:scanf",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "format_descriptor",
+        "scan_targets"
+      ],
+      "headerDeclaration": "extern scanf(format as cstr) -> i32"
+    },
+    {
+      "id": "Fopen",
+      "name": "fopen",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "CStrView",
+            "CStrView"
+          ],
+          [
+            "Handle"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fopen",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern fopen(name as cstr, mode as cstr) -> handle"
+    },
+    {
+      "id": "Fclose",
+      "name": "fclose",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fclose",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern fclose(file as handle) -> i32"
+    },
+    {
+      "id": "Fget",
+      "name": "fget",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fget",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern fget(file as handle) -> i32"
+    },
+    {
+      "id": "Fput",
+      "name": "fput",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ],
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle",
+            "View"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fput",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern fput(file as handle, value as u64) -> i32"
+    },
+    {
+      "id": "Fread",
+      "name": "fread",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+      [
+        "LView",
+        "Pointer",
+        ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ],
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "LView",
+            "U64",
+            "U64",
+            "Handle"
+          ],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fread",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "multiplication_overflow",
+        "view_bounds"
+      ],
+      "headerDeclaration": "extern fread(dst as addr, size as u64, count as u64, file as handle) -> u64"
+    },
+    {
+      "id": "Fwrite",
+      "name": "fwrite",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+      [
+        "View",
+        "Pointer",
+        ""
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ],
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ],
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View",
+            "U64",
+            "U64",
+            "Handle"
+          ],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fwrite",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "multiplication_overflow",
+        "view_bounds"
+      ],
+      "headerDeclaration": "extern fwrite(src as addr, size as u64, count as u64, file as handle) -> u64"
+    },
+    {
+      "id": "Fprintf",
+      "name": "fprintf",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle",
+            "CStrView",
+            "Varargs"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "FormatProtocol",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "format:fprintf",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "format_descriptor",
+        "cstr_termination"
+      ],
+      "headerDeclaration": "extern fprintf(file as handle, format as cstr) -> i32"
+    },
+    {
+      "id": "Fscanf",
+      "name": "fscanf",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ],
+        [
+          "CStrView",
+          "Pointer",
+          "cstr"
+        ]
+      ],
+      "results": [
+        [
+          "LeftContext",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle",
+            "CStrView"
+          ],
+          [
+            "LeftContext"
+          ]
+        ]
+      ],
+      "returnMode": "LeftContext",
+      "provider": "FormatProtocol",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "format:fscanf",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "format_descriptor",
+        "scan_targets"
+      ],
+      "headerDeclaration": "extern fscanf(file as handle, format as cstr) -> i32"
+    },
+    {
+      "id": "Fflush",
+      "name": "fflush",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fflush",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern fflush(file as handle) -> i32"
+    },
+    {
+      "id": "Fseek",
+      "name": "fseek",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ],
+        [
+          "I64",
+          "Bytes8",
+          "i64"
+        ],
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle",
+            "I64",
+            "I32"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:fseek",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern fseek(file as handle, offset as i64, whence as i32) -> i32"
+    },
+    {
+      "id": "Ftell",
+      "name": "ftell",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "I64",
+          "Bytes8",
+          "i64"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle"
+          ],
+          [
+            "I64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:ftell",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern ftell(file as handle) -> i64"
+    },
+    {
+      "id": "Feof",
+      "name": "feof",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:feof",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern feof(file as handle) -> bool"
+    },
+    {
+      "id": "Ferror",
+      "name": "ferror",
+      "visibility": "Public",
+      "standardSection": "14.5",
+      "header": "Stdio",
+      "parameters": [
+        [
+          "Handle",
+          "Pointer",
+          "handle"
+        ]
+      ],
+      "results": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "Handle"
+          ],
+          [
+            "I32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:ferror",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern ferror(file as handle) -> i32"
+    },
+    {
+      "id": "Abs",
+      "name": "abs",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "Integer",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Integer",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "I8"
+          ],
+          [
+            "I8"
+          ]
+        ],
+        [
+          [
+            "I16"
+          ],
+          [
+            "I16"
+          ]
+        ],
+        [
+          [
+            "I32"
+          ],
+          [
+            "I32"
+          ]
+        ],
+        [
+          [
+            "I64"
+          ],
+          [
+            "I64"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:abs",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [
+        "signed_minimum_overflow"
+      ],
+      "headerDeclaration": "extern abs(value as i64) -> i64"
+    },
+    {
+      "id": "Min",
+      "name": "min",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "SameType",
+          "Bytes8",
+          ""
+        ],
+        [
+          "SameType",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "SameType",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "I8",
+            "I8"
+          ],
+          [
+            "I8"
+          ]
+        ],
+        [
+          [
+            "I16",
+            "I16"
+          ],
+          [
+            "I16"
+          ]
+        ],
+        [
+          [
+            "I32",
+            "I32"
+          ],
+          [
+            "I32"
+          ]
+        ],
+        [
+          [
+            "I64",
+            "I64"
+          ],
+          [
+            "I64"
+          ]
+        ],
+        [
+          [
+            "U8",
+            "U8"
+          ],
+          [
+            "U8"
+          ]
+        ],
+        [
+          [
+            "U16",
+            "U16"
+          ],
+          [
+            "U16"
+          ]
+        ],
+        [
+          [
+            "U32",
+            "U32"
+          ],
+          [
+            "U32"
+          ]
+        ],
+        [
+          [
+            "U64",
+            "U64"
+          ],
+          [
+            "U64"
+          ]
+        ],
+        [
+          [
+            "F16",
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32",
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64",
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128",
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:min",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern min(left as i64, right as i64) -> i64"
+    },
+    {
+      "id": "Max",
+      "name": "max",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "SameType",
+          "Bytes8",
+          ""
+        ],
+        [
+          "SameType",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "SameType",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "I8",
+            "I8"
+          ],
+          [
+            "I8"
+          ]
+        ],
+        [
+          [
+            "I16",
+            "I16"
+          ],
+          [
+            "I16"
+          ]
+        ],
+        [
+          [
+            "I32",
+            "I32"
+          ],
+          [
+            "I32"
+          ]
+        ],
+        [
+          [
+            "I64",
+            "I64"
+          ],
+          [
+            "I64"
+          ]
+        ],
+        [
+          [
+            "U8",
+            "U8"
+          ],
+          [
+            "U8"
+          ]
+        ],
+        [
+          [
+            "U16",
+            "U16"
+          ],
+          [
+            "U16"
+          ]
+        ],
+        [
+          [
+            "U32",
+            "U32"
+          ],
+          [
+            "U32"
+          ]
+        ],
+        [
+          [
+            "U64",
+            "U64"
+          ],
+          [
+            "U64"
+          ]
+        ],
+        [
+          [
+            "F16",
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32",
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64",
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128",
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:max",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern max(left as i64, right as i64) -> i64"
+    },
+    {
+      "id": "FAbs",
+      "name": "f_abs",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_abs",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_abs(value as f64) -> f64"
+    },
+    {
+      "id": "FSqrt",
+      "name": "f_sqrt",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_sqrt",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_sqrt(value as f64) -> f64"
+    },
+    {
+      "id": "FPow",
+      "name": "f_pow",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ],
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16",
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32",
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64",
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128",
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_pow",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_pow(left as f64, right as f64) -> f64"
+    },
+    {
+      "id": "FSin",
+      "name": "f_sin",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_sin",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_sin(value as f64) -> f64"
+    },
+    {
+      "id": "FCos",
+      "name": "f_cos",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_cos",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_cos(value as f64) -> f64"
+    },
+    {
+      "id": "FTan",
+      "name": "f_tan",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_tan",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_tan(value as f64) -> f64"
+    },
+    {
+      "id": "FLog",
+      "name": "f_log",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_log",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_log(value as f64) -> f64"
+    },
+    {
+      "id": "FExp",
+      "name": "f_exp",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_exp",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_exp(value as f64) -> f64"
+    },
+    {
+      "id": "FFloor",
+      "name": "f_floor",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_floor",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_floor(value as f64) -> f64"
+    },
+    {
+      "id": "FCeil",
+      "name": "f_ceil",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_ceil",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_ceil(value as f64) -> f64"
+    },
+    {
+      "id": "FRound",
+      "name": "f_round",
+      "visibility": "Public",
+      "standardSection": "14.6",
+      "header": "Math",
+      "parameters": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Floating",
+          "Bytes8",
+          ""
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "F16"
+          ],
+          [
+            "F16"
+          ]
+        ],
+        [
+          [
+            "F32"
+          ],
+          [
+            "F32"
+          ]
+        ],
+        [
+          [
+            "F64"
+          ],
+          [
+            "F64"
+          ]
+        ],
+        [
+          [
+            "F128"
+          ],
+          [
+            "F128"
+          ]
+        ]
+      ],
+      "returnMode": "ArgumentLength",
+      "provider": "Intrinsic",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "llvm:f_round",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern f_round(value as f64) -> f64"
+    },
+    {
+      "id": "IsDigit",
+      "name": "is_digit",
+      "visibility": "Public",
+      "standardSection": "14.7",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_digit",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_digit(ch as u8) -> bool"
+    },
+    {
+      "id": "IsAlpha",
+      "name": "is_alpha",
+      "visibility": "Public",
+      "standardSection": "14.7",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_alpha",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_alpha(ch as u8) -> bool"
+    },
+    {
+      "id": "IsAlnum",
+      "name": "is_alnum",
+      "visibility": "Public",
+      "standardSection": "14.7",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_alnum",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_alnum(ch as u8) -> bool"
+    },
+    {
+      "id": "IsSpace",
+      "name": "is_space",
+      "visibility": "Public",
+      "standardSection": "14.7",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_space",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_space(ch as u8) -> bool"
+    },
+    {
+      "id": "ToUpper",
+      "name": "to_upper",
+      "visibility": "Public",
+      "standardSection": "14.7",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U8",
+          "Bytes1",
+          "u8"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U8"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_to_upper",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_upper(ch as u8) -> u8"
+    },
+    {
+      "id": "ToLower",
+      "name": "to_lower",
+      "visibility": "Public",
+      "standardSection": "14.7",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "U8",
+          "Bytes1",
+          "u8"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "U8"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_to_lower",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern to_lower(ch as u8) -> u8"
+    },
+    {
+      "id": "Srand",
+      "name": "srand",
+      "visibility": "Public",
+      "standardSection": "14.8",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "U32",
+          "Bytes4",
+          "u32"
+        ]
+      ],
+      "results": [],
+      "overloads": [
+        [
+          [
+            "U32"
+          ],
+          []
+        ]
+      ],
+      "returnMode": "Void",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:srand",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern srand(seed as u32) -> ()"
+    },
+    {
+      "id": "Rand",
+      "name": "rand",
+      "visibility": "Public",
+      "standardSection": "14.8",
+      "header": "Stdlib",
+      "parameters": [],
+      "results": [
+        [
+          "U32",
+          "Bytes4",
+          "u32"
+        ]
+      ],
+      "overloads": [
+        [
+          [],
+          [
+            "U32"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:rand",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern rand() -> u32"
+    },
+    {
+      "id": "TimeMs",
+      "name": "time_ms",
+      "visibility": "Public",
+      "standardSection": "14.8",
+      "header": "Time",
+      "parameters": [],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_time_ms",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern time_ms() -> u64"
+    },
+    {
+      "id": "ClockMs",
+      "name": "clock_ms",
+      "visibility": "Public",
+      "standardSection": "14.8",
+      "header": "Time",
+      "parameters": [],
+      "results": [
+        [
+          "U64",
+          "Bytes8",
+          "u64"
+        ]
+      ],
+      "overloads": [
+        [
+          [],
+          [
+            "U64"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_clock_ms",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern clock_ms() -> u64"
+    },
+    {
+      "id": "Exit",
+      "name": "exit",
+      "visibility": "Public",
+      "standardSection": "14.8",
+      "header": "Stdlib",
+      "parameters": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "results": [],
+      "overloads": [
+        [
+          [
+            "I32"
+          ],
+          []
+        ]
+      ],
+      "returnMode": "Void",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:exit",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern exit(code as i32) -> ()"
+    },
+    {
+      "id": "Abort",
+      "name": "abort",
+      "visibility": "Public",
+      "standardSection": "14.8",
+      "header": "Stdlib",
+      "parameters": [],
+      "results": [],
+      "overloads": [
+        [
+          [],
+          []
+        ]
+      ],
+      "returnMode": "Void",
+      "provider": "LibcBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "libc:abort",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern abort() -> ()"
+    },
+    {
+      "id": "Assert",
+      "name": "assert",
+      "visibility": "Public",
+      "standardSection": "14.9",
+      "header": "Assert",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ],
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "results": [],
+      "overloads": [
+        [
+          [
+            "View",
+            "I32"
+          ],
+          []
+        ]
+      ],
+      "returnMode": "Void",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_assert",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern assert(condition as bool, error_code as i32) -> ()"
+    },
+    {
+      "id": "Panic",
+      "name": "panic",
+      "visibility": "Public",
+      "standardSection": "14.9",
+      "header": "Assert",
+      "parameters": [
+        [
+          "I32",
+          "Bytes4",
+          "i32"
+        ]
+      ],
+      "results": [],
+      "overloads": [
+        [
+          [
+            "I32"
+          ],
+          []
+        ]
+      ],
+      "returnMode": "Void",
+      "provider": "RuntimeBridge",
+      "referenceProvider": "None",
+      "sourceModule": "",
+      "implementationSymbol": "runtime:hs_panic",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern panic(error_code as i32) -> ()"
+    }
+  ]
+}

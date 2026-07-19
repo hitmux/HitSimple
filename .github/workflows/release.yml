@@ -93,6 +93,8 @@ jobs:
           ./build-release/hsc --target-info | tee target-info.txt
           grep -Fx "runtime.kind: static-library" target-info.txt
           grep -Fx "f128.backend: native.fp128" target-info.txt
+          grep -Fx "stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider" target-info.txt
+          grep -Fx "stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode" target-info.txt
 
       - name: Run x86_64 regression suite
         if: matrix.architecture == 'x86_64'
@@ -108,6 +110,37 @@ jobs:
           ./hello-checked | grep -Fx 42
           ./build-release/hsc tests/cases/run/f16_f128_fallback.hs -o f128-smoke
           ./f128-smoke
+          ./build-release/hsc --checked tests/cases/run/f128_format_scan.hs \
+            -o f128-format-scan
+          printf '1.5\n' | ./f128-format-scan | grep -Fx 1.5
+          for mode in --unchecked --static-checked --checked; do
+            for provider in optimized reference; do
+              ./build-release/hsc --stdlib-provider="$provider" "$mode" \
+                tests/cases/run/ctype_reference.hs -o "ctype-$provider-${mode#--}"
+              ./"ctype-$provider-${mode#--}"
+            done
+          done
+          ./build-release/hsc --checked tests/cases/run/checked_memcpy_bounds.hs \
+            -o checked-memcpy-bounds
+          if printf '2\n' | ./checked-memcpy-bounds >stdout 2>stderr; then
+            echo 'checked memcpy bounds unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -Fq 'hitsimple runtime error: invalid memcpy destination range' stderr
+          ./build-release/hsc --checked tests/cases/run/checked_memcpy_overlap.hs \
+            -o checked-memcpy-overlap
+          if printf '1\n' | ./checked-memcpy-overlap >stdout 2>stderr; then
+            echo 'checked memcpy overlap unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -Fq 'hitsimple runtime error: overlapping memcpy ranges' stderr
+          ./build-release/hsc --checked tests/cases/run/checked_dynamic_scan_target.hs \
+            -o checked-dynamic-scan-target
+          if printf 'x\n' | ./checked-dynamic-scan-target >stdout 2>stderr; then
+            echo 'checked dynamic scan target unexpectedly succeeded' >&2
+            exit 1
+          fi
+          grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr
           ctest --test-dir build-release --output-on-failure -R '^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*)$'
 
       - name: Verify native preprocessor macro
@@ -134,12 +167,19 @@ jobs:
           mkdir -p "$smoke_root"
           cp examples/hello.hs "$smoke_root/hello.hs"
           cp tests/cases/run/f16_f128_fallback.hs "$smoke_root/f128.hs"
+          cp tests/cases/run/f128_format_scan.hs "$smoke_root/f128-format-scan.hs"
+          cp tests/cases/run/ctype_reference.hs "$smoke_root/ctype-reference.hs"
           (
             cd "$smoke_root"
             "$package_root/bin/hsc" hello.hs -o hello
             ./hello | grep -Fx 42
             "$package_root/bin/hsc" f128.hs -o f128
             ./f128
+            "$package_root/bin/hsc" f128-format-scan.hs -o f128-format-scan
+            printf '1.5\n' | ./f128-format-scan | grep -Fx 1.5
+            "$package_root/bin/hsc" --stdlib-provider=reference --checked \
+              ctype-reference.hs -o ctype-reference
+            ./ctype-reference
           )
 
           tar -C "$PWD/dist" -czf "$PWD/dist/${package_name}.tar.gz" "$package_name"
@@ -162,6 +202,11 @@ jobs:
           "$RUNNER_TEMP/deb-hello" | grep -Fx 42
           /usr/bin/hsc tests/cases/run/f16_f128_fallback.hs -o "$RUNNER_TEMP/deb-f128"
           "$RUNNER_TEMP/deb-f128"
+          /usr/bin/hsc tests/cases/run/f128_format_scan.hs -o "$RUNNER_TEMP/deb-f128-format-scan"
+          printf '1.5\n' | "$RUNNER_TEMP/deb-f128-format-scan" | grep -Fx 1.5
+          /usr/bin/hsc --stdlib-provider=reference --checked \
+            tests/cases/run/ctype_reference.hs -o "$RUNNER_TEMP/deb-ctype-reference"
+          "$RUNNER_TEMP/deb-ctype-reference"
           sudo apt-get remove -y hitsimple
           test ! -e /usr/bin/hsc
           test ! -e /usr/libexec/hitsimple/hsc_mcpp
@@ -256,6 +301,11 @@ jobs:
               ./hello | grep -Fx 42
               /usr/bin/hsc /src/tests/cases/run/f16_f128_fallback.hs -o f128
               ./f128
+              /usr/bin/hsc /src/tests/cases/run/f128_format_scan.hs -o f128-format-scan
+              printf "1.5\\n" | ./f128-format-scan | grep -Fx 1.5
+              /usr/bin/hsc --stdlib-provider=reference --checked \
+                /src/tests/cases/run/ctype_reference.hs -o ctype-reference
+              ./ctype-reference
               apt-get remove -y hitsimple
               test ! -e /usr/bin/hsc
               test ! -e /usr/libexec/hitsimple/hsc_mcpp
@@ -340,6 +390,8 @@ jobs:
           ./build-macos/hsc --target-info | tee target-info.txt
           grep -E -x "target.triple: ${{ matrix.host_machine }}-apple-.*" target-info.txt
           grep -Fx 'f128.backend: boost.cpp_bin_float.113-bit-software-binary128' target-info.txt
+          grep -Fx 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider' target-info.txt
+          grep -Fx 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode' target-info.txt
           ctest --test-dir build-macos --output-on-failure --parallel 4
           for mode in --unchecked --static-checked --checked; do
             output="$RUNNER_TEMP/hello-${mode#--}"
@@ -377,6 +429,8 @@ jobs:
           tar -xzf "dist/${package_name}.tar.gz" -C "$smoke_root"
           cp examples/hello.hs "$smoke_root/hello.hs"
           cp tests/cases/run/f16_f128_fallback.hs "$smoke_root/f128.hs"
+          cp tests/cases/run/f128_format_scan.hs "$smoke_root/f128-format-scan.hs"
+          cp tests/cases/run/ctype_reference.hs "$smoke_root/ctype-reference.hs"
           (
             cd "$smoke_root"
             "./$package_name/bin/hsc" --target-info | \
@@ -388,6 +442,13 @@ jobs:
             ./hello-checked | grep -Fx 42
             "./$package_name/bin/hsc" --clang "$llvm_prefix/bin/clang" f128.hs -o f128
             ./f128
+            "./$package_name/bin/hsc" --clang "$llvm_prefix/bin/clang" \
+              f128-format-scan.hs -o f128-format-scan
+            printf '1.5\n' | ./f128-format-scan | grep -Fx 1.5
+            "./$package_name/bin/hsc" --clang "$llvm_prefix/bin/clang" \
+              --stdlib-provider=reference --checked ctype-reference.hs \
+              -o ctype-reference
+            ./ctype-reference
           )
 
       - uses: actions/upload-artifact@v4
@@ -548,6 +609,11 @@ jobs:
               ./hello-checked | grep -Fx 42
               /usr/bin/hsc /src/tests/cases/run/f16_f128_fallback.hs -o f128
               ./f128
+              /usr/bin/hsc /src/tests/cases/run/f128_format_scan.hs -o f128-format-scan
+              printf "1.5\\n" | ./f128-format-scan | grep -Fx 1.5
+              /usr/bin/hsc --stdlib-provider=reference --checked \
+                /src/tests/cases/run/ctype_reference.hs -o ctype-reference
+              ./ctype-reference
               dnf remove -y hitsimple
               test ! -e /usr/bin/hsc
               test ! -e /usr/libexec/hitsimple/hsc_mcpp
@@ -670,12 +736,37 @@ jobs:
           & build-windows/hsc.exe --target-info | Tee-Object -FilePath target-info.txt
           Select-String -Path target-info.txt -SimpleMatch 'target.triple: x86_64-w64-windows-gnu'
           Select-String -Path target-info.txt -SimpleMatch 'f128.backend: boost.cpp_bin_float.113-bit-software-binary128'
+          Select-String -Path target-info.txt -SimpleMatch 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider'
+          Select-String -Path target-info.txt -SimpleMatch 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode'
           & build-windows/hsc.exe --clang $mingwClang --unchecked examples/hello.hs -o hello-unchecked.exe
           & ./hello-unchecked.exe | Select-String -SimpleMatch '42'
           & build-windows/hsc.exe --clang $mingwClang --static-checked examples/hello.hs -o hello-static.exe
           & ./hello-static.exe | Select-String -SimpleMatch '42'
           & build-windows/hsc.exe --clang $mingwClang --checked examples/hello.hs -o hello-checked.exe
           & ./hello-checked.exe | Select-String -SimpleMatch '42'
+          & build-windows/hsc.exe --clang $mingwClang --stdlib-provider=reference --checked tests/cases/run/ctype_reference.hs -o ctype-reference.exe
+          & ./ctype-reference.exe
+          if ($LASTEXITCODE -ne 0) { throw "Windows reference provider smoke failed with exit code $LASTEXITCODE" }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/f128_format_scan.hs -o f128-format-scan.exe
+          $f128FormatOutput = "1.5" | & ./f128-format-scan.exe 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$f128FormatOutput" -notmatch '(?m)^1\.5\r?$') {
+            throw "Windows f128 format/scan smoke failed: $f128FormatOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_bounds.hs -o checked-memcpy-bounds.exe
+          $boundsOutput = "2" | & ./checked-memcpy-bounds.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: invalid memcpy destination range') {
+            throw "Windows checked memcpy bounds did not fail as required: $boundsOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_overlap.hs -o checked-memcpy-overlap.exe
+          $overlapOutput = "1" | & ./checked-memcpy-overlap.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$overlapOutput" -notmatch 'hitsimple runtime error: overlapping memcpy ranges') {
+            throw "Windows checked memcpy overlap did not fail as required: $overlapOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_dynamic_scan_target.hs -o checked-dynamic-scan-target.exe
+          $scanOutput = "x" | & ./checked-dynamic-scan-target.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$scanOutput" -notmatch 'hitsimple runtime error: scan string target must leave room for a NUL terminator') {
+            throw "Windows checked dynamic scan target did not fail as required: $scanOutput"
+          }
           & build-windows/hsc.exe --clang $mingwClang -g tests/cases/run/debug_info.hs -o debug-info.exe
           if (-not (Test-Path debug-info.pdb)) { throw 'Windows debug build did not generate debug-info.pdb' }
           & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-llvm examples/hello.hs -o hello.ll
@@ -722,6 +813,8 @@ jobs:
           New-Item -ItemType Directory -Force $sourceRoot | Out-Null
           Copy-Item "$env:GITHUB_WORKSPACE/examples/hello.hs" (Join-Path $sourceRoot '你好.hs')
           Copy-Item "$env:GITHUB_WORKSPACE/tests/cases/run/windows_f128_lowering.hs" (Join-Path $sourceRoot '四精度.hs')
+          Copy-Item "$env:GITHUB_WORKSPACE/tests/cases/run/f128_format_scan.hs" (Join-Path $sourceRoot '格式.hs')
+          Copy-Item "$env:GITHUB_WORKSPACE/tests/cases/run/ctype_reference.hs" (Join-Path $sourceRoot '字母.hs')
           Push-Location $root
           & bin/hsc.exe (Join-Path $sourceRoot '你好.hs') -o '输出 程序.exe'
           & '.\输出 程序.exe' | Select-String -SimpleMatch '42'
@@ -738,6 +831,14 @@ jobs:
           if ($f128RunExitCode -ne 0) {
             throw "Full package f128 smoke failed with exit code $f128RunExitCode"
           }
+          & bin/hsc.exe (Join-Path $sourceRoot '格式.hs') -o f128-format-scan.exe
+          $f128FormatOutput = "1.5" | & ./f128-format-scan.exe 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$f128FormatOutput" -notmatch '(?m)^1\.5\r?$') {
+            throw "Full package f128 format/scan smoke failed: $f128FormatOutput"
+          }
+          & bin/hsc.exe --stdlib-provider=reference --checked (Join-Path $sourceRoot '字母.hs') -o ctype-reference.exe
+          & ./ctype-reference.exe
+          if ($LASTEXITCODE -ne 0) { throw "Full package reference provider smoke failed with exit code $LASTEXITCODE" }
           Pop-Location
           $env:PATH = $savedPath
 
@@ -751,6 +852,14 @@ jobs:
           $env:HITSIMPLE_CLANG = $clang
           & "$slim/bin/hsc.exe" examples/hello.hs -o slim-env.exe
           & ./slim-env.exe | Select-String -SimpleMatch '42'
+          & "$slim/bin/hsc.exe" --clang $clang --stdlib-provider=reference --checked tests/cases/run/ctype_reference.hs -o slim-ctype-reference.exe
+          & ./slim-ctype-reference.exe
+          if ($LASTEXITCODE -ne 0) { throw "Slim package reference provider smoke failed with exit code $LASTEXITCODE" }
+          & "$slim/bin/hsc.exe" --clang $clang tests/cases/run/f128_format_scan.hs -o slim-f128-format-scan.exe
+          $slimF128FormatOutput = "1.5" | & ./slim-f128-format-scan.exe 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$slimF128FormatOutput" -notmatch '(?m)^1\.5\r?$') {
+            throw "Slim package f128 format/scan smoke failed: $slimF128FormatOutput"
+          }
           Remove-Item Env:HITSIMPLE_CLANG
           $savedPath = $env:PATH
           $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"

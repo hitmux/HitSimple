@@ -452,8 +452,8 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
           arguments[formatIndex].get())) {
     specifiers = collectPrintfSpecifiers(decodeStringLiteral(format->value));
   }
-  auto *format = emitPointerValue(*arguments[formatIndex],
-                                  std::string(calleeName) + ".format");
+  auto *format = emitBorrowedViewPointer(
+      *arguments[formatIndex], std::string(calleeName) + ".format");
   if (format == nullptr) {
     return nullptr;
   }
@@ -462,6 +462,11 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
     file = emitPointerValue(*arguments[0], "fprintf.file");
     if (file == nullptr) {
       return nullptr;
+    }
+    if (hasRuntimeSafetyChecks()) {
+      auto checkFile = declareCFunction("hs_check_file_handle",
+                                        builder_.getVoidTy(), {ptrTy});
+      builder_.CreateCall(checkFile, {file});
     }
   }
   const auto argumentCount = arguments.size() - formatIndex - 1U;
@@ -605,7 +610,8 @@ void LlvmEmitter::emit(const hir::Call &call) {
   }
 
   if (call.builtin == stdlib::BuiltinId::Memset) {
-    auto *address = emitPointerValue(*call.arguments[0], "memset.dst");
+    auto *address =
+        emitMemoryOperandPointer(*call.arguments[0], "memset.dst");
     auto *value = emitIntegerValue(*call.arguments[1], 4, true);
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!address || !value || !length) {
@@ -799,12 +805,18 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
     if (file == nullptr) {
       return;
     }
+    if (hasRuntimeSafetyChecks()) {
+      auto checkFile = declareCFunction("hs_check_file_handle",
+                                        builder_.getVoidTy(), {ptrTy});
+      builder_.CreateCall(checkFile, {file});
+    }
   } else if (call.builtin != stdlib::BuiltinId::Scanf) {
     addDiagnostic("unknown input call '" + call.callee + "'");
     return;
   }
 
-  auto *format = emitPointerValue(*call.format, call.callee + ".format");
+  auto *format =
+      emitBorrowedViewPointer(*call.format, call.callee + ".format");
   if (format == nullptr) {
     return;
   }

@@ -286,6 +286,12 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
       isHandleExpression(*item.initializer)) {
     templateName = "handle";
   }
+  if (templateName.empty() && item.initializer) {
+    const auto initializerTemplate = operatorTemplateName(*item.initializer);
+    if (initializerTemplate && *initializerTemplate == "addr") {
+      templateName = "addr";
+    }
+  }
 
   std::size_t length = 0;
   if (!item.length.empty()) {

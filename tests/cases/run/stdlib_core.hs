@@ -8,9 +8,9 @@ func main() {
     [1]*ptr = 'A'
     [1]*(ptr? + 1) = 'B'
     new text[3] as cstr = "AB"
-    new len = strlen(&text)
+    new len = strlen(text)
     new cmp[4] = memcmp(ptr, ptr, 2)
-    new match = strchr(&text, 'B')
+    new match = strchr(text, 'B')
     new text_base as addr = &text
     new expected_match as addr = text_base? + 1
     new swapped[2] = byte_swap(0x1234)

@@ -5,9 +5,9 @@
 #include "hitsimple/sema/Sema.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -18,9 +18,9 @@ std::vector<hitsimple::stdlib::StandardHeader> allStandardHeaders() {
   return {headers.begin(), headers.end()};
 }
 
-hitsimple::codegen::EmitResult emitSource(
-    std::string_view source,
-    hitsimple::codegen::CodegenOptions options = {}) {
+hitsimple::codegen::EmitResult
+emitSource(std::string_view source,
+           hitsimple::codegen::CodegenOptions options = {}) {
   auto parseResult = hitsimple::parser::parseSource(source, "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
@@ -44,8 +44,8 @@ hitsimple::sema::AnalyzeResult analyzeSource(std::string_view source) {
       hitsimple::sema::AnalyzeOptions{true, allStandardHeaders()});
 }
 
-hitsimple::codegen::EmitResult emitSourceWithoutStandardHeaders(
-    std::string_view source) {
+hitsimple::codegen::EmitResult
+emitSourceWithoutStandardHeaders(std::string_view source) {
   auto parseResult = hitsimple::parser::parseSource(source, "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
@@ -65,11 +65,11 @@ optionsFor(hitsimple::codegen::SafetyMode safetyMode) {
   return options;
 }
 
-hitsimple::hir::FunctionAbiSignature cCompatibilitySignature(
-    std::vector<hitsimple::hir::AbiType> parameterTypes,
-    std::vector<hitsimple::hir::AbiType> returnTypes) {
-  hitsimple::hir::FunctionAbiSignature signature{
-      std::move(parameterTypes), std::move(returnTypes)};
+hitsimple::hir::FunctionAbiSignature
+cCompatibilitySignature(std::vector<hitsimple::hir::AbiType> parameterTypes,
+                        std::vector<hitsimple::hir::AbiType> returnTypes) {
+  hitsimple::hir::FunctionAbiSignature signature{std::move(parameterTypes),
+                                                 std::move(returnTypes)};
   signature.isCCompatibility = true;
   return signature;
 }
@@ -106,9 +106,9 @@ HS_TEST(LLVMCodegen_UsesNativeDebugFormatForTargetTriple) {
           {"x86_64-apple-darwin", hitsimple::codegen::DebugInfoFormat::Dwarf},
           {"x86_64-w64-windows-gnu",
            hitsimple::codegen::DebugInfoFormat::CodeView},
-  };
+      };
 
-  for (const auto& [targetTriple, expectedFormat] : targets) {
+  for (const auto &[targetTriple, expectedFormat] : targets) {
     HS_EXPECT_EQ(
         hitsimple::codegen::debugInfoFormatForTargetTriple(targetTriple),
         expectedFormat);
@@ -136,52 +136,55 @@ HS_TEST(LLVMCodegen_LowersUserTemplateOperatorWithInternalViewAbi) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define internal void @__hitsimple.implop") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("define internal void @__hitsimple.implop") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop") !=
                  std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_LowersImplTemplateMethodWithInternalViewAbi) {
-  auto result = emitSource("template Counter {\n"
-                           "    value[4] as i32\n"
-                           "}\n"
-                           "impl Counter {\n"
-                           "    func identity(self as Counter) -> as Counter {\n"
-                           "        return self\n"
-                           "    }\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    new value as Counter\n"
-                           "    new copy as Counter = value.identity()\n"
-                           "    return 0\n"
-                           "}\n");
+  auto result =
+      emitSource("template Counter {\n"
+                 "    value[4] as i32\n"
+                 "}\n"
+                 "impl Counter {\n"
+                 "    func identity(self as Counter) -> as Counter {\n"
+                 "        return self\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    new value as Counter\n"
+                 "    new copy as Counter = value.identity()\n"
+                 "    return 0\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "define internal void @__hitsimple.implmethod.Counter.0") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "call void @__hitsimple.implmethod.Counter.0") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find(
+          "define internal void @__hitsimple.implmethod.Counter.0") !=
+      std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("call void @__hitsimple.implmethod.Counter.0") !=
+      std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_ReportsMissingReturnInImplMethodAsViewAbiDiagnostic) {
-  auto analyzeResult = analyzeSource("template Counter {\n"
-                                     "    value[4] as i32\n"
-                                     "}\n"
-                                     "impl Counter {\n"
-                                     "    func identity(self as Counter) -> as Counter {\n"
-                                     "    }\n"
-                                     "}\n"
-                                     "func main() {\n"
-                                     "    return 0\n"
-                                     "}\n");
+  auto analyzeResult =
+      analyzeSource("template Counter {\n"
+                    "    value[4] as i32\n"
+                    "}\n"
+                    "impl Counter {\n"
+                    "    func identity(self as Counter) -> as Counter {\n"
+                    "    }\n"
+                    "}\n"
+                    "func main() {\n"
+                    "    return 0\n"
+                    "}\n");
 
   HS_EXPECT_TRUE(analyzeResult.unit != nullptr);
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
-  auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+  auto result = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
   HS_EXPECT_TRUE(result.llvmIr.empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
@@ -191,44 +194,46 @@ HS_TEST(LLVMCodegen_ReportsMissingReturnInImplMethodAsViewAbiDiagnostic) {
 }
 
 HS_TEST(LLVMCodegen_MaterializesInternalViewAbiReturnToDeclaredLength) {
-  auto result = emitSource("template Vec2 {\n"
-                           "    x[8] as f64\n"
-                           "    y[8] as f64\n"
-                           "}\n"
-                           "impl Vec2 {\n"
-                           "    op format(value as Vec2, out as addr) -> [4] {\n"
-                           "        return 0\n"
-                           "    }\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    return 0\n"
-                           "}\n");
+  auto result =
+      emitSource("template Vec2 {\n"
+                 "    x[8] as f64\n"
+                 "    y[8] as f64\n"
+                 "}\n"
+                 "impl Vec2 {\n"
+                 "    op format(value as Vec2, out as addr) -> [4] {\n"
+                 "        return 0\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    return 0\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define internal void @__hitsimple.implop") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("define internal void @__hitsimple.implop") !=
+      std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithStdoutSink) {
-  auto result = emitSource("template Vec2 {\n"
-                           "    x[8] as f64\n"
-                           "    y[8] as f64\n"
-                           "}\n"
-                           "impl Vec2 {\n"
-                           "    op format(value as Vec2, out as addr) -> [4] {\n"
-                           "        printf(\"Vec2\\n\")\n"
-                           "        return 5\n"
-                           "    }\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    new value as Vec2\n"
-                           "    print(value as Vec2)\n"
-                           "    return 0\n"
-                           "}\n");
+  auto result =
+      emitSource("template Vec2 {\n"
+                 "    x[8] as f64\n"
+                 "    y[8] as f64\n"
+                 "}\n"
+                 "impl Vec2 {\n"
+                 "    op format(value as Vec2, out as addr) -> [4] {\n"
+                 "        printf(\"Vec2\\n\")\n"
+                 "        return 5\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    new value as Vec2\n"
+                 "    print(value as Vec2)\n"
+                 "    return 0\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "call void @__hitsimple.implop.Vec2.0") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop.Vec2.0") !=
                  std::string::npos);
 #if defined(__APPLE__)
   HS_EXPECT_TRUE(result.llvmIr.find("@__stdoutp") != std::string::npos);
@@ -239,47 +244,48 @@ HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithStdoutSink) {
 }
 
 HS_TEST(LLVMCodegen_MaterializesNegativeUserTemplateFormatResult) {
-  auto result = emitSource("template FailFmt {\n"
-                           "    value[4] as i32\n"
-                           "}\n"
-                           "impl FailFmt {\n"
-                           "    op format(value as FailFmt, out as addr) -> [4] {\n"
-                           "        return -7\n"
-                           "    }\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    new value as FailFmt\n"
-                           "    return print(value as FailFmt)\n"
-                           "}\n");
+  auto result =
+      emitSource("template FailFmt {\n"
+                 "    value[4] as i32\n"
+                 "}\n"
+                 "impl FailFmt {\n"
+                 "    op format(value as FailFmt, out as addr) -> [4] {\n"
+                 "        return -7\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    new value as FailFmt\n"
+                 "    return print(value as FailFmt)\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("-7") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "call void @__hitsimple.implop.FailFmt.0") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("call void @__hitsimple.implop.FailFmt.0") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("format.result.value") !=
                  std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_MaterializesUserTemplateFprintfFormatResult) {
-  auto result = emitSource("template Marker {\n"
-                           "    value[1]\n"
-                           "}\n"
-                           "impl Marker {\n"
-                           "    op format(value as Marker, out as addr) -> [4] {\n"
-                           "        new written = fput(out as handle, 'E')\n"
-                           "        return written\n"
-                           "    }\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    new file = fopen(\"/dev/null\", \"w\")\n"
-                           "    new value as Marker\n"
-                           "    return fprintf(file, value as Marker)\n"
-                           "}\n");
+  auto result =
+      emitSource("template Marker {\n"
+                 "    value[1]\n"
+                 "}\n"
+                 "impl Marker {\n"
+                 "    op format(value as Marker, out as addr) -> [4] {\n"
+                 "        new written = fput(out as handle, 'E')\n"
+                 "        return written\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    new file = fopen(\"/dev/null\", \"w\")\n"
+                 "    new value as Marker\n"
+                 "    return fprintf(file, value as Marker)\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "call void @__hitsimple.implop.Marker.0") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop.Marker.0") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("format.file") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("format.result.value") !=
@@ -288,26 +294,26 @@ HS_TEST(LLVMCodegen_MaterializesUserTemplateFprintfFormatResult) {
 }
 
 HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithFprintfSink) {
-  auto result = emitSource("template Marker {\n"
-                           "    value[1]\n"
-                           "}\n"
-                           "impl Marker {\n"
-                           "    op format(value as Marker, out as addr) -> [4] {\n"
-                           "        new written = fput(out as handle, 'F')\n"
-                           "        return written\n"
-                           "    }\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    new file = fopen(\"/dev/null\", \"w\")\n"
-                           "    new value as Marker\n"
-                           "    fprintf(file, value as Marker)\n"
-                           "    new closed = fclose(file)\n"
-                           "    return 0\n"
-                           "}\n");
+  auto result =
+      emitSource("template Marker {\n"
+                 "    value[1]\n"
+                 "}\n"
+                 "impl Marker {\n"
+                 "    op format(value as Marker, out as addr) -> [4] {\n"
+                 "        new written = fput(out as handle, 'F')\n"
+                 "        return written\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    new file = fopen(\"/dev/null\", \"w\")\n"
+                 "    new value as Marker\n"
+                 "    fprintf(file, value as Marker)\n"
+                 "    new closed = fclose(file)\n"
+                 "    return 0\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "call void @__hitsimple.implop.Marker.0") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop.Marker.0") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("fput.file") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("print.format.") == std::string::npos);
@@ -342,8 +348,7 @@ HS_TEST(LLVMCodegen_ReportsMissingReturnForExplicitNonI32Main) {
   HS_EXPECT_TRUE(result.llvmIr.empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
-                     "missing return in function 'main'") !=
-                 std::string::npos);
+                     "missing return in function 'main'") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_KeepsExplicitNonI32MainReturnType) {
@@ -352,8 +357,7 @@ HS_TEST(LLVMCodegen_KeepsExplicitNonI32MainReturnType) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define i8 @main()") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("define i8 @main()") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("ret i8 0") != std::string::npos);
 }
 
@@ -374,8 +378,7 @@ HS_TEST(LLVMCodegen_RejectsEmptyReturnForI8MainHir) {
   HS_EXPECT_TRUE(result.llvmIr.empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
-                     "function return type is not void") !=
-                 std::string::npos);
+                     "function return type is not void") != std::string::npos);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find("invalid LLVM IR") ==
                  std::string::npos);
 }
@@ -430,15 +433,16 @@ HS_TEST(LLVMCodegen_EmitsPrintfStringPointersAsVarargPointers) {
 }
 
 HS_TEST(LLVMCodegen_EmitsFileFormattedIoBuiltins) {
-  auto result = emitSource("func main() {\n"
-                           "    new file = fopen(\"/tmp/hitsimple-missing\", \"r\")\n"
-                           "    new x[4]\n"
-                           "    new count[4]\n"
-                           "    count, x = fscanf(file, \"%d\")\n"
-                           "    fprintf(file, \"%d\", x)\n"
-                           "    new c = fget(file)\n"
-                           "    return c\n"
-                           "}\n");
+  auto result =
+      emitSource("func main() {\n"
+                 "    new file = fopen(\"/tmp/hitsimple-missing\", \"r\")\n"
+                 "    new x[4]\n"
+                 "    new count[4]\n"
+                 "    count, x = fscanf(file, \"%d\")\n"
+                 "    fprintf(file, \"%d\", x)\n"
+                 "    new c = fget(file)\n"
+                 "    return c\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find(
@@ -451,17 +455,18 @@ HS_TEST(LLVMCodegen_EmitsFileFormattedIoBuiltins) {
 }
 
 HS_TEST(LLVMCodegen_PromotesFormattedFloatVariablesForVarargs) {
-  auto result = emitSource("func main() {\n"
-                           "    new half as f16 = 0.5\n"
-                           "    new narrow as f32 = 1.5\n"
-                           "    new wide as f64 = 2.5\n"
-                           "    new file = fopen(\"/tmp/hitsimple-float\", \"w\")\n"
-                           "    printf(\"%f\", wide)\n"
-                           "    print(wide as f64)\n"
-                           "    fprintf(file, \"%f\", half)\n"
-                           "    fprintf(file, \"%f\", narrow)\n"
-                           "    return 0\n"
-                           "}\n");
+  auto result =
+      emitSource("func main() {\n"
+                 "    new half as f16 = 0.5\n"
+                 "    new narrow as f32 = 1.5\n"
+                 "    new wide as f64 = 2.5\n"
+                 "    new file = fopen(\"/tmp/hitsimple-float\", \"w\")\n"
+                 "    printf(\"%f\", wide)\n"
+                 "    print(wide as f64)\n"
+                 "    fprintf(file, \"%f\", half)\n"
+                 "    fprintf(file, \"%f\", narrow)\n"
+                 "    return 0\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("load double") != std::string::npos);
@@ -489,8 +494,7 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
       std::make_unique<hitsimple::hir::IntegerLiteral>("0", sizeof(void *)));
   arguments.push_back(
       std::make_unique<hitsimple::hir::StringLiteral>("\"%f\""));
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
+  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
 
   std::vector<std::unique_ptr<hitsimple::hir::Stmt>> statements;
   statements.push_back(std::make_unique<hitsimple::hir::Call>(
@@ -515,17 +519,17 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
 
   HS_EXPECT_TRUE(result.llvmIr.empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(result.diagnostics.front().message.find(
-                     "format output argument kinds do not match call arguments") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.diagnostics.front().message.find(
+          "format output argument kinds do not match call arguments") !=
+      std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForPrintfCallExpr) {
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> arguments;
   arguments.push_back(
       std::make_unique<hitsimple::hir::StringLiteral>("\"%f\""));
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
+  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
 
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> returnValues;
   returnValues.push_back(std::make_unique<hitsimple::hir::CallExpr>(
@@ -548,9 +552,10 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForPrintfCallExpr) {
 
   HS_EXPECT_TRUE(result.llvmIr.empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(result.diagnostics.front().message.find(
-                     "format output argument kinds do not match call arguments") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.diagnostics.front().message.find(
+          "format output argument kinds do not match call arguments") !=
+      std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsTwoByteFloatIr) {
@@ -646,9 +651,9 @@ HS_TEST(LLVMCodegen_LowersFloatingThrowThroughCatchDelivery) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("try.catch") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "store double %value.float, ptr %error.addr") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("store double %value.float, ptr %error.addr") !=
+      std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_UsesTrapForUncaughtViewThrow) {
@@ -688,8 +693,9 @@ HS_TEST(LLVMCodegen_RegistersOrderedGlobalInitializers) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define internal void @__hitsimple.global.init()") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("define internal void @__hitsimple.global.init()") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@llvm.global_ctors = appending global") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call i32 @seed()") != std::string::npos);
@@ -799,6 +805,21 @@ HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_LowersNestedFloatingStandardCalls) {
+  auto result =
+      emitSource("func main() {\n"
+                 "    new value as f32 = 4.0\n"
+                 "    new minimum as f32 = min(f_sqrt(value), f_sqrt(value))\n"
+                 "    new integral as i32 = to_i32(f_sqrt(value))\n"
+                 "    return integral\n"
+                 "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.sqrt.f32") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("fptosi float") != std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
   hitsimple::codegen::CodegenOptions options;
 #if defined(__aarch64__) || defined(_M_ARM64)
@@ -806,15 +827,15 @@ HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
 #else
   options.targetTriple = "x86_64-unknown-linux-gnu";
 #endif
-  auto result = emitSource(
-      "func main() {\n"
-      "    new half as f16 = 1.5\n"
-      "    new halfResult as f16 = f_sqrt(half)\n"
-      "    new quad as f128 = 1.234567890123456789012345678901234\n"
-      "    new quadResult as f128 = f_sin(quad)\n"
-      "    return 0\n"
-      "}\n",
-      options);
+  auto result =
+      emitSource("func main() {\n"
+                 "    new half as f16 = 1.5\n"
+                 "    new halfResult as f16 = f_sqrt(half)\n"
+                 "    new quad as f128 = 1.234567890123456789012345678901234\n"
+                 "    new quadResult as f128 = f_sin(quad)\n"
+                 "    return 0\n"
+                 "}\n",
+                 options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("fpext half") != std::string::npos);
@@ -832,28 +853,30 @@ HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
 #else
   options.targetTriple = "x86_64-w64-windows-gnu";
 #endif
-  auto result = emitSource(
-      "func main() {\n"
-      "    new left as f128 = 1.5\n"
-      "    new integer[8] = 2\n"
-      "    new right as f128 = to_f128(integer)\n"
-      "    new sum as f128 = left %f+ right\n"
-      "    new root as f128 = f_sqrt(sum)\n"
-      "    new smaller[1] %b= left < right\n"
-      "    new narrowed as f64 = to_f64(root)\n"
-      "    return 0\n"
-      "}\n",
-      options);
+  auto result = emitSource("func main() {\n"
+                           "    new left as f128 = 1.5\n"
+                           "    new integer[8] = 2\n"
+                           "    new right as f128 = to_f128(integer)\n"
+                           "    new sum as f128 = left %f+ right\n"
+                           "    new root as f128 = f_sqrt(sum)\n"
+                           "    new smaller[1] %b= left < right\n"
+                           "    new narrowed as f64 = to_f64(root)\n"
+                           "    return 0\n"
+                           "}\n",
+                           options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"" + options.targetTriple +
-                                    "\"") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("target triple = \"" + options.targetTriple + "\"") !=
+      std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_from_i64(ptr") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare void @hs_f128_add(ptr, ptr, ptr)") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("declare void @hs_f128_add(ptr, ptr, ptr)") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_sqrt(ptr") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare i8 @hs_f128_lt(ptr, ptr)") !=
@@ -872,21 +895,21 @@ HS_TEST(LLVMCodegen_LowersDarwinF128ThroughBitPatternRuntime) {
 #else
   options.targetTriple = "x86_64-apple-darwin";
 #endif
-  auto result = emitSource(
-      "func main() {\n"
-      "    new value as f128 = 1.5\n"
-      "    new root as f128 = f_sqrt(value)\n"
-      "    new narrowed as f64 = to_f64(root)\n"
-      "    return 0\n"
-      "}\n",
-      options);
+  auto result = emitSource("func main() {\n"
+                           "    new value as f128 = 1.5\n"
+                           "    new root as f128 = f_sqrt(value)\n"
+                           "    new narrowed as f64 = to_f64(root)\n"
+                           "    return 0\n"
+                           "}\n",
+                           options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("target triple = \"" + options.targetTriple +
-                                    "\"") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "declare void @hs_f128_literal(ptr, ptr)") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("target triple = \"" + options.targetTriple + "\"") !=
+      std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_sqrt(ptr") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare double @hs_f128_to_f64(ptr)") !=
@@ -1034,14 +1057,11 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
   HS_EXPECT_TRUE(result.llvmIr.find("@memcmp") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare ptr @strchr(ptr, i32)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @strchr") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_strchr_offset") ==
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @strchr") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_strchr_offset") == std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("llvm.bswap") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@toupper") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ctype.to_upper") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ctype.to_upper") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_LowersFputWithFileBeforeValue) {
@@ -1053,22 +1073,23 @@ HS_TEST(LLVMCodegen_LowersFputWithFileBeforeValue) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i64 @fwrite(ptr, i64, i64, ptr)") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("declare i64 @fwrite(ptr, i64, i64, ptr)") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call i64 @fwrite(ptr") !=
                  std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_DoesNotLowerUserFunctionWithStandardLibraryName) {
-  auto result = emitSourceWithoutStandardHeaders(
-      "func byte_swap(value[4]) -> [4] {\n"
-      "    return value\n"
-      "}\n"
-      "func main() {\n"
-      "    new input[4] = 0x12345678\n"
-      "    new output[4] = byte_swap(input)\n"
-      "    return output\n"
-      "}\n");
+  auto result =
+      emitSourceWithoutStandardHeaders("func byte_swap(value[4]) -> [4] {\n"
+                                       "    return value\n"
+                                       "}\n"
+                                       "func main() {\n"
+                                       "    new input[4] = 0x12345678\n"
+                                       "    new output[4] = byte_swap(input)\n"
+                                       "    return output\n"
+                                       "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("llvm.bswap") == std::string::npos);
@@ -1079,10 +1100,10 @@ HS_TEST(LLVMCodegen_DoesNotLowerUserFunctionWithStandardLibraryName) {
 HS_TEST(LLVMCodegen_EmitsStandardStringCallsAndRejectsLegacyCapacity) {
   auto result = emitSource("func main() {\n"
                            "    new dst[16]\n"
-                           "    new src[16]\n"
-                           "    new copied = strcpy(&dst, &src)\n"
-                           "    new limited = strncpy(&dst, &src, 4)\n"
-                           "    new appended = strcat(&dst, &src)\n"
+                           "    new src[16] as cstr\n"
+                           "    new copied = strcpy(dst, src)\n"
+                           "    new limited = strncpy(dst, src, 4)\n"
+                           "    new appended = strcat(dst, src)\n"
                            "    return 0\n"
                            "}\n");
 
@@ -1102,6 +1123,63 @@ HS_TEST(LLVMCodegen_EmitsStandardStringCallsAndRejectsLegacyCapacity) {
   HS_EXPECT_TRUE(legacy.diagnostics[0].find("argument count does not match "
                                             "declaration") !=
                  std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_BorrowsPointerSizedViewsForLibraryCalls) {
+  const auto result = emitSource("func main() {\n"
+                                 "    new destination[8] as cstr\n"
+                                 "    new source[8] as cstr = \"ok\"\n"
+                                 "    new copied as addr = strcpy(destination, source)\n"
+                                 "    new length as u64 = strlen(destination)\n"
+                                 "    return length\n"
+                                 "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@strcpy") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@strlen") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesRawAddressArithmeticForMemoryOperands) {
+  const auto result = emitSource("func main() {\n"
+                                 "    new buffer[4] = 0x03020100\n"
+                                 "    new offset as u64 = get() - 48\n"
+                                 "    new copied as addr = "
+                                 "memcpy(&buffer[offset], &buffer[0], 3)\n"
+                                 "    return 0\n"
+                                 "}\n",
+                                 optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @hs_memcpy(ptr %mem.dst, ptr %mem.src") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedRejectsKnownFileBufferBounds) {
+  const auto freadResult =
+      emitSource("func main() {\n"
+                 "    new file as handle = fopen(\"/dev/null\", \"r\")\n"
+                 "    new destination[1] as bytes\n"
+                 "    new count as u64 = fread(destination, 1, 2, file)\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+  HS_EXPECT_TRUE(!freadResult.diagnostics.empty());
+  HS_EXPECT_TRUE(freadResult.diagnostics.front().message.find(
+                     "fread destination range out of bounds") !=
+                 std::string::npos);
+
+  const auto fwriteResult =
+      emitSource("func main() {\n"
+                 "    new file as handle = fopen(\"/dev/null\", \"w\")\n"
+                 "    new source[1] as bytes\n"
+                 "    new count as u64 = fwrite(source, 1, 2, file)\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+  HS_EXPECT_TRUE(!fwriteResult.diagnostics.empty());
+  HS_EXPECT_TRUE(fwriteResult.diagnostics.front().message.find(
+                     "fwrite source range out of bounds") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStandardCallocForm) {
@@ -1152,14 +1230,10 @@ HS_TEST(LLVMCodegen_CheckedRegistersInternalObjectsAndFrames) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_static") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_local") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_frame_enter") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_frame_exit") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@llvm.global_ctors") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_local") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_frame_enter") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_frame_exit") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@llvm.global_ctors") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
@@ -1171,25 +1245,24 @@ HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
                            options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_static") ==
                  std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
-  auto result = emitSource("func main() {\n"
-                           "    new source[3] = 0x030201\n"
-                           "    new requested[8] = 3\n"
-                           "    new resized[3] = resize_bytes(source, requested)\n"
-                           "    new swapped[3] = byte_swap(source)\n"
-                           "    return resized + swapped\n"
-                           "}\n");
+  auto result =
+      emitSource("func main() {\n"
+                 "    new source[3] = 0x030201\n"
+                 "    new requested[8] = 3\n"
+                 "    new resized[3] = resize_bytes(source, requested)\n"
+                 "    new swapped[3] = byte_swap(source)\n"
+                 "    return resized + swapped\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("alloca i8, i64") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_reverse_bytes") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_reverse_bytes") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
@@ -1212,6 +1285,120 @@ HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_strlen") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_StaticCheckedRejectsOverlappingMemcpy) {
+  auto result =
+      emitSource("func main() {\n"
+                 "    new buffer[4] = 0x03020100\n"
+                 "    new copied as addr = memcpy(&buffer[1], &buffer[0], 3)\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics.front().message.find(
+                     "overlapping memcpy ranges") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedUsesFileRuntimeBridges) {
+  const auto result =
+      emitSource("func main() {\n"
+                 "    new file as handle = fopen(\"/dev/null\", \"w+\")\n"
+                 "    new buffer[4]\n"
+                 "    new input = fget(file)\n"
+                 "    new written = fput(file, buffer)\n"
+                 "    new read = fread(buffer, 1, 4, file)\n"
+                 "    new saved = fwrite(buffer, 1, 4, file)\n"
+                 "    new seeked = fseek(file, 0, 0)\n"
+                 "    new position = ftell(file)\n"
+                 "    new flushed = fflush(file)\n"
+                 "    new ended = feof(file)\n"
+                 "    new failed = ferror(file)\n"
+                 "    new closed = fclose(file)\n"
+                 "    return input + written + read + saved + seeked + "
+                 "position + flushed + "
+                 "ended + failed + closed\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  for (const std::string_view symbol :
+       {"@hs_fopen", "@hs_fget", "@hs_fput", "@hs_fread", "@hs_fwrite",
+        "@hs_fseek", "@hs_ftell", "@hs_fflush", "@hs_feof", "@hs_ferror",
+        "@hs_fclose"}) {
+    HS_EXPECT_TRUE(result.llvmIr.find(symbol) != std::string::npos);
+  }
+}
+
+HS_TEST(LLVMCodegen_CheckedAbsReportsMinimumSignedValue) {
+  const auto checked =
+      emitSource("func magnitude(value as i8) -> i8 {\n"
+                 "    return abs(value)\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    return magnitude(1)\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(checked.diagnostics.empty());
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_abs_overflow") != std::string::npos);
+  HS_EXPECT_TRUE(checked.llvmIr.find("abs.ismin") != std::string::npos);
+  HS_EXPECT_TRUE(checked.llvmIr.find("abs.overflow") != std::string::npos);
+
+  const auto staticChecked =
+      emitSource("func magnitude(value as i8) -> i8 {\n"
+                 "    return abs(value)\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    return magnitude(1)\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+
+  HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
+  HS_EXPECT_TRUE(staticChecked.llvmIr.find("@hs_abs_overflow") ==
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedRejectsStaticallyKnownAbsMinimum) {
+  const auto checked =
+      emitSource("func main() {\n"
+                 "    new value as i8 = -128\n"
+                 "    new magnitude as i8 = abs(value)\n"
+                 "    return magnitude\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(!checked.diagnostics.empty());
+  HS_EXPECT_TRUE(checked.diagnostics[0].message.find(
+                     "abs of minimum signed value") != std::string::npos);
+
+  const auto staticChecked =
+      emitSource("func main() {\n"
+                 "    new value as i8 = -128\n"
+                 "    new magnitude as i8 = abs(value)\n"
+                 "    return magnitude\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+
+  HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
+  HS_EXPECT_TRUE(staticChecked.llvmIr.find("@hs_abs_overflow") ==
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticallyKnownLibraryProducts) {
+  const auto result =
+      emitSource("func main() {\n"
+                 "    new count as u64 = 18446744073709551615\n"
+                 "    new size as u64 = 2\n"
+                 "    new ptr as addr = calloc(count, size)\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+
+  HS_EXPECT_TRUE(!result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.diagnostics[0].message.find("calloc size overflow") !=
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_UsesTypedRuntimeDescriptorsForNativeFormatting) {
   auto result = emitSource("func main() {\n"
                            "    new value[4] = 42\n"
@@ -1220,8 +1407,7 @@ HS_TEST(LLVMCodegen_UsesTypedRuntimeDescriptorsForNativeFormatting) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_format_output") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_format_output") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @printf(ptr, ...)") ==
                  std::string::npos);
 }
@@ -1269,46 +1455,46 @@ HS_TEST(LLVMCodegen_StaticCheckedDoesNotEmitRuntimeChecks) {
 }
 
 HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors) {
-  auto index = emitSource("func main() {\n"
-                          "    new a[4]\n"
-                          "    a[4] = 1\n"
-                          "    return 0\n"
-                          "}\n",
-                          optionsFor(hitsimple::codegen::SafetyMode::
-                                         StaticChecked));
+  auto index =
+      emitSource("func main() {\n"
+                 "    new a[4]\n"
+                 "    a[4] = 1\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
   HS_EXPECT_TRUE(!index.diagnostics.empty());
   HS_EXPECT_TRUE(index.diagnostics[0].find("out of bounds") !=
                  std::string::npos);
 
-  auto nullStore = emitSource("func main() {\n"
-                              "    new p as addr = 0\n"
-                              "    [1]*p = 1\n"
-                              "    return 0\n"
-                              "}\n",
-                              optionsFor(hitsimple::codegen::SafetyMode::
-                                             StaticChecked));
+  auto nullStore =
+      emitSource("func main() {\n"
+                 "    new p as addr = 0\n"
+                 "    [1]*p = 1\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
   HS_EXPECT_TRUE(!nullStore.diagnostics.empty());
   HS_EXPECT_TRUE(nullStore.diagnostics[0].find("null address store") !=
                  std::string::npos);
 
-  auto staticPointerStore = emitSource(
-      "func main() {\n"
-      "    new a[4]\n"
-      "    [1]*(&a + 4) = 1\n"
-      "    return 0\n"
-      "}\n",
-      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+  auto staticPointerStore =
+      emitSource("func main() {\n"
+                 "    new a[4]\n"
+                 "    [1]*(&a + 4) = 1\n"
+                 "    return 0\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
   HS_EXPECT_TRUE(!staticPointerStore.diagnostics.empty());
   HS_EXPECT_TRUE(staticPointerStore.diagnostics[0].find("memory store out of "
                                                         "bounds") !=
                  std::string::npos);
 
-  auto staticPointerLoad = emitSource(
-      "func main() {\n"
-      "    new a[4]\n"
-      "    return [1]*(&a + 4)\n"
-      "}\n",
-      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  auto staticPointerLoad =
+      emitSource("func main() {\n"
+                 "    new a[4]\n"
+                 "    return [1]*(&a + 4)\n"
+                 "}\n",
+                 optionsFor(hitsimple::codegen::SafetyMode::Checked));
   HS_EXPECT_TRUE(!staticPointerLoad.diagnostics.empty());
   HS_EXPECT_TRUE(staticPointerLoad.diagnostics[0].find("memory load out of "
                                                        "bounds") !=
@@ -1344,10 +1530,8 @@ HS_TEST(LLVMCodegen_EmitsStageGFunctionsAndCalls) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("define i32 @add_one(i32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @add_one") !=
-                 std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @main()") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @add_one") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @main()") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageGMultiReturnCallStore) {
@@ -1370,15 +1554,16 @@ HS_TEST(LLVMCodegen_EmitsStageGMultiReturnCallStore) {
 }
 
 HS_TEST(LLVMCodegen_PreservesTypedFloatingMultiReturnAbi) {
-  auto result = emitSource("func pair(value as f64) -> (first as f64, second as f64) {\n"
-                           "    return value, value %f+ 1.0\n"
-                           "}\n"
-                           "func main() {\n"
-                           "    new first as f64\n"
-                           "    new second as f64\n"
-                           "    first, second = pair(40.0)\n"
-                           "    return 0\n"
-                           "}\n");
+  auto result =
+      emitSource("func pair(value as f64) -> (first as f64, second as f64) {\n"
+                 "    return value, value %f+ 1.0\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    new first as f64\n"
+                 "    new second as f64\n"
+                 "    first, second = pair(40.0)\n"
+                 "    return 0\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("define { double, double } @pair(double") !=
@@ -1451,21 +1636,20 @@ HS_TEST(LLVMCodegen_EmitsExternalFunctionDeclarationAndCall) {
                                     "[4 x i8]") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @host_inc(i32)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @host_inc") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @host_inc") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsExplicitCAbiImportsAndExports) {
-  auto result = emitSource(
-      "extern \"C\" native_scale(value as f64) -> f64\n"
-      "extern \"C\" sink(text as cstr) -> ()\n"
-      "extern \"C\" func hsc_increment(value as i32) -> i32 {\n"
-      "    return value %d+ 1\n"
-      "}\n"
-      "func main() {\n"
-      "    sink(\"ok\")\n"
-      "    return hsc_increment(41)\n"
-      "}\n");
+  auto result =
+      emitSource("extern \"C\" native_scale(value as f64) -> f64\n"
+                 "extern \"C\" sink(text as cstr) -> ()\n"
+                 "extern \"C\" func hsc_increment(value as i32) -> i32 {\n"
+                 "    return value %d+ 1\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    sink(\"ok\")\n"
+                 "    return hsc_increment(41)\n"
+                 "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("declare double @native_scale(double)") !=
@@ -1479,16 +1663,16 @@ HS_TEST(LLVMCodegen_EmitsExplicitCAbiImportsAndExports) {
 }
 
 HS_TEST(LLVMCodegen_AppliesInternalLinkageOverridesToDefinitions) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "new file_local[4]\n"
-      "func file_helper() -> [4] {\n"
-      "    file_local = 7\n"
-      "    return file_local\n"
-      "}\n"
-      "func main() {\n"
-      "    return file_helper()\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("new file_local[4]\n"
+                                     "func file_helper() -> [4] {\n"
+                                     "    file_local = 7\n"
+                                     "    return file_local\n"
+                                     "}\n"
+                                     "func main() {\n"
+                                     "    return file_helper()\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1516,13 +1700,13 @@ HS_TEST(LLVMCodegen_AppliesInternalLinkageOverridesToDefinitions) {
 }
 
 HS_TEST(Hir_LinkageOverrideRejectsExternDeclarationsAtomically) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "new visible[4]\n"
-      "extern host_inc(value[4]) -> [4]\n"
-      "func main() {\n"
-      "    return host_inc(visible)\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("new visible[4]\n"
+                                     "extern host_inc(value[4]) -> [4]\n"
+                                     "func main() {\n"
+                                     "    return host_inc(visible)\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1585,12 +1769,12 @@ HS_TEST(LLVMCodegen_AppliesAbiOverridesToCCompatibleSymbols) {
 }
 
 HS_TEST(LLVMCodegen_RejectsAggregateCAbiForNonSysVElfTarget) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_pass(value[8]) -> [8]\n"
-      "func main() {\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_pass(value[8]) -> [8]\n"
+                                     "func main() {\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1599,7 +1783,7 @@ HS_TEST(LLVMCodegen_RejectsAggregateCAbiForNonSysVElfTarget) {
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
   hitsimple::hir::AbiType pair{hitsimple::hir::AbiValueKind::Aggregate, 8,
-                                false, "Pair"};
+                               false, "Pair"};
   pair.alignment = 4;
   pair.aggregateFields = {
       {hitsimple::hir::AbiValueKind::Integer, 4, true},
@@ -1629,12 +1813,12 @@ HS_TEST(LLVMCodegen_RejectsAggregateCAbiForNonSysVElfTarget) {
 }
 
 HS_TEST(LLVMCodegen_RejectsAggregateCAbiForX32Target) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_pass(value[8]) -> [8]\n"
-      "func main() {\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_pass(value[8]) -> [8]\n"
+                                     "func main() {\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1643,7 +1827,7 @@ HS_TEST(LLVMCodegen_RejectsAggregateCAbiForX32Target) {
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
   hitsimple::hir::AbiType pair{hitsimple::hir::AbiValueKind::Aggregate, 8,
-                                false, "Pair"};
+                               false, "Pair"};
   pair.alignment = 4;
   pair.aggregateFields = {
       {hitsimple::hir::AbiValueKind::Integer, 4, true},
@@ -1673,12 +1857,12 @@ HS_TEST(LLVMCodegen_RejectsAggregateCAbiForX32Target) {
 }
 
 HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForX32Target) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_weighted(value[24]) -> [24]\n"
-      "func main() {\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_weighted(value[24]) -> [24]\n"
+                                     "func main() {\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1686,8 +1870,8 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForX32Target) {
   HS_EXPECT_TRUE(analyzeResult.unit != nullptr);
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
-  hitsimple::hir::AbiType weighted{
-      hitsimple::hir::AbiValueKind::Aggregate, 24, false, "Weighted"};
+  hitsimple::hir::AbiType weighted{hitsimple::hir::AbiValueKind::Aggregate, 24,
+                                   false, "Weighted"};
   weighted.alignment = 8;
   weighted.aggregateFields = {
       {hitsimple::hir::AbiValueKind::Integer, 8, true},
@@ -1696,8 +1880,7 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForX32Target) {
   };
   weighted.aggregateFieldOffsets = {0, 8, 16};
   const std::vector<hitsimple::hir::AbiOverride> overrides = {
-      {"host_weighted", hitsimple::hir::LinkageTarget::Function,
-       std::nullopt,
+      {"host_weighted", hitsimple::hir::LinkageTarget::Function, std::nullopt,
        cCompatibilitySignature({weighted}, {weighted})},
   };
   const auto overrideDiagnostics =
@@ -1719,12 +1902,12 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForX32Target) {
 }
 
 HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForDarwinTarget) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_weighted(value[24]) -> [24]\n"
-      "func main() {\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_weighted(value[24]) -> [24]\n"
+                                     "func main() {\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1732,8 +1915,8 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForDarwinTarget) {
   HS_EXPECT_TRUE(analyzeResult.unit != nullptr);
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
-  hitsimple::hir::AbiType weighted{
-      hitsimple::hir::AbiValueKind::Aggregate, 24, false, "Weighted"};
+  hitsimple::hir::AbiType weighted{hitsimple::hir::AbiValueKind::Aggregate, 24,
+                                   false, "Weighted"};
   weighted.alignment = 8;
   weighted.aggregateFields = {
       {hitsimple::hir::AbiValueKind::Integer, 8, true},
@@ -1742,8 +1925,7 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForDarwinTarget) {
   };
   weighted.aggregateFieldOffsets = {0, 8, 16};
   const std::vector<hitsimple::hir::AbiOverride> overrides = {
-      {"host_weighted", hitsimple::hir::LinkageTarget::Function,
-       std::nullopt,
+      {"host_weighted", hitsimple::hir::LinkageTarget::Function, std::nullopt,
        cCompatibilitySignature({weighted}, {weighted})},
   };
   const auto overrideDiagnostics =
@@ -1768,12 +1950,12 @@ HS_TEST(LLVMCodegen_EmitsAggregateCAbiForExplicitX8664SysVElfTarget) {
 #if defined(__aarch64__) || defined(_M_ARM64)
   return;
 #endif
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_pass(value[8]) -> [8]\n"
-      "func main() {\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_pass(value[8]) -> [8]\n"
+                                     "func main() {\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1782,7 +1964,7 @@ HS_TEST(LLVMCodegen_EmitsAggregateCAbiForExplicitX8664SysVElfTarget) {
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
   hitsimple::hir::AbiType pair{hitsimple::hir::AbiValueKind::Aggregate, 8,
-                                false, "Pair"};
+                               false, "Pair"};
   pair.alignment = 4;
   pair.aggregateFields = {
       {hitsimple::hir::AbiValueKind::Integer, 4, true},
@@ -1803,25 +1985,25 @@ HS_TEST(LLVMCodegen_EmitsAggregateCAbiForExplicitX8664SysVElfTarget) {
       hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs", options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
-                     "target triple = \"x86_64-pc-linux-gnu\"") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(
+      result.llvmIr.find("target triple = \"x86_64-pc-linux-gnu\"") !=
+      std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("declare i64 @host_pass(i64)") !=
                  std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_RejectsMultipleReturnsForCCompatibilitySignature) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "func pair(value[4]) -> ([4], [4]) {\n"
-      "    return value, value\n"
-      "}\n"
-      "func main() {\n"
-      "    new first[4]\n"
-      "    new second[4]\n"
-      "    first, second = pair(1)\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("func pair(value[4]) -> ([4], [4]) {\n"
+                                     "    return value, value\n"
+                                     "}\n"
+                                     "func main() {\n"
+                                     "    new first[4]\n"
+                                     "    new second[4]\n"
+                                     "    first, second = pair(1)\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1885,14 +2067,14 @@ HS_TEST(LLVMCodegen_UsesFloatAndPointerAbiAtExternCallSites) {
 }
 
 HS_TEST(LLVMCodegen_UsesFloatingExternReturnInFloatAssignment) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_value() -> f64\n"
-      "func main() {\n"
-      "    new value[8] as f64\n"
-      "    value = host_value()\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_value() -> f64\n"
+                                     "func main() {\n"
+                                     "    new value[8] as f64\n"
+                                     "    value = host_value()\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1919,12 +2101,12 @@ HS_TEST(LLVMCodegen_UsesFloatingExternReturnInFloatAssignment) {
 }
 
 HS_TEST(Hir_AbiOverridesRejectMismatchedSignaturesAtomically) {
-  auto parseResult = hitsimple::parser::parseSource(
-      "extern host_id(value[4]) -> [4]\n"
-      "func main() {\n"
-      "    return 0\n"
-      "}\n",
-      "test.hs");
+  auto parseResult =
+      hitsimple::parser::parseSource("extern host_id(value[4]) -> [4]\n"
+                                     "func main() {\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
   HS_EXPECT_TRUE(parseResult.error.empty());
 
@@ -1972,8 +2154,7 @@ HS_TEST(LLVMCodegen_EmitsStructArrayMemberAddressing) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca [24 x i8]") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("alloca [24 x i8]") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("i32 20") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i32 9") != std::string::npos);
 }
@@ -1990,8 +2171,7 @@ HS_TEST(LLVMCodegen_EmitsAddressOfStaticAndGlobalMemory) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@global = global") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@global = global") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@local = internal global") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint (ptr @global to i64)") !=

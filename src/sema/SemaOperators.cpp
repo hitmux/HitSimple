@@ -7,6 +7,30 @@
 #include <limits>
 
 namespace hitsimple::sema {
+namespace {
+
+bool isUnsignedIntegerTemplate(std::string_view name) {
+  return name == "u8" || name == "u16" || name == "u32" || name == "u64";
+}
+
+std::optional<bool> integerOperationIsUnsigned(std::string_view op) {
+  if (!op.starts_with('%')) {
+    return std::nullopt;
+  }
+  const auto marker = op.find_last_of("duf");
+  if (marker == std::string_view::npos || marker + 1U >= op.size()) {
+    return std::nullopt;
+  }
+  if (op[marker] == 'u') {
+    return true;
+  }
+  if (op[marker] == 'd') {
+    return false;
+  }
+  return std::nullopt;
+}
+
+} // namespace
 
 std::size_t parseByteLength(std::string_view text) {
   if (text == "P") {
@@ -254,10 +278,34 @@ bool hasRuntimeDynamicView(const hir::Expr &expression) {
 }
 
 bool isUnsignedExpression(const hir::Expr &expression) {
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    return isUnsignedIntegerTemplate(variable->templateName);
+  }
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
+    return isUnsignedIntegerTemplate(call->templateName);
+  }
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return isUnsignedIntegerTemplate(view->templateName);
+  }
   if (const auto *cast = dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
     return !cast->isSigned;
   }
-  return dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr;
+  if (dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr) {
+    return true;
+  }
+  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
+    return integerOperationIsUnsigned(binary->op).value_or(
+        isUnsignedExpression(*binary->left) ||
+        isUnsignedExpression(*binary->right));
+  }
+  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
+    return isUnsignedExpression(*unary->operand);
+  }
+  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression)) {
+    return isUnsignedExpression(*ternary->thenExpr) ||
+           isUnsignedExpression(*ternary->elseExpr);
+  }
+  return false;
 }
 
 bool isFloatExpression(const hir::Expr &expression) {

@@ -16,6 +16,10 @@
 #define HITSIMPLE_PROJECT_SOURCE_DIR "."
 #endif
 
+#ifndef HITSIMPLE_BUILT_STDLIB_DIR
+#define HITSIMPLE_BUILT_STDLIB_DIR HITSIMPLE_PROJECT_SOURCE_DIR "/stdlib"
+#endif
+
 #ifndef HITSIMPLE_RUNTIME_SOURCE
 #define HITSIMPLE_RUNTIME_SOURCE "runtime/hitsimple_runtime.c"
 #endif
@@ -78,8 +82,7 @@ std::filesystem::path resolvePath(
 std::filesystem::path standardLibraryRoot() {
   return resolvePath("HITSIMPLE_STDLIB_DIR",
                      "share/hitsimple/stdlib",
-                     std::filesystem::path(HITSIMPLE_PROJECT_SOURCE_DIR) /
-                         "stdlib");
+                     HITSIMPLE_BUILT_STDLIB_DIR);
 }
 
 std::filesystem::path runtimeSourcePath() {

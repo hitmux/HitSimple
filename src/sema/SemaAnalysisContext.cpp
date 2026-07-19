@@ -45,7 +45,8 @@ std::optional<std::size_t> standardTemplateByteLength(std::string_view name) {
   if (name == "addr" || name == "handle") {
     return pointerByteLength();
   }
-  if (name.size() >= 2 && (name[0] == 'i' || name[0] == 'u' || name[0] == 'f')) {
+  if (name.size() >= 2 &&
+      (name[0] == 'i' || name[0] == 'u' || name[0] == 'f')) {
     const auto bits = parseUnsignedDecimal(name.substr(1));
     if (!bits || *bits == 0 || *bits % 8 != 0) {
       return std::nullopt;
@@ -76,40 +77,54 @@ bool isReservedIdentifier(std::string_view name) {
   return false;
 }
 
+std::size_t bootstrapByteLength(stdlib::BuiltinBootstrapType type,
+                                std::size_t pointerByteLength) {
+  switch (type) {
+  case stdlib::BuiltinBootstrapType::Void:
+    return 0;
+  case stdlib::BuiltinBootstrapType::Pointer:
+    return pointerByteLength;
+  case stdlib::BuiltinBootstrapType::Bytes1:
+    return 1;
+  case stdlib::BuiltinBootstrapType::Bytes2:
+    return 2;
+  case stdlib::BuiltinBootstrapType::Bytes4:
+    return 4;
+  case stdlib::BuiltinBootstrapType::Bytes8:
+    return 8;
+  case stdlib::BuiltinBootstrapType::Bytes16:
+    return 16;
+  }
+  return 0;
+}
+
 void addBuiltinSignature(
     std::unordered_map<std::string, FunctionSignature> &functions,
-    std::string name, std::vector<std::size_t> parameters,
-    std::vector<std::size_t> returns, stdlib::BuiltinId builtin,
-    std::vector<bool> stringParameters = {}) {
-  const auto key = name;
-  if (stringParameters.empty()) {
-    stringParameters.resize(parameters.size(), false);
-  }
+    const stdlib::BuiltinSpec &spec, std::size_t pointerByteLength) {
+  const auto key = std::string(spec.name);
   FunctionSignature signature;
-  signature.name = std::move(name);
-  signature.parameterByteLengths = std::move(parameters);
-  signature.parameterTemplateNames.resize(signature.parameterByteLengths.size());
-  signature.stringParameters = std::move(stringParameters);
-  signature.returnByteLengths = std::move(returns);
-  signature.returnTemplateNames.resize(signature.returnByteLengths.size());
+  signature.name = key;
+  signature.parameterByteLengths.reserve(spec.parameters.size());
+  signature.parameterTemplateNames.reserve(spec.parameters.size());
+  signature.stringParameters.reserve(spec.parameters.size());
+  for (const auto &parameter : spec.parameters) {
+    signature.parameterByteLengths.push_back(
+        bootstrapByteLength(parameter.bootstrapType, pointerByteLength));
+    signature.parameterTemplateNames.emplace_back(parameter.templateName);
+    signature.stringParameters.push_back(parameter.requiresCString);
+  }
+  signature.returnByteLengths.reserve(spec.results.size());
+  signature.returnTemplateNames.reserve(spec.results.size());
+  for (const auto &result : spec.results) {
+    signature.returnByteLengths.push_back(
+        bootstrapByteLength(result.bootstrapType, pointerByteLength));
+    signature.returnTemplateNames.emplace_back(result.templateName);
+  }
   signature.returnsKnown = true;
   signature.returnsExplicit = true;
   signature.isExtern = true;
-  signature.builtin = builtin;
+  signature.builtin = spec.id;
   functions.emplace(key, std::move(signature));
-}
-
-void setBuiltinTemplateNames(
-    std::unordered_map<std::string, FunctionSignature> &functions,
-    std::string_view name, std::vector<std::string> parameterTemplateNames,
-    std::vector<std::string> returnTemplateNames) {
-  const auto found = functions.find(std::string(name));
-  if (found == functions.end()) {
-    return;
-  }
-  auto &signature = found->second;
-  signature.parameterTemplateNames = std::move(parameterTemplateNames);
-  signature.returnTemplateNames = std::move(returnTemplateNames);
 }
 
 bool hasSameAbiSignature(const FunctionSignature &signature,
@@ -121,8 +136,7 @@ bool hasSameAbiSignature(const FunctionSignature &signature,
 }
 
 bool isFloatTemplateName(std::string_view name) {
-  return name == "f16" || name == "f32" || name == "f64" ||
-         name == "f128";
+  return name == "f16" || name == "f32" || name == "f64" || name == "f128";
 }
 
 bool isCAbiName(std::string_view abiName) { return abiName == "\"C\""; }
@@ -147,7 +161,8 @@ bool containsCAbiForbiddenControlFlow(const ast::Stmt &statement) {
     }
     return false;
   }
-  if (const auto *whileStmt = dynamic_cast<const ast::WhileStmt *>(&statement)) {
+  if (const auto *whileStmt =
+          dynamic_cast<const ast::WhileStmt *>(&statement)) {
     for (const auto &nested : whileStmt->body->statements) {
       if (containsCAbiForbiddenControlFlow(*nested)) {
         return true;
@@ -167,7 +182,8 @@ bool containsCAbiForbiddenControlFlow(const ast::Stmt &statement) {
     return false;
   }
   if (const auto *label = dynamic_cast<const ast::LabelStmt *>(&statement)) {
-    return label->statement && containsCAbiForbiddenControlFlow(*label->statement);
+    return label->statement &&
+           containsCAbiForbiddenControlFlow(*label->statement);
   }
   return false;
 }
@@ -205,17 +221,17 @@ std::optional<hir::AbiType> cAbiTypeFor(std::string_view templateName,
       (templateName.front() == 'i' || templateName.front() == 'u') &&
       (templateName.substr(1) == "16" || templateName.substr(1) == "32" ||
        templateName.substr(1) == "64")) {
-    const auto expected = templateName.substr(1) == "16"
-                              ? std::size_t{2}
-                              : (templateName.substr(1) == "32"
-                                     ? std::size_t{4}
-                                     : std::size_t{8});
+    const auto expected =
+        templateName.substr(1) == "16"
+            ? std::size_t{2}
+            : (templateName.substr(1) == "32" ? std::size_t{4}
+                                              : std::size_t{8});
     return byteLength == expected ? integer(templateName.front() == 'i')
                                   : std::nullopt;
   }
   if (templateName == "f32" || templateName == "f64") {
-    const auto expected = templateName == "f32" ? std::size_t{4}
-                                                  : std::size_t{8};
+    const auto expected =
+        templateName == "f32" ? std::size_t{4} : std::size_t{8};
     if (byteLength != expected) {
       return std::nullopt;
     }
@@ -240,7 +256,8 @@ makeCAbiSignature(const FunctionSignature &signature) {
   if (signature.returnByteLengths.size() > 1U ||
       signature.parameterTemplateNames.size() !=
           signature.parameterByteLengths.size() ||
-      signature.returnTemplateNames.size() != signature.returnByteLengths.size()) {
+      signature.returnTemplateNames.size() !=
+          signature.returnByteLengths.size()) {
     return std::nullopt;
   }
   hir::FunctionAbiSignature abi;
@@ -290,9 +307,8 @@ bool isCCompatibilityConversion(stdlib::BuiltinId builtin) {
 std::string implMethodKey(std::string_view implTemplate,
                           std::string_view methodName,
                           const std::vector<std::string> &parameterTemplates) {
-  std::string key = std::string(implTemplate) + "|" +
-                    std::string(methodName) + "|" +
-                    std::to_string(parameterTemplates.size());
+  std::string key = std::string(implTemplate) + "|" + std::string(methodName) +
+                    "|" + std::to_string(parameterTemplates.size());
   for (const auto &templateName : parameterTemplates) {
     key += "|" + templateName;
   }
@@ -307,10 +323,10 @@ makeFloatingAbiSignature(const FunctionSignature &signature) {
   abi.parameterTypes.reserve(signature.parameterByteLengths.size());
   for (std::size_t index = 0; index < signature.parameterByteLengths.size();
        ++index) {
-    const auto templateName = index < signature.parameterTemplateNames.size()
-                                  ? std::string_view{
-                                        signature.parameterTemplateNames[index]}
-                                  : std::string_view{};
+    const auto templateName =
+        index < signature.parameterTemplateNames.size()
+            ? std::string_view{signature.parameterTemplateNames[index]}
+            : std::string_view{};
     const auto byteLength = signature.parameterByteLengths[index];
     const bool floating = isFloatTemplateName(templateName);
     hasFloatingValue = hasFloatingValue || floating;
@@ -318,19 +334,18 @@ makeFloatingAbiSignature(const FunctionSignature &signature) {
         byteLength != 8) {
       return std::nullopt;
     }
-    abi.parameterTypes.push_back(
-        hir::AbiType{floating ? hir::AbiValueKind::Floating
-                              : hir::AbiValueKind::Integer,
-                     byteLength, true});
+    abi.parameterTypes.push_back(hir::AbiType{
+        floating ? hir::AbiValueKind::Floating : hir::AbiValueKind::Integer,
+        byteLength, true});
     abi.parameterTypes.back().alignment = byteLength;
   }
   abi.returnTypes.reserve(signature.returnByteLengths.size());
   for (std::size_t index = 0; index < signature.returnByteLengths.size();
        ++index) {
-    const auto templateName = index < signature.returnTemplateNames.size()
-                                  ? std::string_view{
-                                        signature.returnTemplateNames[index]}
-                                  : std::string_view{};
+    const auto templateName =
+        index < signature.returnTemplateNames.size()
+            ? std::string_view{signature.returnTemplateNames[index]}
+            : std::string_view{};
     const auto byteLength = signature.returnByteLengths[index];
     const bool floating = isFloatTemplateName(templateName);
     hasFloatingValue = hasFloatingValue || floating;
@@ -338,10 +353,9 @@ makeFloatingAbiSignature(const FunctionSignature &signature) {
         byteLength != 8) {
       return std::nullopt;
     }
-    abi.returnTypes.push_back(
-        hir::AbiType{floating ? hir::AbiValueKind::Floating
-                              : hir::AbiValueKind::Integer,
-                     byteLength, true});
+    abi.returnTypes.push_back(hir::AbiType{
+        floating ? hir::AbiValueKind::Floating : hir::AbiValueKind::Integer,
+        byteLength, true});
     abi.returnTypes.back().alignment = byteLength;
   }
   if (!hasFloatingValue) {
@@ -363,117 +377,17 @@ cAbiSignature(const FunctionSignature &signature) {
 }
 
 bool Analyzer::collectFunctionSignatures(
-    const ast::TranslationUnit &unit, std::vector<hir::ExternFunction> &externs) {
+    const ast::TranslationUnit &unit,
+    std::vector<hir::ExternFunction> &externs) {
   const auto pointer = pointerByteLength();
-  const auto addBuiltin = [this](std::string name,
-                                 std::vector<std::size_t> parameters,
-                                 std::vector<std::size_t> returns,
-                                 std::vector<bool> stringParameters = {}) {
-    const auto* spec = stdlib::findBuiltin(name);
-    if (spec == nullptr ||
-        (!isStandardHeaderIncluded(spec->header) &&
-         !(cCompatibilityMode_ && isCCompatibilityConversion(spec->id)))) {
-      return;
+  for (const auto &spec : stdlib::builtinSpecs()) {
+    if (spec.visibility != stdlib::BuiltinVisibility::Public ||
+        (!isStandardHeaderIncluded(spec.header) &&
+         !(cCompatibilityMode_ && isCCompatibilityConversion(spec.id)))) {
+      continue;
     }
-    addBuiltinSignature(functions_, std::move(name), std::move(parameters),
-                        std::move(returns), spec->id,
-                        std::move(stringParameters));
-  };
-  addBuiltin("alloc", {pointer}, {pointer});
-  addBuiltin("calloc", {pointer, pointer}, {pointer});
-  addBuiltin("realloc", {pointer, pointer}, {pointer});
-  addBuiltin("free", {pointer}, {});
-  addBuiltin("memset", {pointer, 4, pointer}, {pointer});
-  addBuiltin("memcpy", {pointer, pointer, pointer}, {pointer});
-  addBuiltin("memmove", {pointer, pointer, pointer}, {pointer});
-  addBuiltin("memcmp", {pointer, pointer, pointer}, {4});
-  addBuiltin("strlen", {pointer}, {pointer}, {true});
-  addBuiltin("strcmp", {pointer, pointer}, {4}, {true, true});
-  addBuiltin("strcpy", {pointer, pointer}, {pointer});
-  addBuiltin("strncpy", {pointer, pointer, pointer}, {pointer});
-  addBuiltin("strcat", {pointer, pointer}, {pointer});
-  addBuiltin("strchr", {pointer, 4}, {pointer}, {true, false});
-  addBuiltin("put", {4}, {4});
-  addBuiltin("get", {}, {4});
-  addBuiltin("fopen", {pointer, pointer}, {pointer}, {true, true});
-  addBuiltin("fclose", {pointer}, {4});
-  addBuiltin("fget", {pointer}, {4});
-  addBuiltin("fput", {pointer, 4}, {4});
-  addBuiltin("fread", {pointer, pointer, pointer, pointer},
-             {pointer});
-  addBuiltin("fwrite", {pointer, pointer, pointer, pointer},
-             {pointer});
-  addBuiltin("fflush", {pointer}, {4});
-  addBuiltin("fseek", {pointer, pointer, 4}, {4});
-  addBuiltin("ftell", {pointer}, {pointer});
-  addBuiltin("feof", {pointer}, {1});
-  addBuiltin("ferror", {pointer}, {4});
-
-  setBuiltinTemplateNames(functions_, "fopen", {"cstr", "cstr"},
-                          {"handle"});
-  setBuiltinTemplateNames(functions_, "fclose", {"handle"}, {"i32"});
-  setBuiltinTemplateNames(functions_, "fget", {"handle"}, {"i32"});
-  setBuiltinTemplateNames(functions_, "fput", {"handle", "i32"}, {"i32"});
-  setBuiltinTemplateNames(functions_, "fread",
-                          {"addr", "u64", "u64", "handle"}, {"u64"});
-  setBuiltinTemplateNames(functions_, "fwrite",
-                          {"addr", "u64", "u64", "handle"}, {"u64"});
-  setBuiltinTemplateNames(functions_, "fflush", {"handle"}, {"i32"});
-  setBuiltinTemplateNames(functions_, "fseek", {"handle", "i64", "i32"},
-                          {"i32"});
-  setBuiltinTemplateNames(functions_, "ftell", {"handle"}, {"i64"});
-  setBuiltinTemplateNames(functions_, "feof", {"handle"}, {"bool"});
-  setBuiltinTemplateNames(functions_, "ferror", {"handle"}, {"i32"});
-  addBuiltin("abs", {8}, {8});
-  addBuiltin("min", {8, 8}, {8});
-  addBuiltin("max", {8, 8}, {8});
-  addBuiltin("is_digit", {4}, {1});
-  addBuiltin("is_alpha", {4}, {1});
-  addBuiltin("is_alnum", {4}, {1});
-  addBuiltin("is_space", {4}, {1});
-  addBuiltin("to_upper", {4}, {1});
-  addBuiltin("to_lower", {4}, {1});
-  addBuiltin("srand", {4}, {});
-  addBuiltin("rand", {}, {4});
-  addBuiltin("time_ms", {}, {8});
-  addBuiltin("clock_ms", {}, {8});
-  addBuiltin("exit", {4}, {});
-  addBuiltin("abort", {}, {});
-  addBuiltin("assert", {4, 4}, {});
-  addBuiltin("panic", {4}, {});
-
-  addBuiltin("length", {pointer}, {pointer});
-  addBuiltin("resize_bytes", {8, pointer}, {8});
-  addBuiltin("byte_swap", {8}, {8});
-  addBuiltin("to_f16", {8}, {2});
-  addBuiltin("to_f32", {8}, {4});
-  addBuiltin("to_f64", {8}, {8});
-  addBuiltin("to_f128", {8}, {16});
-  addBuiltin("to_i8", {8}, {1});
-  addBuiltin("to_i16", {8}, {2});
-  addBuiltin("to_i32", {8}, {4});
-  addBuiltin("to_i64", {8}, {8});
-  addBuiltin("to_u8", {8}, {1});
-  addBuiltin("to_u16", {8}, {2});
-  addBuiltin("to_u32", {8}, {4});
-  addBuiltin("to_u64", {8}, {8});
-  addBuiltin("f_abs", {8}, {8});
-  addBuiltin("f_sqrt", {8}, {8});
-  addBuiltin("f_pow", {8, 8}, {8});
-  addBuiltin("f_sin", {8}, {8});
-  addBuiltin("f_cos", {8}, {8});
-  addBuiltin("f_tan", {8}, {8});
-  addBuiltin("f_log", {8}, {8});
-  addBuiltin("f_exp", {8}, {8});
-  addBuiltin("f_floor", {8}, {8});
-  addBuiltin("f_ceil", {8}, {8});
-  addBuiltin("f_round", {8}, {8});
-  addBuiltin("printf", {pointer}, {4}, {true});
-  addBuiltin("print", {pointer}, {4});
-  addBuiltin("scanf", {pointer}, {4}, {true});
-  addBuiltin("fprintf", {pointer, pointer}, {4}, {false, true});
-  addBuiltin("fscanf", {pointer, pointer}, {4}, {false, true});
-  setBuiltinTemplateNames(functions_, "fprintf", {"handle", "cstr"}, {"i32"});
+    addBuiltinSignature(functions_, spec, pointer);
+  }
 
   std::size_t mainCount = 0;
   for (const auto *externFunction : unit.externFunctions) {
@@ -494,7 +408,7 @@ bool Analyzer::collectFunctionSignatures(
                     "' cannot be used as an extern function name");
       continue;
     }
-    if (const auto* standard = stdlib::findBuiltin(externFunction->name)) {
+    if (const auto *standard = stdlib::findBuiltin(externFunction->name)) {
       addDiagnostic("standard library function '" + externFunction->name +
                     "' must not be declared with extern; include <" +
                     std::string(stdlib::headerName(standard->header)) + ">");
@@ -509,7 +423,8 @@ bool Analyzer::collectFunctionSignatures(
                       "' cannot be used as a parameter name");
         continue;
       }
-      if (!signature.isCAbi && isVariableLengthStandardTemplate(param.templateName)) {
+      if (!signature.isCAbi &&
+          isVariableLengthStandardTemplate(param.templateName)) {
         addDiagnostic("core extern parameter '" + param.name +
                       "' cannot pass " + param.templateName +
                       " by value; use [P] as addr");
@@ -543,8 +458,7 @@ bool Analyzer::collectFunctionSignatures(
                                            param.templateName == "cstr");
     }
     auto returns = parseReturnSignature(externFunction->returns,
-                                        externFunction->name,
-                                        signature.isCAbi);
+                                        externFunction->name, signature.isCAbi);
     if (!returns) {
       continue;
     }
@@ -609,8 +523,7 @@ bool Analyzer::collectFunctionSignatures(
       addDiagnostic("C ABI export cannot define main");
       continue;
     }
-    if (signature.isCAbi &&
-        containsCAbiForbiddenControlFlow(*function->body)) {
+    if (signature.isCAbi && containsCAbiForbiddenControlFlow(*function->body)) {
       addDiagnostic("C ABI export '" + signature.name +
                     "' cannot contain throw or try/catch");
       continue;
@@ -626,8 +539,8 @@ bool Analyzer::collectFunctionSignatures(
         length = signature.isCAbi && param.templateName == "cstr"
                      ? std::optional<std::size_t>{pointerByteLength()}
                      : (param.templateName.empty()
-                     ? std::optional<std::size_t>{4}
-                     : templateByteLength(param.templateName));
+                            ? std::optional<std::size_t>{4}
+                            : templateByteLength(param.templateName));
       } else {
         length = parseDeclaredLength(param.length, param.templateName);
       }
@@ -651,7 +564,8 @@ bool Analyzer::collectFunctionSignatures(
       for (const auto &item : function->returns) {
         signature.returnTemplateNames.push_back(item.templateName);
         signature.returnHasExplicitUserTemplate.push_back(
-            !item.templateName.empty() && templates_.contains(item.templateName));
+            !item.templateName.empty() &&
+            templates_.contains(item.templateName));
       }
       signature.returnsKnown = true;
       signature.returnsExplicit = true;
@@ -704,8 +618,20 @@ Analyzer::builtinForCall(const ast::CallExpr &call) const {
   return found->second.builtin;
 }
 
+std::uint16_t Analyzer::builtinOverloadIndex(const ast::CallExpr &call,
+                                             stdlib::BuiltinId builtin) {
+  std::vector<std::string_view> templates;
+  templates.reserve(call.arguments.size());
+  for (const auto &argument : call.arguments) {
+    const auto templateName = operatorTemplateName(*argument);
+    templates.push_back(templateName ? std::string_view(*templateName)
+                                     : std::string_view{});
+  }
+  return stdlib::findBuiltinOverload(builtin, templates);
+}
+
 bool Analyzer::rejectUnavailableStandardBuiltin(const ast::CallExpr &call) {
-  const auto* spec = stdlib::findBuiltin(call.callee);
+  const auto *spec = stdlib::findBuiltin(call.callee);
   if (spec == nullptr || functions_.contains(call.callee)) {
     return false;
   }
@@ -724,11 +650,12 @@ Analyzer::parseReturnSignature(const std::vector<ast::ReturnItem> &returns,
     if (!item.length.empty()) {
       length = parseByteLength(item.length);
     } else {
-      const auto templateName = item.templateName.empty() ? item.name
-                                                           : item.templateName;
-      const auto templateLength = cAbi && templateName == "cstr"
-                                      ? std::optional<std::size_t>{pointerByteLength()}
-                                      : templateByteLength(templateName);
+      const auto templateName =
+          item.templateName.empty() ? item.name : item.templateName;
+      const auto templateLength =
+          cAbi && templateName == "cstr"
+              ? std::optional<std::size_t>{pointerByteLength()}
+              : templateByteLength(templateName);
       if (templateLength) {
         length = *templateLength;
       }
@@ -762,9 +689,8 @@ bool Analyzer::registerReturnLengths(
     if (!currentFunction_->returnsExplicit &&
         currentFunction_->returnByteLengths.size() == byteLengths.size()) {
       for (std::size_t index = 0; index < byteLengths.size(); ++index) {
-        currentFunction_->returnByteLengths[index] =
-            std::max(currentFunction_->returnByteLengths[index],
-                     byteLengths[index]);
+        currentFunction_->returnByteLengths[index] = std::max(
+            currentFunction_->returnByteLengths[index], byteLengths[index]);
       }
       return true;
     }
@@ -780,16 +706,23 @@ bool Analyzer::registerReturnLengths(
 }
 
 bool Analyzer::registerTopLevelName(std::string_view name) {
+  if (!internalStandardModule_ &&
+      stdlib::isStandardLibraryImplementationSymbol(name)) {
+    addDiagnostic("reserved standard library implementation symbol '" +
+                  std::string(name) + "' cannot be declared by user code");
+    return false;
+  }
   if (!topLevelNames_.insert(std::string(name)).second) {
-    addDiagnostic("duplicate top-level declaration '" + std::string(name) + "'");
+    addDiagnostic("duplicate top-level declaration '" + std::string(name) +
+                  "'");
     return false;
   }
   return true;
 }
 
 void Analyzer::addDiagnostic(std::string diagnostic) {
-  auto entry = diagnostic::Diagnostic::error(
-      diagnostic::Stage::Sema, std::move(diagnostic));
+  auto entry = diagnostic::Diagnostic::error(diagnostic::Stage::Sema,
+                                             std::move(diagnostic));
   if (currentRange_ && diagnostic::hasRange(*currentRange_)) {
     entry.range = *currentRange_;
   }
@@ -1010,8 +943,8 @@ bool Analyzer::collectViewTemplates(
   return result_.diagnostics.empty();
 }
 
-bool Analyzer::collectImplOps(
-    const ast::TranslationUnit &unit, std::vector<hir::ImplOpBinding> &implOps) {
+bool Analyzer::collectImplOps(const ast::TranslationUnit &unit,
+                              std::vector<hir::ImplOpBinding> &implOps) {
   std::unordered_set<std::string> opKeys;
   for (const auto *decl : unit.impls) {
     CurrentRangeGuard rangeGuard(*this, *decl);
@@ -1048,8 +981,8 @@ bool Analyzer::collectImplOps(
 
       bool valid = true;
       std::vector<hir::ImplOpParam> params;
-      std::string key = decl->name + "|" + op.op + "|" +
-                        std::to_string(op.params.size());
+      std::string key =
+          decl->name + "|" + op.op + "|" + std::to_string(op.params.size());
       for (std::size_t index = 0; index < op.params.size(); ++index) {
         const auto &param = op.params[index];
         if (param.name == "self" && index != 0) {
@@ -1079,13 +1012,13 @@ bool Analyzer::collectImplOps(
         continue;
       }
       if (!opKeys.insert(key).second) {
-        addDiagnostic("duplicate impl op binding '" + op.op + "' for template '" +
-                      decl->name + "'");
+        addDiagnostic("duplicate impl op binding '" + op.op +
+                      "' for template '" + decl->name + "'");
         continue;
       }
 
-      auto returns = parseReturnSignature(op.returns,
-                                          decl->name + "::op " + op.op);
+      auto returns =
+          parseReturnSignature(op.returns, decl->name + "::op " + op.op);
       if (!returns) {
         continue;
       }
@@ -1106,9 +1039,8 @@ bool Analyzer::collectImplOps(
         implOpKeys_.insert(op.op + "|" + op.params[0].templateName + "|" +
                            op.params[1].templateName);
       }
-      const std::string symbolName =
-          "__hitsimple.implop." + decl->name + "." +
-          std::to_string(implOps.size());
+      const std::string symbolName = "__hitsimple.implop." + decl->name + "." +
+                                     std::to_string(implOps.size());
       topLevelNames_.insert(symbolName);
       std::vector<std::string> returnTemplateNames;
       std::vector<bool> returnHasExplicitUserTemplate;
@@ -1116,7 +1048,8 @@ bool Analyzer::collectImplOps(
       returnHasExplicitUserTemplate.reserve(op.returns.size());
       for (const auto &item : op.returns) {
         returnHasExplicitUserTemplate.push_back(
-            !item.templateName.empty() && templates_.contains(item.templateName));
+            !item.templateName.empty() &&
+            templates_.contains(item.templateName));
         if (!item.templateName.empty()) {
           returnTemplateNames.push_back(item.templateName);
         } else if (op.op == "==" || op.op == "!=" || op.op == "<" ||
@@ -1126,16 +1059,15 @@ bool Analyzer::collectImplOps(
           returnTemplateNames.push_back(decl->name);
         }
       }
-      const std::string lookupKey =
-          op.op + "|" + op.params[0].templateName + "|" +
-          op.params[1].templateName;
+      const std::string lookupKey = op.op + "|" + op.params[0].templateName +
+                                    "|" + op.params[1].templateName;
       const auto bindingIndex = implOps.size();
       implOps.emplace_back(decl->name, op.op, symbolName, std::move(params),
                            *returns);
       implOpIndexes_.emplace(lookupKey, bindingIndex);
-      implOpInfos_.push_back(ImplOpInfo{&op, symbolName, decl->name, *returns,
-                                        std::move(returnTemplateNames),
-                                        std::move(returnHasExplicitUserTemplate)});
+      implOpInfos_.push_back(ImplOpInfo{
+          &op, symbolName, decl->name, *returns, std::move(returnTemplateNames),
+          std::move(returnHasExplicitUserTemplate)});
     }
   }
   return result_.diagnostics.empty();
@@ -1168,7 +1100,8 @@ bool Analyzer::collectImplMethods(const ast::TranslationUnit &unit) {
       for (std::size_t index = 0; index < method->params.size(); ++index) {
         const auto &param = method->params[index];
         if (param.name == "self" && index != 0U) {
-          addDiagnostic("'self' is only valid as the first impl method parameter");
+          addDiagnostic(
+              "'self' is only valid as the first impl method parameter");
           valid = false;
         }
         if (param.isMutable) {
@@ -1242,14 +1175,13 @@ bool Analyzer::collectImplMethods(const ast::TranslationUnit &unit) {
       std::vector<std::string> returnTemplateNames;
       returnTemplateNames.reserve(method->returns.size());
       for (const auto &item : method->returns) {
-        returnTemplateNames.push_back(item.templateName.empty()
-                                          ? "none"
-                                          : item.templateName);
+        returnTemplateNames.push_back(
+            item.templateName.empty() ? "none" : item.templateName);
       }
 
-      const std::string symbolName =
-          "__hitsimple.implmethod." + decl->name + "." +
-          std::to_string(implMethodInfos_.size());
+      const std::string symbolName = "__hitsimple.implmethod." + decl->name +
+                                     "." +
+                                     std::to_string(implMethodInfos_.size());
       topLevelNames_.insert(symbolName);
       const auto methodIndex = implMethodInfos_.size();
       implMethodIndexes_.emplace(overloadKey, methodIndex);
@@ -1372,8 +1304,8 @@ Analyzer::resolveMemoryReference(const ast::Expr &expr) {
     std::string_view name;
     std::size_t byteLength = 0;
   };
-  const auto layoutFor = [&](std::string_view templateName)
-      -> std::optional<AggregateLayout> {
+  const auto layoutFor =
+      [&](std::string_view templateName) -> std::optional<AggregateLayout> {
     if (const auto structIt = structs_.find(std::string(templateName));
         structIt != structs_.end()) {
       return AggregateLayout{&structIt->second.members, structIt->second.name,
@@ -1406,19 +1338,19 @@ Analyzer::resolveMemoryReference(const ast::Expr &expr) {
 
   auto layout = layoutFor(layoutTemplateName);
   if (!layout) {
-    addDiagnostic("unknown struct template '" + std::string(layoutTemplateName) +
-                  "'");
+    addDiagnostic("unknown struct template '" +
+                  std::string(layoutTemplateName) + "'");
     return std::nullopt;
   }
 
   std::size_t offset = instanceIndex * layout->byteLength;
   std::string memberTemplateName;
   for (std::size_t index = 0; index < memberPath.size(); ++index) {
-    const auto memberIt = std::find_if(
-        layout->members->begin(), layout->members->end(),
-        [&](const StructMemberInfo &candidate) {
-          return candidate.name == memberPath[index];
-        });
+    const auto memberIt =
+        std::find_if(layout->members->begin(), layout->members->end(),
+                     [&](const StructMemberInfo &candidate) {
+                       return candidate.name == memberPath[index];
+                     });
     if (memberIt == layout->members->end()) {
       addDiagnostic("unknown member '" + std::string(memberPath[index]) +
                     "' in struct '" + std::string(layout->name) + "'");
@@ -1443,8 +1375,11 @@ Analyzer::resolveMemoryReference(const ast::Expr &expr) {
           override != memberTemplateOverrides_.end()) {
         memberTemplateName = override->second.value_or("");
       }
-      return MemoryReference{symbol->name, symbol->bindingName,
-                             memberIt->byteLength, symbol->storage, offset,
+      return MemoryReference{symbol->name,
+                             symbol->bindingName,
+                             memberIt->byteLength,
+                             symbol->storage,
+                             offset,
                              std::move(memberTemplateName)};
     }
 
@@ -1465,14 +1400,18 @@ Analyzer::resolveMemoryReference(const ast::Expr &expr) {
 
 std::optional<MemoryReference>
 Analyzer::resolveAddressableReference(const ast::Expr &expr) {
-  if (const auto *identifier = dynamic_cast<const ast::IdentifierExpr *>(&expr)) {
+  if (const auto *identifier =
+          dynamic_cast<const ast::IdentifierExpr *>(&expr)) {
     const auto *symbol = lookup(identifier->name);
     if (symbol == nullptr) {
       addDiagnostic("use of undeclared variable '" + identifier->name + "'");
       return std::nullopt;
     }
-    return MemoryReference{symbol->name, symbol->bindingName,
-                           symbol->byteLength, symbol->storage, 0,
+    return MemoryReference{symbol->name,
+                           symbol->bindingName,
+                           symbol->byteLength,
+                           symbol->storage,
+                           0,
                            symbol->templateName};
   }
   if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expr)) {
@@ -1497,8 +1436,9 @@ Analyzer::resolveAddressableReference(const ast::Expr &expr) {
       return std::nullopt;
     }
     if (*viewLength != reference->byteLength) {
-      addDiagnostic("expression template view byte length does not match template '" +
-                    asExpr->templateName + "'");
+      addDiagnostic(
+          "expression template view byte length does not match template '" +
+          asExpr->templateName + "'");
       return std::nullopt;
     }
     reference->templateName = asExpr->templateName;
@@ -1507,8 +1447,8 @@ Analyzer::resolveAddressableReference(const ast::Expr &expr) {
   return resolveMemoryReference(expr);
 }
 
-std::unique_ptr<hir::Expr> Analyzer::lowerIndexAddress(
-    const ast::IndexExpr &expr) {
+std::unique_ptr<hir::Expr>
+Analyzer::lowerIndexAddress(const ast::IndexExpr &expr) {
   const auto reference = resolveAddressableReference(*expr.base);
   if (!reference) {
     return nullptr;
@@ -1528,9 +1468,8 @@ std::unique_ptr<hir::Expr> Analyzer::lowerIndexAddress(
   auto base = std::make_unique<hir::AddressOfExpr>(
       reference->name, reference->bindingName, reference->byteLength,
       reference->storage, reference->offset, pointerByteLength());
-  return std::make_unique<hir::BinaryExpr>(std::move(base), "+",
-                                           std::move(index),
-                                           pointerByteLength());
+  return std::make_unique<hir::BinaryExpr>(
+      std::move(base), "+", std::move(index), pointerByteLength());
 }
 
 std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
@@ -1599,8 +1538,7 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
     const auto leftTemplate = operatorTemplateName(*binary->left);
     const auto rightTemplate = operatorTemplateName(*binary->right);
     if (leftTemplate && rightTemplate) {
-      const auto key = binary->op + "|" + *leftTemplate + "|" +
-                       *rightTemplate;
+      const auto key = binary->op + "|" + *leftTemplate + "|" + *rightTemplate;
       if (const auto found = implOpIndexes_.find(key);
           found != implOpIndexes_.end()) {
         const auto &info = implOpInfos_[found->second];
@@ -1657,7 +1595,7 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
     }
     const auto found = functions_.find(call->callee);
     const auto builtin = found != functions_.end() ? found->second.builtin
-                                                     : stdlib::BuiltinId::None;
+                                                   : stdlib::BuiltinId::None;
     if (builtin == stdlib::BuiltinId::Length) {
       return pointerByteLength();
     }
@@ -1668,13 +1606,15 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
         return parseByteLength(length->value);
       }
     }
-    if (builtin == stdlib::BuiltinId::ByteSwap && call->arguments.size() == 1U) {
+    if (builtin == stdlib::BuiltinId::ByteSwap &&
+        call->arguments.size() == 1U) {
       return inferByteLength(*call->arguments[0]);
     }
     if (builtin == stdlib::BuiltinId::Abs && call->arguments.size() == 1U) {
       return inferByteLength(*call->arguments[0]);
     }
-    if ((builtin == stdlib::BuiltinId::Min || builtin == stdlib::BuiltinId::Max) &&
+    if ((builtin == stdlib::BuiltinId::Min ||
+         builtin == stdlib::BuiltinId::Max) &&
         call->arguments.size() == 2U) {
       const auto left = inferByteLength(*call->arguments[0]);
       const auto right = inferByteLength(*call->arguments[1]);
@@ -1702,7 +1642,8 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
       return found->second.returnByteLengths.front();
     }
   }
-  if (const auto *call = dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
+  if (const auto *call =
+          dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
     const auto receiverTemplate = expressionTemplateName(*call->receiver);
     if (!receiverTemplate) {
       return std::nullopt;
@@ -1717,8 +1658,8 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
       }
       parameterTemplateNames.push_back(*argumentTemplate);
     }
-    const auto *method = findImplMethod(*receiverTemplate, call->method,
-                                        parameterTemplateNames);
+    const auto *method =
+        findImplMethod(*receiverTemplate, call->method, parameterTemplateNames);
     if (method != nullptr && method->returnByteLengths.size() == 1U) {
       return method->returnByteLengths.front();
     }
@@ -1737,7 +1678,8 @@ Analyzer::expressionTemplateName(const ast::Expr &expression) {
   if (const auto *identifier =
           dynamic_cast<const ast::IdentifierExpr *>(&expression)) {
     if (const auto *symbol = lookup(identifier->name);
-        symbol != nullptr && templates_.find(symbol->templateName) != templates_.end()) {
+        symbol != nullptr &&
+        templates_.find(symbol->templateName) != templates_.end()) {
       return symbol->templateName;
     }
   }
@@ -1748,13 +1690,16 @@ Analyzer::expressionTemplateName(const ast::Expr &expression) {
   }
   if (dynamic_cast<const ast::MemberExpr *>(&expression) != nullptr) {
     const auto reference = resolveMemoryReference(expression);
-    if (reference && templates_.find(reference->templateName) != templates_.end()) {
+    if (reference &&
+        templates_.find(reference->templateName) != templates_.end()) {
       return reference->templateName;
     }
   }
-  if (const auto *call = dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
+  if (const auto *call =
+          dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
     const auto returnTemplate = operatorTemplateName(*call);
-    if (returnTemplate && templates_.find(*returnTemplate) != templates_.end()) {
+    if (returnTemplate &&
+        templates_.find(*returnTemplate) != templates_.end()) {
       return returnTemplate;
     }
   }
@@ -1777,6 +1722,75 @@ Analyzer::operatorTemplateName(const ast::Expr &expression) {
     }
   }
   if (const auto *call = dynamic_cast<const ast::CallExpr *>(&expression)) {
+    const auto argumentTemplate =
+        [this](const ast::Expr &argument) -> std::optional<std::string> {
+      if (const auto templateName = operatorTemplateName(argument)) {
+        return templateName;
+      }
+      if (dynamic_cast<const ast::FloatLiteral *>(&argument) != nullptr) {
+        return std::string{"f64"};
+      }
+      return std::nullopt;
+    };
+
+    const auto builtin = builtinForCall(*call);
+    if (builtin) {
+      using enum stdlib::BuiltinId;
+      switch (*builtin) {
+      case Abs:
+      case FAbs:
+      case FSqrt:
+      case FSin:
+      case FCos:
+      case FTan:
+      case FLog:
+      case FExp:
+      case FFloor:
+      case FCeil:
+      case FRound:
+        if (call->arguments.size() == 1U) {
+          return argumentTemplate(*call->arguments.front());
+        }
+        break;
+      case FPow:
+      case Min:
+      case Max:
+        if (call->arguments.size() == 2U) {
+          const auto left = argumentTemplate(*call->arguments[0]);
+          const auto right = argumentTemplate(*call->arguments[1]);
+          if (left && right && *left == *right) {
+            return left;
+          }
+        }
+        break;
+      case ToF16:
+        return std::string{"f16"};
+      case ToF32:
+        return std::string{"f32"};
+      case ToF64:
+        return std::string{"f64"};
+      case ToF128:
+        return std::string{"f128"};
+      case ToI8:
+        return std::string{"i8"};
+      case ToI16:
+        return std::string{"i16"};
+      case ToI32:
+        return std::string{"i32"};
+      case ToI64:
+        return std::string{"i64"};
+      case ToU8:
+        return std::string{"u8"};
+      case ToU16:
+        return std::string{"u16"};
+      case ToU32:
+        return std::string{"u32"};
+      case ToU64:
+        return std::string{"u64"};
+      default:
+        break;
+      }
+    }
     if (const auto found = functions_.find(call->callee);
         found != functions_.end() && found->second.returnsKnown &&
         found->second.returnTemplateNames.size() == 1U) {
@@ -1790,8 +1804,7 @@ Analyzer::operatorTemplateName(const ast::Expr &expression) {
     const auto leftTemplate = operatorTemplateName(*binary->left);
     const auto rightTemplate = operatorTemplateName(*binary->right);
     if (leftTemplate && rightTemplate) {
-      const auto key = binary->op + "|" + *leftTemplate + "|" +
-                       *rightTemplate;
+      const auto key = binary->op + "|" + *leftTemplate + "|" + *rightTemplate;
       if (const auto found = implOpIndexes_.find(key);
           found != implOpIndexes_.end()) {
         const auto &info = implOpInfos_[found->second];
@@ -1808,7 +1821,8 @@ Analyzer::operatorTemplateName(const ast::Expr &expression) {
       return reference->templateName;
     }
   }
-  if (const auto *call = dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
+  if (const auto *call =
+          dynamic_cast<const ast::MethodCallExpr *>(&expression)) {
     const auto receiverTemplate = expressionTemplateName(*call->receiver);
     if (!receiverTemplate) {
       return std::nullopt;
@@ -1823,8 +1837,8 @@ Analyzer::operatorTemplateName(const ast::Expr &expression) {
       }
       parameterTemplateNames.push_back(*argumentTemplate);
     }
-    const auto *method = findImplMethod(*receiverTemplate, call->method,
-                                        parameterTemplateNames);
+    const auto *method =
+        findImplMethod(*receiverTemplate, call->method, parameterTemplateNames);
     if (method != nullptr && method->returnTemplateNames.size() == 1U) {
       return method->returnTemplateNames.front();
     }
@@ -1848,9 +1862,8 @@ Analyzer::userTemplateViewAssignmentCompatibility(
   return UserTemplateViewAssignmentCompatibility::Compatible;
 }
 
-hir::FormatArgKind
-Analyzer::formatArgumentKind(const ast::Expr &expression,
-                             const hir::Expr &lowered) {
+hir::FormatArgKind Analyzer::formatArgumentKind(const ast::Expr &expression,
+                                                const hir::Expr &lowered) {
   const auto *call = dynamic_cast<const hir::CallExpr *>(&lowered);
   if (dynamic_cast<const hir::FloatLiteral *>(&lowered) != nullptr ||
       dynamic_cast<const hir::FloatBinaryExpr *>(&lowered) != nullptr ||
@@ -1868,14 +1881,15 @@ Analyzer::formatArgumentKind(const ast::Expr &expression,
     if (const auto *symbol = lookup(identifier->name)) {
       templateName = symbol->templateName;
     }
-  } else if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression)) {
+  } else if (const auto *asExpr =
+                 dynamic_cast<const ast::AsExpr *>(&expression)) {
     templateName = asExpr->templateName;
   } else if (const auto reference = resolveMemoryReference(expression)) {
     templateName = reference->templateName;
   }
 
-  if (templateName == "f16" || templateName == "f32" ||
-      templateName == "f64" || templateName == "f128") {
+  if (templateName == "f16" || templateName == "f32" || templateName == "f64" ||
+      templateName == "f128") {
     return hir::FormatArgKind::Float;
   }
   if (templateName == "cstr") {
@@ -1912,15 +1926,25 @@ bool Analyzer::isHandleExpression(const ast::Expr &expression) {
     return false;
   }
   const auto &signature = found->second;
-  return signature.returnsKnown &&
-         signature.returnTemplateNames.size() == 1U &&
+  return signature.returnsKnown && signature.returnTemplateNames.size() == 1U &&
          signature.returnTemplateNames.front() == "handle";
+}
+
+bool Analyzer::isCStringExpression(const ast::Expr &expression) {
+  if (dynamic_cast<const ast::StringLiteral *>(&expression) != nullptr) {
+    return true;
+  }
+  if (const auto templateName = operatorTemplateName(expression);
+      templateName && *templateName == "cstr") {
+    return true;
+  }
+  return false;
 }
 
 bool Analyzer::validateHandleCallArguments(const ast::CallExpr &call,
                                            const FunctionSignature &signature) {
-  const auto count = std::min(call.arguments.size(),
-                              signature.parameterTemplateNames.size());
+  const auto count =
+      std::min(call.arguments.size(), signature.parameterTemplateNames.size());
   for (std::size_t index = 0; index < count; ++index) {
     const bool expectsHandle =
         signature.parameterTemplateNames[index] == "handle";
@@ -1933,6 +1957,68 @@ bool Analyzer::validateHandleCallArguments(const ast::CallExpr &call,
     if (!expectsHandle && isHandle) {
       addDiagnostic("handle argument may only be passed to a handle parameter");
       return false;
+    }
+  }
+  return true;
+}
+
+bool Analyzer::validateBuiltinViewArguments(
+    const ast::CallExpr &call, const FunctionSignature &signature) {
+  const auto *builtin = stdlib::findBuiltin(signature.builtin);
+  if (builtin == nullptr) {
+    return true;
+  }
+
+  const auto isRawAddress = [this](const ast::Expr &expression) {
+    if (const auto *unary = dynamic_cast<const ast::UnaryExpr *>(&expression);
+        unary != nullptr && unary->op == "&") {
+      return true;
+    }
+    const auto templateName = operatorTemplateName(expression);
+    return templateName && *templateName == "addr";
+  };
+
+  const auto count = std::min(call.arguments.size(), builtin->parameters.size());
+  for (std::size_t index = 0; index < count; ++index) {
+    const auto &argument = *call.arguments[index];
+    switch (builtin->parameters[index].mode) {
+    case stdlib::BuiltinParameterMode::CStrView:
+      if (!isCStringExpression(argument)) {
+        addDiagnostic("function call '" + call.callee + "' argument " +
+                      std::to_string(index + 1U) +
+                      " must be a cstr View");
+        return false;
+      }
+      break;
+    case stdlib::BuiltinParameterMode::LView:
+      if (!resolveAddressableReference(argument)) {
+        if (result_.diagnostics.empty()) {
+          addDiagnostic("function call '" + call.callee + "' argument " +
+                        std::to_string(index + 1U) +
+                        " must be a writable lvalue View");
+        }
+        return false;
+      }
+      break;
+    case stdlib::BuiltinParameterMode::MemLView:
+      if (!resolveAddressableReference(argument) && !isRawAddress(argument)) {
+        if (result_.diagnostics.empty()) {
+          addDiagnostic("function call '" + call.callee + "' argument " +
+                        std::to_string(index + 1U) +
+                        " must be a writable memory View or addr");
+        }
+        return false;
+      }
+      break;
+    case stdlib::BuiltinParameterMode::Addr:
+      if (!isRawAddress(argument)) {
+        addDiagnostic("function call '" + call.callee + "' argument " +
+                      std::to_string(index + 1U) + " must be an addr View");
+        return false;
+      }
+      break;
+    default:
+      break;
     }
   }
   return true;

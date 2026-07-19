@@ -139,7 +139,7 @@ func assignment_checks() -> [4] {
     flag %b= c == 0
     label = EXPECTED_LABEL
 
-    new copied[16]
+    new copied[16] as cstr
     copied %s= "wrong"
     copied %s= label
 
@@ -149,7 +149,7 @@ func assignment_checks() -> [4] {
     if (c != 0 || !flag) {
         return 21
     }
-    if (strcmp(&copied, EXPECTED_LABEL) != 0) {
+    if (strcmp(copied, EXPECTED_LABEL) != 0) {
         return 22
     }
     return 0
@@ -176,10 +176,12 @@ func memory_checks() -> [4] {
     heap = realloc(heap, 24)
     memset(heap, 0, 24)
     new copied_ptr = memcpy(heap, &bytes, 3)
-    new moved_ptr = memmove(heap? + 4, heap, 3)
+    new moved_destination as addr = heap? + 4
+    new moved_ptr = memmove(moved_destination, heap, 3)
 
     new cmp[4] = memcmp(heap, &bytes, 2)
-    new len = strlen(heap)
+    new text[3] as cstr = "HS"
+    new len = strlen(text)
 
     free(ptr)
     free(heap)
@@ -203,21 +205,21 @@ func string_checks() -> [4] {
     dst = "Hit"
     src = "Simple"
     word = "Compiler"
-    new dst_ptr = strcpy(&dst, &dst)
-    new cat_ptr = strcat(&dst, &src)
-    new src_ptr = strncpy(&src, &word, 8)
+    new dst_ptr = strcpy(dst, dst)
+    new cat_ptr = strcat(dst, src)
+    new src_ptr = strncpy(src, word, 8)
 
-    new match = strchr(&dst, 'S')
+    new match = strchr(dst, 'S')
     new base as addr = &dst
     new expected_match as addr = base? + 3
-    new cmp[4] = strcmp(&dst, EXPECTED_LABEL)
+    new cmp[4] = strcmp(dst, EXPECTED_LABEL)
     if (dst_ptr == 0 || cat_ptr == 0 || src_ptr == 0) {
         return 42
     }
     if (cmp != 0 || match != expected_match) {
         return 40
     }
-    if (strlen(&src) != 8) {
+    if (strlen(src) != 8) {
         return 41
     }
     return 0
