@@ -208,6 +208,8 @@ void printTargetInfo(std::ostream& out,
       << "checked.file_handle_coverage: null handles are rejected by checked "
          "file I/O; handle ownership and open/closed state are not tracked\n"
       << "static-checked.runtime-overhead: none\n"
+      << "throw.uncaught: exits with status 1 through libc exit; no diagnostic "
+         "is emitted and host libc performs its ordinary stream cleanup\n"
       << "abi.symbol.names: source identifiers use external linkage as written\n"
       << "abi.main: unannotated main uses i32, fallthrough returns 0\n"
       << "build.translation_units: each input is preprocessed, parsed, analyzed, "

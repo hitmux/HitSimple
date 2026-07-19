@@ -478,6 +478,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_target_info_documents_main_abi
     "$<TARGET_FILE:hsc> --target-info | grep -Fx 'abi.main: unannotated main uses i32, fallthrough returns 0'"
   )
+  add_hsc_shell_test(hsc_target_info_documents_uncaught_throw
+    "$<TARGET_FILE:hsc> --target-info | grep -Fx 'throw.uncaught: exits with status 1 through libc exit; no diagnostic is emitted and host libc performs its ordinary stream cleanup'"
+  )
   add_hsc_shell_test(hsc_target_info_documents_native_interop
     "$<TARGET_FILE:hsc> --target-info | grep -Fq 'build.native_interop: Linux x86_64/aarch64' && $<TARGET_FILE:hsc> --target-info | grep -Fq 'build.cargo: Linux x86_64/aarch64'"
   )

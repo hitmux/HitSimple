@@ -141,9 +141,9 @@ void LlvmEmitter::emit(const hir::Label &label) {
 
 void LlvmEmitter::emit(const hir::Throw &throwStmt) {
   if (catchTargets_.empty()) {
-    auto *abortType = llvm::FunctionType::get(builder_.getVoidTy(), false);
-    auto abort = module_->getOrInsertFunction("abort", abortType);
-    builder_.CreateCall(abort);
+    auto exit = declareCFunction("exit", builder_.getVoidTy(),
+                                 {builder_.getInt32Ty()});
+    builder_.CreateCall(exit, {builder_.getInt32(1)});
     builder_.CreateUnreachable();
     return;
   }
