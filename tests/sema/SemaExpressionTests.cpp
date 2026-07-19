@@ -100,6 +100,21 @@ HS_TEST(Sema_SelectsCoreHsReferenceProviderAndModule) {
   HS_EXPECT_TRUE(dump.find("provider=CoreHs") != std::string::npos);
 }
 
+HS_TEST(Sema_ProviderSelectionAllowsUncaughtThrowWithoutDelivery) {
+  auto result = analyzePreprocessedSource("$include <ctype.hsh>\n"
+                                          "func main() {\n"
+                                          "    new result[4] = is_digit(48)\n"
+                                          "    throw 1\n"
+                                          "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto modules = hitsimple::stdlib::selectStandardLibraryProviders(
+      *result.unit, hitsimple::stdlib::BuiltinProviderSelection::Reference);
+  HS_EXPECT_EQ(modules.size(), 1U);
+  HS_EXPECT_EQ(modules.front(), std::string("Ctype"));
+}
+
 HS_TEST(Sema_RejectsTypedIntegerConstantOverflow) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[1]\n"

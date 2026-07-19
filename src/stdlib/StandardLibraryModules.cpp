@@ -201,7 +201,9 @@ private:
     } else if (auto* label = dynamic_cast<hir::Label*>(&statement)) {
       visit(*label->statement);
     } else if (auto* thrown = dynamic_cast<hir::Throw*>(&statement)) {
-      visit(*thrown->delivery);
+      if (thrown->delivery) {
+        visit(*thrown->delivery);
+      }
     } else if (auto* tryCatch = dynamic_cast<hir::TryCatch*>(&statement)) {
       visit(*tryCatch->tryBlock);
       visit(*tryCatch->catchBlock);
