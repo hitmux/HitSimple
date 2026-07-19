@@ -392,6 +392,15 @@ jobs:
           grep -Fx 'f128.backend: boost.cpp_bin_float.113-bit-software-binary128' target-info.txt
           grep -Fx 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider' target-info.txt
           grep -Fx 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode' target-info.txt
+          uncaught_throw_output="$RUNNER_TEMP/uncaught-throw"
+          if ! ./build-macos/hsc tests/cases/run/try_catch_uncaught_view.hs \
+              -o "$uncaught_throw_output"; then
+            lldb --batch \
+              --one-line "run tests/cases/run/try_catch_uncaught_view.hs -o $uncaught_throw_output" \
+              --one-line "thread backtrace all" \
+              -- ./build-macos/hsc
+            exit 1
+          fi
           ctest --test-dir build-macos --output-on-failure --parallel 4
           for mode in --unchecked --static-checked --checked; do
             output="$RUNNER_TEMP/hello-${mode#--}"
