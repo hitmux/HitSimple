@@ -656,14 +656,14 @@ HS_TEST(LLVMCodegen_LowersFloatingThrowThroughCatchDelivery) {
       std::string::npos);
 }
 
-HS_TEST(LLVMCodegen_UsesTrapForUncaughtViewThrow) {
+HS_TEST(LLVMCodegen_UsesAbortForUncaughtViewThrow) {
   auto result = emitSource("func main() {\n"
                            "    new value as f64 = 42.5\n"
                            "    throw value\n"
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("llvm.trap") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @abort()") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsGlobalMemoryAccess) {
