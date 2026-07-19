@@ -1154,7 +1154,11 @@ HS_TEST(LLVMCodegen_UsesRawAddressArithmeticForMemoryOperands) {
                                  optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @hs_memcpy(ptr %mem.dst, ptr %mem.src") !=
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @hs.runtime.location.") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptr %mem.dst, ptr %mem.src, i64 3)") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @hs_memcpy(ptr %0, ptr %1") !=
                  std::string::npos);
 }
 

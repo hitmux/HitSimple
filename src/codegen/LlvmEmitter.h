@@ -278,6 +278,9 @@ private:
   llvm::CallInst *emitCheckedRuntimeCall(
       llvm::FunctionCallee callee, llvm::ArrayRef<llvm::Value *> arguments,
       std::string_view name = {});
+  llvm::CallInst *emitCheckedRuntimeCall(
+      llvm::IRBuilder<> &builder, llvm::FunctionCallee callee,
+      llvm::ArrayRef<llvm::Value *> arguments, std::string_view name = {});
   void emitRuntimeSourceLocation();
   void emitRuntimeSourceLocation(llvm::IRBuilder<> &builder);
   llvm::FunctionCallee declareCFunction(std::string_view name,
@@ -325,6 +328,7 @@ private:
       cAbiDirectAggregateParameters_;
   std::unordered_map<std::string, hir::AbiType> cAbiDirectAggregateReturns_;
   std::unordered_map<std::string, llvm::Value *> runtimeSourceFilePointers_;
+  std::size_t runtimeSourceWrapperCount_ = 0;
   std::vector<RuntimeObject> internalGlobals_;
   llvm::BasicBlock *functionEntryBlock_ = nullptr;
   llvm::Value *cAbiSRetStorage_ = nullptr;

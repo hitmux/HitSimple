@@ -55,9 +55,9 @@ void LlvmEmitter::registerLocalObject(llvm::Value *storage,
       functionEntryBlock_->getTerminator() != nullptr) {
     llvm::IRBuilder<> entryBuilder(context_);
     entryBuilder.SetInsertPoint(functionEntryBlock_->getTerminator());
-    emitRuntimeSourceLocation(entryBuilder);
-    entryBuilder.CreateCall(declareRegisterLocalObject(),
-                            {storage, entryBuilder.getInt64(byteLength)});
+    (void)emitCheckedRuntimeCall(
+        entryBuilder, declareRegisterLocalObject(),
+        {storage, entryBuilder.getInt64(byteLength)});
     return;
   }
 
@@ -124,11 +124,70 @@ void LlvmEmitter::emitRuntimeSourceLocation(llvm::IRBuilder<> &builder) {
 llvm::CallInst *LlvmEmitter::emitCheckedRuntimeCall(
     llvm::FunctionCallee callee, llvm::ArrayRef<llvm::Value *> arguments,
     std::string_view name) {
-  emitRuntimeSourceLocation();
-  if (name.empty()) {
-    return builder_.CreateCall(callee, arguments);
+  return emitCheckedRuntimeCall(builder_, callee, arguments, name);
+}
+
+llvm::CallInst *LlvmEmitter::emitCheckedRuntimeCall(
+    llvm::IRBuilder<> &builder, llvm::FunctionCallee callee,
+    llvm::ArrayRef<llvm::Value *> arguments, std::string_view name) {
+  if (!hasRuntimeSafetyChecks() || !currentDiagnosticRange_ ||
+      currentDiagnosticRange_->begin.file.empty()) {
+    if (name.empty()) {
+      return builder.CreateCall(callee, arguments);
+    }
+    return builder.CreateCall(callee, arguments, std::string(name));
   }
-  return builder_.CreateCall(callee, arguments, std::string(name));
+
+  const auto path = std::filesystem::path(currentDiagnosticRange_->begin.file)
+                        .lexically_normal()
+                        .generic_string();
+  if (path.empty() || path == ".") {
+    if (name.empty()) {
+      return builder.CreateCall(callee, arguments);
+    }
+    return builder.CreateCall(callee, arguments, std::string(name));
+  }
+
+  const auto [file, inserted] = runtimeSourceFilePointers_.try_emplace(path);
+  if (inserted) {
+    file->second = builder.CreateGlobalStringPtr(path, "runtime.source.file");
+  }
+
+  auto *wrapper = llvm::Function::Create(
+      callee.getFunctionType(), llvm::GlobalValue::InternalLinkage,
+      "hs.runtime.location." + std::to_string(runtimeSourceWrapperCount_++),
+      module_.get());
+  wrapper->addFnAttr(llvm::Attribute::NoInline);
+  auto *entry = llvm::BasicBlock::Create(context_, "entry", wrapper);
+  llvm::IRBuilder<> wrapperBuilder(entry);
+  auto sourceLocation = declareCFunction(
+      "hs_set_source_location", wrapperBuilder.getVoidTy(),
+      {wrapperBuilder.getPtrTy(), wrapperBuilder.getInt64Ty(),
+       wrapperBuilder.getInt64Ty()});
+  wrapperBuilder.CreateCall(
+      sourceLocation,
+      {file->second,
+       wrapperBuilder.getInt64(static_cast<std::uint64_t>(
+           currentDiagnosticRange_->begin.line)),
+       wrapperBuilder.getInt64(static_cast<std::uint64_t>(
+           currentDiagnosticRange_->begin.column))});
+
+  std::vector<llvm::Value *> wrapperArguments;
+  wrapperArguments.reserve(wrapper->arg_size());
+  for (auto &argument : wrapper->args()) {
+    wrapperArguments.push_back(&argument);
+  }
+  auto *runtimeCall = wrapperBuilder.CreateCall(callee, wrapperArguments);
+  if (callee.getFunctionType()->getReturnType()->isVoidTy()) {
+    wrapperBuilder.CreateRetVoid();
+  } else {
+    wrapperBuilder.CreateRet(runtimeCall);
+  }
+
+  if (name.empty()) {
+    return builder.CreateCall(wrapper, arguments);
+  }
+  return builder.CreateCall(wrapper, arguments, std::string(name));
 }
 
 llvm::FunctionCallee LlvmEmitter::declarePrintf() {
