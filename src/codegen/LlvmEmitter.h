@@ -80,6 +80,16 @@ private:
     std::optional<diagnostic::SourceRange> previous_;
   };
 
+  class RuntimeSourceLocationSuppressionScope final {
+  public:
+    RuntimeSourceLocationSuppressionScope(LlvmEmitter& emitter, bool suppress);
+    ~RuntimeSourceLocationSuppressionScope();
+
+  private:
+    LlvmEmitter& emitter_;
+    bool previous_ = false;
+  };
+
   class DebugLocationScope final {
   public:
     DebugLocationScope(
@@ -329,6 +339,7 @@ private:
   std::unordered_map<std::string, hir::AbiType> cAbiDirectAggregateReturns_;
   std::unordered_map<std::string, llvm::Value *> runtimeSourceFilePointers_;
   std::size_t runtimeSourceWrapperCount_ = 0;
+  bool runtimeSourceLocationEmissionSuppressed_ = false;
   std::vector<RuntimeObject> internalGlobals_;
   llvm::BasicBlock *functionEntryBlock_ = nullptr;
   llvm::Value *cAbiSRetStorage_ = nullptr;

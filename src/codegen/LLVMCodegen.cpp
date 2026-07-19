@@ -275,6 +275,17 @@ LlvmEmitter::SourceRangeScope::~SourceRangeScope() {
   emitter_.currentDiagnosticRange_ = std::move(previous_);
 }
 
+LlvmEmitter::RuntimeSourceLocationSuppressionScope::
+    RuntimeSourceLocationSuppressionScope(LlvmEmitter& emitter, bool suppress)
+    : emitter_(emitter), previous_(emitter.runtimeSourceLocationEmissionSuppressed_) {
+  emitter_.runtimeSourceLocationEmissionSuppressed_ = previous_ || suppress;
+}
+
+LlvmEmitter::RuntimeSourceLocationSuppressionScope::
+    ~RuntimeSourceLocationSuppressionScope() {
+  emitter_.runtimeSourceLocationEmissionSuppressed_ = previous_;
+}
+
 LlvmEmitter::DebugLocationScope::DebugLocationScope(
     LlvmEmitter &emitter, const std::optional<diagnostic::SourceRange> &range)
     : sourceRangeScope_(emitter, range), emitter_(emitter),

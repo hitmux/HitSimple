@@ -91,7 +91,8 @@ void LlvmEmitter::emitRuntimeSourceLocation() {
 }
 
 void LlvmEmitter::emitRuntimeSourceLocation(llvm::IRBuilder<> &builder) {
-  if (!hasRuntimeSafetyChecks() || !currentDiagnosticRange_ ||
+  if (!hasRuntimeSafetyChecks() || runtimeSourceLocationEmissionSuppressed_ ||
+      !currentDiagnosticRange_ ||
       currentDiagnosticRange_->begin.file.empty()) {
     return;
   }
@@ -130,7 +131,8 @@ llvm::CallInst *LlvmEmitter::emitCheckedRuntimeCall(
 llvm::CallInst *LlvmEmitter::emitCheckedRuntimeCall(
     llvm::IRBuilder<> &builder, llvm::FunctionCallee callee,
     llvm::ArrayRef<llvm::Value *> arguments, std::string_view name) {
-  if (!hasRuntimeSafetyChecks() || !currentDiagnosticRange_ ||
+  if (!hasRuntimeSafetyChecks() || runtimeSourceLocationEmissionSuppressed_ ||
+      !currentDiagnosticRange_ ||
       currentDiagnosticRange_->begin.file.empty()) {
     if (name.empty()) {
       return builder.CreateCall(callee, arguments);

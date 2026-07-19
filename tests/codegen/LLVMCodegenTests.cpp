@@ -1370,6 +1370,45 @@ HS_TEST(LLVMCodegen_RuntimeSourceLocationsFollowCheckedModePolicy) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_WindowsSoftwareF128SkipsRuntimeSourceLocations) {
+  hitsimple::codegen::CodegenOptions options;
+#if defined(__aarch64__) || defined(_M_ARM64)
+  options.targetTriple = "aarch64-w64-windows-gnu";
+#else
+  options.targetTriple = "x86_64-w64-windows-gnu";
+#endif
+  options.safetyMode = hitsimple::codegen::SafetyMode::Checked;
+  const auto ordinary = emitSource(
+      "func main() {\n"
+      "    new source[4] = 0x03020100\n"
+      "    new destination[1]\n"
+      "    new count as u64 = get()\n"
+      "    new copied as addr = memcpy(destination, source, count)\n"
+      "    return 0\n"
+      "}\n",
+      options);
+  HS_EXPECT_TRUE(ordinary.diagnostics.empty());
+  HS_EXPECT_TRUE(ordinary.llvmIr.find("hs_set_source_location") !=
+                 std::string::npos);
+
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new converted as i32\n"
+      "    new value as f128\n"
+      "    converted, value = scanf(\"%16f\")\n"
+      "    new written as i32 = printf(\"%16f\\n\", value)\n"
+      "    return 0\n"
+      "}\n",
+      options);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_scan_input") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_format_output") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("hs_set_source_location") ==
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_CheckedAbsReportsMinimumSignedValue) {
   const auto checked =
       emitSource("func magnitude(value as i8) -> i8 {\n"

@@ -1,5 +1,7 @@
 #include "LlvmEmitter.h"
 
+#include "hitsimple/codegen/LlvmCompatibility.h"
+
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -11,6 +13,194 @@
 #include <cstddef>
 
 namespace hitsimple::codegen {
+
+namespace {
+
+bool expressionUsesF128(const hir::Expr& expression);
+bool statementUsesF128(const hir::Stmt& statement);
+
+bool expressionsUseF128(const std::vector<std::unique_ptr<hir::Expr>>& expressions) {
+  return std::any_of(expressions.begin(), expressions.end(),
+                     [](const auto& expression) {
+                       return expression && expressionUsesF128(*expression);
+                     });
+}
+
+bool statementsUseF128(const std::vector<std::unique_ptr<hir::Stmt>>& statements) {
+  return std::any_of(statements.begin(), statements.end(),
+                     [](const auto& statement) {
+                       return statement && statementUsesF128(*statement);
+                     });
+}
+
+bool blockUsesF128(const hir::Block& block) {
+  return statementsUseF128(block.statements);
+}
+
+bool expressionUsesF128(const hir::Expr& expression) {
+  if (const auto* variable = dynamic_cast<const hir::VariableRef*>(&expression)) {
+    return variable->templateName == "f128";
+  }
+  if (const auto* literal = dynamic_cast<const hir::FloatLiteral*>(&expression)) {
+    return literal->byteLength == 16U;
+  }
+  if (const auto* dereference = dynamic_cast<const hir::DerefExpr*>(&expression)) {
+    return dereference->byteLength == 16U ||
+           (dereference->address && expressionUsesF128(*dereference->address));
+  }
+  if (const auto* binary = dynamic_cast<const hir::BinaryExpr*>(&expression)) {
+    return (binary->left && expressionUsesF128(*binary->left)) ||
+           (binary->right && expressionUsesF128(*binary->right));
+  }
+  if (const auto* unary = dynamic_cast<const hir::UnaryExpr*>(&expression)) {
+    return unary->operand && expressionUsesF128(*unary->operand);
+  }
+  if (const auto* ternary = dynamic_cast<const hir::TernaryExpr*>(&expression)) {
+    return (ternary->condition && expressionUsesF128(*ternary->condition)) ||
+           (ternary->thenExpr && expressionUsesF128(*ternary->thenExpr)) ||
+           (ternary->elseExpr && expressionUsesF128(*ternary->elseExpr));
+  }
+  if (const auto* unsignedExpression =
+          dynamic_cast<const hir::UnsignedExpr*>(&expression)) {
+    return unsignedExpression->operand &&
+           expressionUsesF128(*unsignedExpression->operand);
+  }
+  if (const auto* cast = dynamic_cast<const hir::IntegerCastExpr*>(&expression)) {
+    return cast->operand && expressionUsesF128(*cast->operand);
+  }
+  if (const auto* view = dynamic_cast<const hir::TemplateViewExpr*>(&expression)) {
+    return view->templateName == "f128" ||
+           (view->operand && expressionUsesF128(*view->operand));
+  }
+  if (const auto* call =
+          dynamic_cast<const hir::UserTemplateOpCallExpr*>(&expression)) {
+    return call->templateName == "f128" || expressionsUseF128(call->arguments);
+  }
+  if (const auto* binary = dynamic_cast<const hir::FloatBinaryExpr*>(&expression)) {
+    return binary->byteLength == 16U ||
+           (binary->left && expressionUsesF128(*binary->left)) ||
+           (binary->right && expressionUsesF128(*binary->right));
+  }
+  if (const auto* comparison =
+          dynamic_cast<const hir::FloatCompareExpr*>(&expression)) {
+    return comparison->operandByteLength == 16U ||
+           (comparison->left && expressionUsesF128(*comparison->left)) ||
+           (comparison->right && expressionUsesF128(*comparison->right));
+  }
+  if (const auto* conversion = dynamic_cast<const hir::ToFloatExpr*>(&expression)) {
+    return conversion->byteLength == 16U ||
+           (conversion->operand && expressionUsesF128(*conversion->operand));
+  }
+  if (const auto* conversion = dynamic_cast<const hir::ToIntExpr*>(&expression)) {
+    return conversion->floatByteLength == 16U ||
+           (conversion->operand && expressionUsesF128(*conversion->operand));
+  }
+  if (const auto* call =
+          dynamic_cast<const hir::UserTemplateFormatCallExpr*>(&expression)) {
+    return (call->value && expressionUsesF128(*call->value)) ||
+           (call->file && expressionUsesF128(*call->file));
+  }
+  if (const auto* call = dynamic_cast<const hir::CallExpr*>(&expression)) {
+    return call->templateName == "f128" ||
+           (call->isFloating && call->byteLength == 16U) ||
+           expressionsUseF128(call->arguments);
+  }
+  if (const auto* dynamic =
+          dynamic_cast<const hir::DynamicByteViewExpr*>(&expression)) {
+    return (dynamic->source && expressionUsesF128(*dynamic->source)) ||
+           (dynamic->runtimeLength && expressionUsesF128(*dynamic->runtimeLength));
+  }
+  if (const auto* byteSwap = dynamic_cast<const hir::ByteSwapExpr*>(&expression)) {
+    return byteSwap->source && expressionUsesF128(*byteSwap->source);
+  }
+  if (const auto* assignment =
+          dynamic_cast<const hir::AssignmentExpr*>(&expression)) {
+    return statementsUseF128(assignment->stores) ||
+           (assignment->result && expressionUsesF128(*assignment->result));
+  }
+  return false;
+}
+
+bool statementUsesF128(const hir::Stmt& statement) {
+  if (const auto* local = dynamic_cast<const hir::LocalMemory*>(&statement)) {
+    return local->templateName == "f128";
+  }
+  if (const auto* store = dynamic_cast<const hir::IntegerStore*>(&statement)) {
+    return store->value && expressionUsesF128(*store->value);
+  }
+  if (const auto* store = dynamic_cast<const hir::FloatStore*>(&statement)) {
+    return store->targetByteLength == 16U ||
+           (store->value && expressionUsesF128(*store->value));
+  }
+  if (const auto* store = dynamic_cast<const hir::BoolStore*>(&statement)) {
+    return store->value && expressionUsesF128(*store->value);
+  }
+  if (const auto* store = dynamic_cast<const hir::PointerStore*>(&statement)) {
+    return (store->address && expressionUsesF128(*store->address)) ||
+           (store->value && expressionUsesF128(*store->value));
+  }
+  if (const auto* call = dynamic_cast<const hir::Call*>(&statement)) {
+    return expressionsUseF128(call->arguments);
+  }
+  if (const auto* call = dynamic_cast<const hir::UserTemplateOpCall*>(&statement)) {
+    return expressionsUseF128(call->arguments);
+  }
+  if (const auto* call =
+          dynamic_cast<const hir::UserTemplateFormatCall*>(&statement)) {
+    return (call->value && expressionUsesF128(*call->value)) ||
+           (call->file && expressionUsesF128(*call->file));
+  }
+  if (const auto* call =
+          dynamic_cast<const hir::MultiReturnCallStore*>(&statement)) {
+    return expressionsUseF128(call->arguments);
+  }
+  if (const auto* call = dynamic_cast<const hir::InputCallStore*>(&statement)) {
+    return std::any_of(call->scanTargets.begin(), call->scanTargets.end(),
+                       [](const auto& target) {
+                         return target.templateName == "f128";
+                       }) ||
+           (call->file && expressionUsesF128(*call->file)) ||
+           (call->format && expressionUsesF128(*call->format));
+  }
+  if (const auto* returned = dynamic_cast<const hir::Return*>(&statement)) {
+    return expressionsUseF128(returned->values);
+  }
+  if (const auto* conditional = dynamic_cast<const hir::If*>(&statement)) {
+    return (conditional->condition && expressionUsesF128(*conditional->condition)) ||
+           (conditional->thenBlock && blockUsesF128(*conditional->thenBlock)) ||
+           (conditional->elseBlock && blockUsesF128(*conditional->elseBlock));
+  }
+  if (const auto* loop = dynamic_cast<const hir::While*>(&statement)) {
+    return (loop->condition && expressionUsesF128(*loop->condition)) ||
+           (loop->body && blockUsesF128(*loop->body));
+  }
+  if (const auto* loop = dynamic_cast<const hir::For*>(&statement)) {
+    return (loop->init && statementUsesF128(*loop->init)) ||
+           (loop->condition && expressionUsesF128(*loop->condition)) ||
+           statementsUseF128(loop->post) ||
+           (loop->body && blockUsesF128(*loop->body));
+  }
+  if (const auto* list = dynamic_cast<const hir::StatementList*>(&statement)) {
+    return statementsUseF128(list->statements);
+  }
+  if (const auto* label = dynamic_cast<const hir::Label*>(&statement)) {
+    return label->statement && statementUsesF128(*label->statement);
+  }
+  if (const auto* thrown = dynamic_cast<const hir::Throw*>(&statement)) {
+    return thrown->delivery && statementUsesF128(*thrown->delivery);
+  }
+  if (const auto* tryCatch = dynamic_cast<const hir::TryCatch*>(&statement)) {
+    return (tryCatch->tryBlock && blockUsesF128(*tryCatch->tryBlock)) ||
+           (tryCatch->catchBlock && blockUsesF128(*tryCatch->catchBlock));
+  }
+  return false;
+}
+
+bool functionUsesF128(const hir::Function& function) {
+  return function.body && blockUsesF128(*function.body);
+}
+
+} // namespace
 
 void LlvmEmitter::emit(const hir::GlobalMemory &global) {
   SourceRangeScope sourceRange(*this, global.range);
@@ -234,6 +424,13 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
 
 void LlvmEmitter::emit(const hir::Function &function) {
   SourceRangeScope sourceRange(*this, function.range);
+  // llvm-mingw's software-binary128 format/scan path crashes when a checked
+  // source-location write is emitted in the same HitSimple function. Keep the
+  // isolation strictly to Windows functions that actually use f128; Darwin
+  // and all other checked functions retain policy B source locations.
+  RuntimeSourceLocationSuppressionScope sourceLocationSuppression(
+      *this, parseTargetTriple(moduleTargetTriple(*module_)).isOSWindows() &&
+                 functionUsesF128(function));
   auto *llvmFunction = declare(function);
   if (llvmFunction == nullptr) {
     return;
