@@ -963,8 +963,13 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_runtime_source_location_ir_policy
     "$<TARGET_FILE:hsc> --checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o checked.ll && grep -Fq '@hs_set_source_location' checked.ll && $<TARGET_FILE:hsc> --unchecked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o unchecked.ll && ! grep -Fq '@hs_set_source_location' unchecked.ll && $<TARGET_FILE:hsc> --static-checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o static-checked.ll && ! grep -Fq '@hs_set_source_location' static-checked.ll"
   )
+  set(HSC_RUNTIME_FALLBACK_LINKER "${CMAKE_CXX_COMPILER}")
+  if(APPLE)
+    set(HSC_RUNTIME_FALLBACK_LINKER
+      "${CMAKE_CXX_COMPILER} -isysroot $(xcrun --show-sdk-path)")
+  endif()
   add_hsc_shell_test(hsc_runtime_source_location_fallback
-    "${CMAKE_CXX_COMPILER} -x c ${PROJECT_SOURCE_DIR}/tests/cases/runtime/runtime_source_location_fallback.c -x none $<TARGET_FILE:hitsimple_runtime> -o program && ! ./program >stdout 2>stderr && grep -Fx 'hitsimple runtime error: abs of minimum signed value' stderr"
+    "${HSC_RUNTIME_FALLBACK_LINKER} -x c ${PROJECT_SOURCE_DIR}/tests/cases/runtime/runtime_source_location_fallback.c -x none $<TARGET_FILE:hitsimple_runtime> -o program && ! ./program >stdout 2>stderr && grep -Fx 'hitsimple runtime error: abs of minimum signed value' stderr"
   )
   add_test(NAME hsc_compile_hello
     COMMAND hsc ${PROJECT_SOURCE_DIR}/examples/hello.hs
