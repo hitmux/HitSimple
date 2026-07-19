@@ -85,7 +85,7 @@ enum {
 static HsAlloc hs_allocs[HS_MAX_OBJECTS];
 static uint64_t hs_current_frame;
 
-#if defined(_MSC_VER)
+#if defined(_WIN32)
 #define HS_THREAD_LOCAL __declspec(thread)
 #else
 #define HS_THREAD_LOCAL _Thread_local
