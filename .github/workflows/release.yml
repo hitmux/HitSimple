@@ -751,7 +751,7 @@ jobs:
           $f128FormatOutput = "1.5" | & ./f128-format-scan.exe 2>&1
           $f128FormatExitCode = $LASTEXITCODE
           if ($f128FormatExitCode -ne 0 -or "$f128FormatOutput" -notmatch '(?m)^1\.5\r?$') {
-            throw "Windows f128 format/scan smoke failed with exit code $f128FormatExitCode: $f128FormatOutput"
+            throw "Windows f128 format/scan smoke failed with exit code ${f128FormatExitCode}: $f128FormatOutput"
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_bounds.hs -o checked-memcpy-bounds.exe
           $boundsOutput = "2" | & ./checked-memcpy-bounds.exe 2>&1
