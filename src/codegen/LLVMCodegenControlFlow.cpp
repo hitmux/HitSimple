@@ -1,6 +1,7 @@
 #include "LlvmEmitter.h"
 
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 
@@ -144,7 +145,15 @@ void LlvmEmitter::emit(const hir::Throw &throwStmt) {
     auto exit = declareCFunction("exit", builder_.getVoidTy(),
                                  {builder_.getInt32Ty()});
     builder_.CreateCall(exit, {builder_.getInt32(1)});
-    builder_.CreateUnreachable();
+    auto *function = builder_.GetInsertBlock()->getParent();
+    if (function->getReturnType()->isVoidTy()) {
+      builder_.CreateRetVoid();
+    } else if (function->getName() == "main" &&
+               function->getReturnType()->isIntegerTy(32)) {
+      builder_.CreateRet(builder_.getInt32(1));
+    } else {
+      builder_.CreateRet(llvm::UndefValue::get(function->getReturnType()));
+    }
     return;
   }
 

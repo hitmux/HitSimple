@@ -665,6 +665,8 @@ HS_TEST(LLVMCodegen_UsesExitStatusOneForUncaughtViewThrow) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("call void @exit(i32 1)") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ret i32 1") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("unreachable") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsGlobalMemoryAccess) {
