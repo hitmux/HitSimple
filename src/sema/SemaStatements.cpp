@@ -145,7 +145,8 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::NewDecl &decl) {
 
   Symbol symbol;
   if (!declare(decl.name, length, hir::MemoryStorage::Local, symbol)) {
-    addDiagnostic("duplicate declaration '" + decl.name + "'");
+    addDiagnostic("duplicate declaration '" + decl.name + "'",
+                  currentScopeDeclarationRange(decl.name));
     return nullptr;
   }
   return std::make_unique<hir::LocalMemory>(symbol.name, symbol.bindingName,
@@ -335,7 +336,8 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
                                  : hir::MemoryStorage::Local;
   Symbol symbol;
   if (!declare(item.name, length, memoryStorage, std::move(templateName), symbol)) {
-    addDiagnostic("duplicate declaration '" + item.name + "'");
+    addDiagnostic("duplicate declaration '" + item.name + "'",
+                  currentScopeDeclarationRange(item.name));
     return nullptr;
   }
 
@@ -834,8 +836,11 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::GotoStmt &statement) {
 }
 
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::LabelStmt &statement) {
-  if (!labels_.emplace(statement.label, LabelInfo{blockDepth_}).second) {
-    addDiagnostic("duplicate label '" + statement.label + "'");
+  const auto [found, inserted] =
+      labels_.emplace(statement.label, LabelInfo{blockDepth_, currentRange_});
+  if (!inserted) {
+    addDiagnostic("duplicate label '" + statement.label + "'",
+                  found->second.declarationRange);
     return nullptr;
   }
   auto lowered = analyze(*statement.statement);
@@ -944,7 +949,8 @@ Analyzer::analyze(const ast::TryCatchStmt &statement) {
   Symbol errorSymbol;
   if (!declare(statement.errorName, *errorLength, hir::MemoryStorage::Local,
                statement.errorTemplateName, errorSymbol, errorBindingName)) {
-    addDiagnostic("duplicate catch error '" + statement.errorName + "'");
+    addDiagnostic("duplicate catch error '" + statement.errorName + "'",
+                  currentScopeDeclarationRange(statement.errorName));
     endScope();
     return nullptr;
   }

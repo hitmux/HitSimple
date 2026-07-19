@@ -23,6 +23,7 @@ struct Symbol {
   std::size_t byteLength = 0;
   hir::MemoryStorage storage = hir::MemoryStorage::Local;
   std::string templateName;
+  std::optional<diagnostic::SourceRange> declarationRange;
 };
 
 struct StructMemberInfo {
@@ -84,6 +85,13 @@ struct UserTemplateFormatCallLowering {
   std::size_t resultByteLength = 4;
 };
 
+struct StandardTemplatePrintCallLowering {
+  std::string callee;
+  stdlib::BuiltinId builtin = stdlib::BuiltinId::Print;
+  std::vector<std::unique_ptr<hir::Expr>> arguments;
+  std::vector<hir::FormatArgKind> formatArgumentKinds;
+};
+
 struct FunctionSignature {
   std::string name;
   std::vector<std::size_t> parameterByteLengths;
@@ -138,6 +146,7 @@ cAbiSignature(const FunctionSignature &signature);
 
 struct LabelInfo {
   std::size_t blockDepth = 0;
+  std::optional<diagnostic::SourceRange> declarationRange;
 };
 
 struct PendingGoto {
@@ -228,8 +237,9 @@ private:
   std::unique_ptr<hir::Stmt> analyze(const ast::SetStmt &statement);
   std::unique_ptr<hir::Stmt> analyzeCall(const ast::CallExpr &call);
   std::unique_ptr<hir::Stmt> analyzeCallStatement(const ast::CallExpr &call);
-  std::unique_ptr<hir::Stmt>
-  analyzeTemplatePrintCall(const ast::CallExpr &call);
+  std::optional<StandardTemplatePrintCallLowering>
+  lowerStandardTemplatePrintCall(const ast::Expr &value,
+                                 std::string_view templateName);
   std::optional<UserTemplateFormatCallLowering>
   lowerUserTemplateFormatCall(const ast::CallExpr &call,
                               stdlib::BuiltinId builtin,
@@ -290,6 +300,7 @@ private:
   std::optional<std::size_t> templateByteLength(std::string_view templateName) const;
   std::optional<std::string> expressionTemplateName(const ast::Expr &expression);
   std::optional<std::string> operatorTemplateName(const ast::Expr &expression);
+  bool isStandardTemplateWithFormat(std::string_view name) const;
   UserTemplateViewAssignmentCompatibility
   userTemplateViewAssignmentCompatibility(
       std::string_view destinationTemplate, const ast::Expr &source);
@@ -323,7 +334,12 @@ private:
                                      stdlib::BuiltinId builtin);
   bool rejectUnavailableStandardBuiltin(const ast::CallExpr &call);
   bool registerReturnLengths(const std::vector<std::size_t> &byteLengths);
-  void addDiagnostic(std::string diagnostic);
+  std::optional<diagnostic::SourceRange>
+  currentScopeDeclarationRange(std::string_view name) const;
+  void addDiagnostic(
+      std::string message,
+      std::optional<diagnostic::SourceRange> relatedRange = std::nullopt,
+      std::string relatedMessage = "first declaration is here");
 
   AnalyzeResult result_;
   std::optional<diagnostic::SourceRange> currentRange_;
@@ -335,7 +351,8 @@ private:
   bool internalStandardModule_ = false;
   std::unordered_map<std::string, StructInfo> structs_;
   std::unordered_map<std::string, TemplateInfo> templates_;
-  std::unordered_set<std::string> topLevelNames_;
+  std::unordered_map<std::string, std::optional<diagnostic::SourceRange>>
+      topLevelNames_;
   std::unordered_set<std::string> implOpKeys_;
   std::vector<ImplOpInfo> implOpInfos_;
   std::unordered_map<std::string, std::size_t> implOpIndexes_;

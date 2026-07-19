@@ -233,6 +233,8 @@ HS_TEST(Preprocessor_ReportsDirectivePairingErrors) {
   const auto elseResult =
       hitsimple::preprocessor::preprocessSource("$else\n", "test.hs");
   HS_EXPECT_EQ(elseResult.diagnostics.size(), 1U);
+  HS_EXPECT_EQ(elseResult.diagnostics[0].stage,
+               hitsimple::diagnostic::Stage::Preprocessor);
   HS_EXPECT_TRUE(!elseResult.diagnostics[0].message.empty());
 
   const auto unterminated = hitsimple::preprocessor::preprocessSource(

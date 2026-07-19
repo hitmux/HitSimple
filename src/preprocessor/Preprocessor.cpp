@@ -93,7 +93,7 @@ void addDiagnostic(PreprocessResult &result,
                    std::size_t column = 1) {
   diagnostic::Diagnostic diag;
   diag.severity = severity;
-  diag.stage = diagnostic::Stage::Lexer;
+  diag.stage = diagnostic::Stage::Preprocessor;
   diag.message = std::move(message);
   if (!fileName.empty()) {
     diag.range = diagnostic::SourceRange{

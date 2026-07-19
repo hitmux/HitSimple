@@ -3,6 +3,7 @@
 #include "hitsimple/literal/Literal.h"
 
 #include <cstdint>
+#include <filesystem>
 
 namespace hitsimple::codegen {
 
@@ -54,13 +55,14 @@ void LlvmEmitter::registerLocalObject(llvm::Value *storage,
       functionEntryBlock_->getTerminator() != nullptr) {
     llvm::IRBuilder<> entryBuilder(context_);
     entryBuilder.SetInsertPoint(functionEntryBlock_->getTerminator());
+    emitRuntimeSourceLocation(entryBuilder);
     entryBuilder.CreateCall(declareRegisterLocalObject(),
                             {storage, entryBuilder.getInt64(byteLength)});
     return;
   }
 
-  builder_.CreateCall(declareRegisterLocalObject(),
-                      {storage, builder_.getInt64(byteLength)});
+  (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
+                               {storage, builder_.getInt64(byteLength)});
 }
 
 void LlvmEmitter::registerStaticObject(llvm::Value *storage,
@@ -68,20 +70,65 @@ void LlvmEmitter::registerStaticObject(llvm::Value *storage,
   if (!hasRuntimeSafetyChecks() || storage == nullptr || byteLength == 0) {
     return;
   }
-  builder_.CreateCall(declareRegisterStaticObject(),
-                      {storage, builder_.getInt64(byteLength)});
+  (void)emitCheckedRuntimeCall(declareRegisterStaticObject(),
+                               {storage, builder_.getInt64(byteLength)});
 }
 
 void LlvmEmitter::emitRuntimeFrameEnter() {
   if (hasRuntimeSafetyChecks()) {
-    builder_.CreateCall(declareRuntimeFrameEnter());
+    (void)emitCheckedRuntimeCall(declareRuntimeFrameEnter(), {});
   }
 }
 
 void LlvmEmitter::emitRuntimeFrameExit() {
   if (hasRuntimeSafetyChecks() && runtimeFrameActive_) {
-    builder_.CreateCall(declareRuntimeFrameExit());
+    (void)emitCheckedRuntimeCall(declareRuntimeFrameExit(), {});
   }
+}
+
+void LlvmEmitter::emitRuntimeSourceLocation() {
+  emitRuntimeSourceLocation(builder_);
+}
+
+void LlvmEmitter::emitRuntimeSourceLocation(llvm::IRBuilder<> &builder) {
+  if (!hasRuntimeSafetyChecks() || !currentDiagnosticRange_ ||
+      currentDiagnosticRange_->begin.file.empty()) {
+    return;
+  }
+
+  const auto path = std::filesystem::path(currentDiagnosticRange_->begin.file)
+                        .lexically_normal()
+                        .generic_string();
+  if (path.empty() || path == ".") {
+    return;
+  }
+
+  const auto [file, inserted] = runtimeSourceFilePointers_.try_emplace(path);
+  if (inserted) {
+    file->second = builder_.CreateGlobalStringPtr(path, "runtime.source.file");
+  }
+
+  auto callee = declareCFunction("hs_set_source_location",
+                                 builder.getVoidTy(),
+                                 {builder.getPtrTy(), builder.getInt64Ty(),
+                                  builder.getInt64Ty()});
+  builder.CreateCall(
+      callee,
+      {file->second,
+       builder.getInt64(static_cast<std::uint64_t>(
+           currentDiagnosticRange_->begin.line)),
+       builder.getInt64(static_cast<std::uint64_t>(
+           currentDiagnosticRange_->begin.column))});
+}
+
+llvm::CallInst *LlvmEmitter::emitCheckedRuntimeCall(
+    llvm::FunctionCallee callee, llvm::ArrayRef<llvm::Value *> arguments,
+    std::string_view name) {
+  emitRuntimeSourceLocation();
+  if (name.empty()) {
+    return builder_.CreateCall(callee, arguments);
+  }
+  return builder_.CreateCall(callee, arguments, std::string(name));
 }
 
 llvm::FunctionCallee LlvmEmitter::declarePrintf() {

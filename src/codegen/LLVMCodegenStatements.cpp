@@ -66,6 +66,7 @@ std::vector<char> collectPrintfSpecifiers(const std::string &format) {
 } // namespace
 
 void LlvmEmitter::emit(const hir::Block &block) {
+  SourceRangeScope sourceRange(*this, block.range);
   for (const auto &statement : block.statements) {
     if (builder_.GetInsertBlock()->getTerminator()) {
       if (dynamic_cast<const hir::Label *>(statement.get()) == nullptr) {
@@ -423,8 +424,9 @@ void LlvmEmitter::emit(const hir::PointerStore &store) {
                                           "deref.store.addr");
   if (hasRuntimeSafetyChecks() &&
       !hasKnownStaticAddressRange(*store.address, store.targetByteLength)) {
-    builder_.CreateCall(declareCheckStore(),
-                        {pointer, builder_.getInt64(store.targetByteLength)});
+    (void)emitCheckedRuntimeCall(
+        declareCheckStore(),
+        {pointer, builder_.getInt64(store.targetByteLength)});
   }
   builder_.CreateStore(value, pointer);
 }
@@ -466,7 +468,7 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
     if (hasRuntimeSafetyChecks()) {
       auto checkFile = declareCFunction("hs_check_file_handle",
                                         builder_.getVoidTy(), {ptrTy});
-      builder_.CreateCall(checkFile, {file});
+      (void)emitCheckedRuntimeCall(checkFile, {file});
     }
   }
   const auto argumentCount = arguments.size() - formatIndex - 1U;
@@ -503,8 +505,8 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
       auto *store = builder_.CreateStore(value, storage);
       store->setAlignment(llvm::Align(1));
       if (hasRuntimeSafetyChecks()) {
-        builder_.CreateCall(declareRegisterLocalObject(),
-                            {storage, builder_.getInt64(byteLength)});
+        (void)emitCheckedRuntimeCall(
+            declareRegisterLocalObject(), {storage, builder_.getInt64(byteLength)});
       }
       view = ViewValue{storage, builder_.getInt64(byteLength), byteLength};
     } else {
@@ -526,7 +528,7 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
   }
   auto callee = declareCFunction("hs_format_output", i32Ty,
                                  {ptrTy, ptrTy, ptrTy, i64Ty, i32Ty});
-  return builder_.CreateCall(
+  return emitCheckedRuntimeCall(
       callee, {file, format, descriptors, builder_.getInt64(argumentCount),
                builder_.getInt32(hasRuntimeSafetyChecks() ? 1 : 0)},
       std::string(calleeName) + ".ret");
@@ -554,8 +556,9 @@ ViewValue LlvmEmitter::emitUserTemplateFormatCall(
   auto *result = createFunctionEntryAlloca(resultType, "format.result");
   result->setAlignment(llvm::Align(1));
   if (hasRuntimeSafetyChecks()) {
-    builder_.CreateCall(declareRegisterLocalObject(),
-                        {result, builder_.getInt64(resultByteLength)});
+    (void)emitCheckedRuntimeCall(
+        declareRegisterLocalObject(),
+        {result, builder_.getInt64(resultByteLength)});
   }
 
   auto *ptrTy = builder_.getPtrTy();
@@ -580,8 +583,9 @@ ViewValue LlvmEmitter::emitUserTemplateFormatCall(
   sinkStorage->setAlignment(llvm::Align(alignof(void *)));
   builder_.CreateStore(sinkValue, sinkStorage);
   if (hasRuntimeSafetyChecks()) {
-    builder_.CreateCall(declareRegisterLocalObject(),
-                        {sinkStorage, builder_.getInt64(sizeof(void *))});
+    (void)emitCheckedRuntimeCall(
+        declareRegisterLocalObject(),
+        {sinkStorage, builder_.getInt64(sizeof(void *))});
   }
 
   builder_.CreateCall(callee,
@@ -603,7 +607,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     }
     auto *pointer = builder_.CreateIntToPtr(address, builder_.getPtrTy(),
                                             "free.ptr");
-    builder_.CreateCall(
+    (void)emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedFree() : declareFree(),
         {pointer});
     return;
@@ -620,7 +624,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memset"
                                                              : "memset",
                                    ptrTy, {ptrTy, i32Ty, i64Ty});
-    builder_.CreateCall(callee, {address, value, length});
+    (void)emitCheckedRuntimeCall(callee, {address, value, length});
     return;
   }
 
@@ -631,7 +635,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     }
     if (hasRuntimeSafetyChecks()) {
       auto callee = declareCFunction("hs_put", i32Ty, {ptrTy, i64Ty});
-      builder_.CreateCall(callee, {source.data, source.length});
+      (void)emitCheckedRuntimeCall(callee, {source.data, source.length});
       return;
     }
     auto callee = declareCFunction("fwrite", i64Ty, {ptrTy, i64Ty, i64Ty, ptrTy});
@@ -677,7 +681,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
     }
     auto callee =
         declareCFunction("hs_assert", builder_.getVoidTy(), {i32Ty, i32Ty});
-    builder_.CreateCall(callee, {condition, code});
+    (void)emitCheckedRuntimeCall(callee, {condition, code});
     return;
   }
 
@@ -687,7 +691,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
       return;
     }
     auto callee = declareCFunction("hs_panic", builder_.getVoidTy(), {i32Ty});
-    builder_.CreateCall(callee, {code});
+    (void)emitCheckedRuntimeCall(callee, {code});
     builder_.CreateUnreachable();
     return;
   }
@@ -808,7 +812,7 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
     if (hasRuntimeSafetyChecks()) {
       auto checkFile = declareCFunction("hs_check_file_handle",
                                         builder_.getVoidTy(), {ptrTy});
-      builder_.CreateCall(checkFile, {file});
+      (void)emitCheckedRuntimeCall(checkFile, {file});
     }
   } else if (call.builtin != stdlib::BuiltinId::Scanf) {
     addDiagnostic("unknown input call '" + call.callee + "'");
@@ -882,7 +886,7 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
 
   auto callee = declareCFunction("hs_scan_input", i32Ty,
                                  {ptrTy, ptrTy, ptrTy, i64Ty, i32Ty});
-  auto *count = builder_.CreateCall(
+  auto *count = emitCheckedRuntimeCall(
       callee, {file, format, descriptors, builder_.getInt64(targetCount),
                builder_.getInt32(hasRuntimeSafetyChecks() ? 1 : 0)},
       call.callee + ".count");

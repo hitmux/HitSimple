@@ -175,7 +175,7 @@ and Rust never cross the ABI boundary through Rust `main` or the Rust ABI.
 
 ## VS Code Extension
 
-The extension source is in `vscode/hitsimple/`. It provides syntax highlighting, indentation, snippets, the `$hsc` Problem Matcher, and Build/Run/Debug Current File commands. Debug Current File rebuilds the active `.hs` entry with `-g -O0`, then starts the native Microsoft C/C++ debugger. It does not create `launch.json` or override F5.
+The extension source is in `vscode/hitsimple/`. It provides syntax highlighting, indentation, snippets, the `$hsc` Problem Matcher, and Build/Run/Debug Current File commands. The matcher consumes default human diagnostics, including file-level errors at the relevant input's line 1, column 1. `--diagnostic-format=json` is for direct CLI consumers and must not be added to extension build arguments. Debug Current File rebuilds the active `.hs` entry with `-g -O0`, then starts the native Microsoft C/C++ debugger. It does not create `launch.json` or override F5.
 
 ```bash
 cd vscode/hitsimple
@@ -192,7 +192,7 @@ Key settings:
 | `hitsimple.compilerPath` | `hsc` | Compiler executable name or path. |
 | `hitsimple.mode` | `unchecked` | Selects `unchecked`, `static-checked`, or `checked`. |
 | `hitsimple.outputDirectory` | `.hitsimple/build` | Output directory inside the workspace. |
-| `hitsimple.additionalArgs` | `[]` | Additional arguments passed as separate argv entries. |
+| `hitsimple.additionalArgs` | `[]` | Additional arguments passed as separate argv entries; do not add `--diagnostic-format=json`, because `$hsc` consumes human diagnostics. |
 | `hitsimple.gdbPath` | `gdb` | GDB executable name or path used by Debug Current File. |
 | `hitsimple.lldbPath` | `lldb` | MI-compatible LLDB executable name or path used by Debug Current File on macOS; the default uses cpptools' bundled signed `lldb-mi` when available. |
 | `hitsimple.debugArguments` | `[]` | Program arguments passed as separate argv entries when debugging. |

@@ -141,7 +141,7 @@ jobs:
             exit 1
           fi
           grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr
-          ctest --test-dir build-release --output-on-failure -R '^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*)$'
+          ctest --test-dir build-release --output-on-failure -R '^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy)$'
 
       - name: Verify native preprocessor macro
         shell: bash
@@ -754,18 +754,40 @@ jobs:
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_bounds.hs -o checked-memcpy-bounds.exe
           $boundsOutput = "2" | & ./checked-memcpy-bounds.exe 2>&1
-          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: invalid memcpy destination range') {
+          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: invalid memcpy destination range at .*checked_memcpy_bounds\.hs:8:26') {
             throw "Windows checked memcpy bounds did not fail as required: $boundsOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_double_free.hs -o checked-double-free.exe
+          $doubleFreeOutput = & ./checked-double-free.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$doubleFreeOutput" -notmatch 'hitsimple runtime error: double free at .*checked_double_free\.hs:6:5') {
+            throw "Windows checked double free did not report its source location: $doubleFreeOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_dynamic_scan_target.hs -o checked-dynamic-scan-target.exe
+          $scanOutput = "x" | & ./checked-dynamic-scan-target.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$scanOutput" -notmatch 'hitsimple runtime error: scan string target must leave room for a NUL terminator at .*checked_dynamic_scan_target\.hs:7:5') {
+            throw "Windows checked scan target did not report its source location: $scanOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_abs_minimum.hs -o checked-abs-minimum.exe
+          $absOutput = "-128" | & ./checked-abs-minimum.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$absOutput" -notmatch 'hitsimple runtime error: abs of minimum signed value at .*checked_abs_minimum\.hs:11:27') {
+            throw "Windows checked abs minimum did not report its source location: $absOutput"
+          }
+          & build-windows/hsc.exe --clang $mingwClang --checked --emit-llvm tests/cases/run/checked_memcpy_bounds.hs -o checked-runtime-location.ll
+          if (-not (Select-String -Path checked-runtime-location.ll -SimpleMatch '@hs_set_source_location' -Quiet)) {
+            throw 'Windows checked LLVM IR omitted runtime source-location calls'
+          }
+          & build-windows/hsc.exe --clang $mingwClang --unchecked --emit-llvm tests/cases/run/checked_memcpy_bounds.hs -o unchecked-runtime-location.ll
+          if (Select-String -Path unchecked-runtime-location.ll -SimpleMatch '@hs_set_source_location' -Quiet) {
+            throw 'Windows unchecked LLVM IR unexpectedly includes runtime source-location calls'
+          }
+          & build-windows/hsc.exe --clang $mingwClang --static-checked --emit-llvm tests/cases/run/checked_memcpy_bounds.hs -o static-runtime-location.ll
+          if (Select-String -Path static-runtime-location.ll -SimpleMatch '@hs_set_source_location' -Quiet) {
+            throw 'Windows static-checked LLVM IR unexpectedly includes runtime source-location calls'
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_overlap.hs -o checked-memcpy-overlap.exe
           $overlapOutput = "1" | & ./checked-memcpy-overlap.exe 2>&1
           if ($LASTEXITCODE -eq 0 -or "$overlapOutput" -notmatch 'hitsimple runtime error: overlapping memcpy ranges') {
             throw "Windows checked memcpy overlap did not fail as required: $overlapOutput"
-          }
-          & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_dynamic_scan_target.hs -o checked-dynamic-scan-target.exe
-          $scanOutput = "x" | & ./checked-dynamic-scan-target.exe 2>&1
-          if ($LASTEXITCODE -eq 0 -or "$scanOutput" -notmatch 'hitsimple runtime error: scan string target must leave room for a NUL terminator') {
-            throw "Windows checked dynamic scan target did not fail as required: $scanOutput"
           }
           & build-windows/hsc.exe --clang $mingwClang -g tests/cases/run/debug_info.hs -o debug-info.exe
           if (-not (Test-Path debug-info.pdb)) { throw 'Windows debug build did not generate debug-info.pdb' }

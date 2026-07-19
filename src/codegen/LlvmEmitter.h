@@ -12,6 +12,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
+#include <llvm/ADT/ArrayRef.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -67,6 +68,18 @@ public:
   EmitResult emit(const hir::TranslationUnit &unit);
 
 private:
+  class SourceRangeScope final {
+  public:
+    SourceRangeScope(
+        LlvmEmitter& emitter,
+        const std::optional<diagnostic::SourceRange>& range);
+    ~SourceRangeScope();
+
+  private:
+    LlvmEmitter& emitter_;
+    std::optional<diagnostic::SourceRange> previous_;
+  };
+
   class DebugLocationScope final {
   public:
     DebugLocationScope(
@@ -75,6 +88,7 @@ private:
     ~DebugLocationScope();
 
   private:
+    SourceRangeScope sourceRangeScope_;
     LlvmEmitter& emitter_;
     llvm::DebugLoc previous_;
   };
@@ -261,6 +275,11 @@ private:
   llvm::FunctionCallee declareRegisterStaticObject();
   llvm::FunctionCallee declareRuntimeFrameEnter();
   llvm::FunctionCallee declareRuntimeFrameExit();
+  llvm::CallInst *emitCheckedRuntimeCall(
+      llvm::FunctionCallee callee, llvm::ArrayRef<llvm::Value *> arguments,
+      std::string_view name = {});
+  void emitRuntimeSourceLocation();
+  void emitRuntimeSourceLocation(llvm::IRBuilder<> &builder);
   llvm::FunctionCallee declareCFunction(std::string_view name,
                                         llvm::Type *returnType,
                                         std::vector<llvm::Type *> parameters,
@@ -305,6 +324,7 @@ private:
                      std::vector<std::optional<hir::AbiType>>>
       cAbiDirectAggregateParameters_;
   std::unordered_map<std::string, hir::AbiType> cAbiDirectAggregateReturns_;
+  std::unordered_map<std::string, llvm::Value *> runtimeSourceFilePointers_;
   std::vector<RuntimeObject> internalGlobals_;
   llvm::BasicBlock *functionEntryBlock_ = nullptr;
   llvm::Value *cAbiSRetStorage_ = nullptr;
@@ -312,6 +332,7 @@ private:
   llvm::Value *viewAbiResultStorage_ = nullptr;
   std::size_t viewAbiResultByteLength_ = 0;
   bool runtimeFrameActive_ = false;
+  std::optional<diagnostic::SourceRange> currentDiagnosticRange_;
   std::vector<diagnostic::Diagnostic> diagnostics_;
 };
 

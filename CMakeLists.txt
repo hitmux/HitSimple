@@ -526,6 +526,48 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_dump_tokens_reports_located_invalid_token
     "! $<TARGET_FILE:hsc> --dump-tokens ${PROJECT_SOURCE_DIR}/tests/cases/lexer/invalid_token.hs >stdout 2>stderr && grep -Fq ':1:1: lexer: error: invalid token `@`' stderr"
   )
+  add_hsc_shell_test(hsc_diagnostic_lexer_source_excerpt
+    "! $<TARGET_FILE:hsc> --dump-tokens ${PROJECT_SOURCE_DIR}/tests/cases/lexer/invalid_token.hs >stdout 2>stderr && grep -Fxq '1:1 Invalid `@`' stdout && grep -Fq ':1:1: lexer: error: invalid token `@`' stderr && grep -Fxq '  @' stderr && grep -Fxq '  ^' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_parser_source_excerpt
+    "! $<TARGET_FILE:hsc> --dump-ast ${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/parser_error.hs >stdout 2>stderr && test ! -s stdout && grep -Fq ':1:11: parser: error:' stderr && grep -Fxq '  func main(]' stderr && grep -Fxq '            ^' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_preprocessor_source_excerpt
+    "! $<TARGET_FILE:hsc> --dump-ast ${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/preprocessor_error.hs >stdout 2>stderr && test ! -s stdout && grep -Fq ':1:1: preprocessor: error: bare # is not valid HitSimple source' stderr && grep -Fxq '  #' stderr && grep -Fxq '  ^' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_include_source_excerpt
+    "! $<TARGET_FILE:hsc> --dump-ast ${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/include_error.hs >stdout 2>stderr && test ! -s stdout && grep -Fq 'include_error.hsi:1:11: parser: error:' stderr && grep -Fxq '  func main(]' stderr && grep -Fxq '            ^' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_sema_source_excerpt
+    "! $<TARGET_FILE:hsc> --dump-hir ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_integer_to_float_rejected.hs >stdout 2>stderr && test ! -s stdout && grep -Fq ':3:15: sema: error: float operand is not a float expression' stderr && grep -Fxq '          throw 7' stderr && grep -Fxq '                ^' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_static_checked_source_excerpt
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_calloc_overflow.hs -o program >stdout 2>stderr && test ! -s stdout && grep -Fq ':6:23: codegen: error: static safety check failed: calloc size overflow' stderr && grep -Fxq '      new ptr as addr = calloc(count, size)' stderr && grep -Fxq '                        ^~~~~~~~~~~~~~~~~~~' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_json_lexer
+    "! $<TARGET_FILE:hsc> --diagnostic-format=json --dump-tokens ${PROJECT_SOURCE_DIR}/tests/cases/lexer/invalid_token.hs >stdout 2>stderr && grep -Fxq '1:1 Invalid `@`' stdout && grep -Fq '\"stage\":\"lexer\"' stderr && grep -Fq '\"primary\":{\"begin\":{\"file\":\"${PROJECT_SOURCE_DIR}/tests/cases/lexer/invalid_token.hs\",\"line\":1,\"column\":1}' stderr && grep -Fq '\"related\":[]' stderr && ! grep -Fq 'hsc:' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_json_include_origin
+    "! $<TARGET_FILE:hsc> --diagnostic-format=json --dump-ast ${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/include_error.hs >stdout 2>stderr && test ! -s stdout && grep -Fq '\"stage\":\"parser\"' stderr && grep -Fq '\"file\":\"${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/include_error.hsi\"' stderr && ! grep -Fq 'hsc:' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_json_sema_related_labels
+    "! $<TARGET_FILE:hsc> --diagnostic-format=json --dump-hir ${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/multiple_sema_errors.hs >stdout 2>stderr && test ! -s stdout && test \"$(grep -c '^{' stderr)\" -eq 2 && grep -Fq '\"stage\":\"sema\"' stderr && grep -Fq '\"related\":[{\"message\":\"first declaration is here\"' stderr && ! grep -Fq 'hsc:' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_json_static_checked_codegen
+    "! $<TARGET_FILE:hsc> --diagnostic-format=json --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_calloc_overflow.hs -o program >stdout 2>stderr && test ! -s stdout && grep -Fq '\"stage\":\"codegen\"' stderr && grep -Fq '\"line\":6,\"column\":23' stderr && ! grep -Fq 'hsc:' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_json_keeps_timing_json_separate
+    "! $<TARGET_FILE:hsc> --diagnostic-format=json --timing-json=${CMAKE_CURRENT_BINARY_DIR}/hsc-diagnostic-timing.json --dump-ast ${PROJECT_SOURCE_DIR}/tests/cases/diagnostic/parser_error.hs >stdout 2>stderr && test ! -s stdout && grep -Fq '\"stage\":\"parser\"' stderr && grep -Fq '\"schema_version\": 1' ${CMAKE_CURRENT_BINARY_DIR}/hsc-diagnostic-timing.json && ! grep -Fq '\"severity\"' ${CMAKE_CURRENT_BINARY_DIR}/hsc-diagnostic-timing.json"
+  )
+  add_hsc_shell_test(hsc_diagnostic_file_level_main
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs -o program >stdout 2>stderr && test ! -s stdout && grep -Fq '${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/lib.hs:1:1: sema: error: program must define a main function' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_file_level_c_compat_abi
+    "! $<TARGET_FILE:hsc> --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/incompatible_tu_main.c ${PROJECT_SOURCE_DIR}/tests/cases/compat/incompatible_tu_definition.c -o program >stdout 2>stderr && test ! -s stdout && grep -Fq '${PROJECT_SOURCE_DIR}/tests/cases/compat/incompatible_tu_definition.c:1:1: sema: error: incompatible C external declaration' stderr && grep -Fq '${PROJECT_SOURCE_DIR}/tests/cases/compat/incompatible_tu_main.c:1:1: sema: note: previous external declaration is here' stderr"
+  )
+  add_hsc_shell_test(hsc_diagnostic_no_input_remains_unlocated
+    "! $<TARGET_FILE:hsc> --diagnostic-format=json >stdout 2>stderr && test ! -s stdout && grep -Fxq 'hsc: missing input file' stderr"
+  )
   add_test(NAME hsc_preprocess_only
     COMMAND hsc --preprocess-only ${PROJECT_SOURCE_DIR}/tests/cases/preprocessor/main.hs
   )
@@ -914,6 +956,15 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_checked_dynamic_scan_target_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_scan_target.hs -o program && ! printf 'x\\n' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_runtime_source_locations
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o program && ! printf '2\\n' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: invalid memcpy destination range at .*/checked_memcpy_bounds\\.hs:8:26$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_double_free.hs -o program && ! ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: double free at .*/checked_double_free\\.hs:6:5$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_scan_target.hs -o program && ! printf 'x\\n' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: scan string target must leave room for a NUL terminator at .*/checked_dynamic_scan_target\\.hs:7:5$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_abs_minimum.hs -o program && ! printf '%s\\n' '-128' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: abs of minimum signed value at .*/checked_abs_minimum\\.hs:11:27$' stderr"
+  )
+  add_hsc_shell_test(hsc_runtime_source_location_ir_policy
+    "$<TARGET_FILE:hsc> --checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o checked.ll && grep -Fq '@hs_set_source_location' checked.ll && $<TARGET_FILE:hsc> --unchecked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o unchecked.ll && ! grep -Fq '@hs_set_source_location' unchecked.ll && $<TARGET_FILE:hsc> --static-checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o static-checked.ll && ! grep -Fq '@hs_set_source_location' static-checked.ll"
+  )
+  add_hsc_shell_test(hsc_runtime_source_location_fallback
+    "${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/runtime/runtime_source_location_fallback.c $<TARGET_FILE:hitsimple_runtime> -lm -o program && ! ./program >stdout 2>stderr && grep -Fx 'hitsimple runtime error: abs of minimum signed value' stderr"
   )
   add_test(NAME hsc_compile_hello
     COMMAND hsc ${PROJECT_SOURCE_DIR}/examples/hello.hs

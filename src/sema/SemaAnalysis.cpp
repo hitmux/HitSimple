@@ -100,7 +100,8 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     Symbol symbol;
     if (!declare(globalNew->name, length, hir::MemoryStorage::Global,
                  std::move(templateName), symbol)) {
-      addDiagnostic("duplicate declaration '" + globalNew->name + "'");
+      addDiagnostic("duplicate declaration '" + globalNew->name + "'",
+                    currentScopeDeclarationRange(globalNew->name));
       continue;
     }
     globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength);
@@ -138,7 +139,8 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     Symbol symbol;
     if (!declare(externVariable->name, *length, hir::MemoryStorage::Global,
                  externVariable->templateName, symbol)) {
-      addDiagnostic("duplicate declaration '" + externVariable->name + "'");
+      addDiagnostic("duplicate declaration '" + externVariable->name + "'",
+                    currentScopeDeclarationRange(externVariable->name));
       continue;
     }
     globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength,
@@ -240,7 +242,8 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
     Symbol symbol;
     if (!declare(param.name, *length, hir::MemoryStorage::Local,
                  param.templateName, symbol)) {
-      addDiagnostic("duplicate parameter '" + param.name + "'");
+      addDiagnostic("duplicate parameter '" + param.name + "'",
+                    currentScopeDeclarationRange(param.name));
       continue;
     }
     currentParameters_.emplace_back(symbol.name, symbol.bindingName,
@@ -322,7 +325,8 @@ bool Analyzer::lowerImplOpBodies(
       Symbol symbol;
       if (!declare(param.name, signature.parameterByteLengths[index],
                    hir::MemoryStorage::Local, param.templateName, symbol)) {
-        addDiagnostic("duplicate impl parameter '" + param.name + "'");
+        addDiagnostic("duplicate impl parameter '" + param.name + "'",
+                      currentScopeDeclarationRange(param.name));
         continue;
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
@@ -401,7 +405,8 @@ bool Analyzer::lowerImplMethodBodies(
       Symbol symbol;
       if (!declare(param.name, signature.parameterByteLengths[index],
                    hir::MemoryStorage::Local, param.templateName, symbol)) {
-        addDiagnostic("duplicate impl method parameter '" + param.name + "'");
+        addDiagnostic("duplicate impl method parameter '" + param.name + "'",
+                      currentScopeDeclarationRange(param.name));
         continue;
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,

@@ -92,18 +92,6 @@ function compilerTask(name, sourceUri, outputPath) {
   );
 }
 
-async function assertDiagnosticsRemainEmpty(uri, durationMs = 1200) {
-  const deadline = Date.now() + durationMs;
-  while (Date.now() < deadline) {
-    assert.deepEqual(
-      vscode.languages.getDiagnostics(uri),
-      [],
-      `unexpected Problems marker for ${uri.fsPath}`,
-    );
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
-
 async function captureStartedTasks(action) {
   const tasks = [];
   const subscription = vscode.tasks.onDidStartTask((event) => {
@@ -456,12 +444,22 @@ async function verifyProblemMatcher() {
   assert.equal(missingMain.document.languageId, "hitsimple");
   assert.deepEqual(vscode.languages.getDiagnostics(missingMain.document.uri), []);
   const missingMainEvent = await executeTaskAndWait(compilerTask(
-    "HitSimple locationless diagnostic",
+    "HitSimple file-level diagnostic",
     missingMain.document.uri,
     path.join(outputRoot, "missing-main"),
   ));
   assert.equal(missingMainEvent.exitCode, 1);
-  await assertDiagnosticsRemainEmpty(missingMain.document.uri);
+  const missingMainDiagnostics = await waitForValue(
+    () => vscode.languages.getDiagnostics(missingMain.document.uri),
+    (items) => items.length > 0,
+    "the file-level $hsc Problems marker",
+  );
+  const missingMainDiagnostic = missingMainDiagnostics.find((item) =>
+    item.message.includes("program must define a main function"));
+  assert.ok(missingMainDiagnostic, "expected the file-level main diagnostic");
+  assert.equal(missingMainDiagnostic.source, "hsc");
+  assert.equal(missingMainDiagnostic.range.start.line, 0);
+  assert.equal(missingMainDiagnostic.range.start.character, 0);
 }
 
 async function verifyFailureGating(mainUri) {

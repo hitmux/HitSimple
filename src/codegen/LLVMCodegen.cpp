@@ -248,8 +248,10 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
 }
 
 void LlvmEmitter::addDiagnostic(std::string diagnostic) {
-  diagnostics_.push_back(diagnostic::Diagnostic::error(
-      diagnostic::Stage::Codegen, std::move(diagnostic)));
+  auto emitted =
+      diagnostic::Diagnostic::error(diagnostic::Stage::Codegen, std::move(diagnostic));
+  emitted.range = currentDiagnosticRange_;
+  diagnostics_.push_back(std::move(emitted));
 }
 
 bool LlvmEmitter::hasStaticSafetyChecks() const {
@@ -261,9 +263,22 @@ bool LlvmEmitter::hasRuntimeSafetyChecks() const {
   return options_.safetyMode == SafetyMode::Checked;
 }
 
+LlvmEmitter::SourceRangeScope::SourceRangeScope(
+    LlvmEmitter& emitter, const std::optional<diagnostic::SourceRange>& range)
+    : emitter_(emitter), previous_(emitter.currentDiagnosticRange_) {
+  if (range) {
+    emitter_.currentDiagnosticRange_ = range;
+  }
+}
+
+LlvmEmitter::SourceRangeScope::~SourceRangeScope() {
+  emitter_.currentDiagnosticRange_ = std::move(previous_);
+}
+
 LlvmEmitter::DebugLocationScope::DebugLocationScope(
     LlvmEmitter &emitter, const std::optional<diagnostic::SourceRange> &range)
-    : emitter_(emitter), previous_(emitter.builder_.getCurrentDebugLocation()) {
+    : sourceRangeScope_(emitter, range), emitter_(emitter),
+      previous_(emitter.builder_.getCurrentDebugLocation()) {
   if (auto *location = emitter_.debugLocation(range)) {
     emitter_.builder_.SetCurrentDebugLocation(location);
   }
@@ -465,12 +480,14 @@ void LlvmEmitter::validateSafety(const hir::TranslationUnit &unit) {
 }
 
 void LlvmEmitter::validateSafety(const hir::Block &block) {
+  SourceRangeScope sourceRange(*this, block.range);
   for (const auto &statement : block.statements) {
     validateSafety(*statement);
   }
 }
 
 void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
+  SourceRangeScope sourceRange(*this, statement.range);
   if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
     for (const auto &child : list->statements) {
       validateSafety(*child);
@@ -611,6 +628,7 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
 }
 
 void LlvmEmitter::validateSafety(const hir::Expr &expression) {
+  SourceRangeScope sourceRange(*this, expression.range);
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
     auto address = constantSignedInteger(*deref->address);
     if (!address) {

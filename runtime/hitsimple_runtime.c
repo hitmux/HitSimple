@@ -85,8 +85,36 @@ enum {
 static HsAlloc hs_allocs[HS_MAX_OBJECTS];
 static uint64_t hs_current_frame;
 
+#if defined(_MSC_VER)
+#define HS_THREAD_LOCAL __declspec(thread)
+#else
+#define HS_THREAD_LOCAL _Thread_local
+#endif
+
+typedef struct {
+  const char *file;
+  uint64_t line;
+  uint64_t column;
+} HsRuntimeSourceLocation;
+
+static HS_THREAD_LOCAL HsRuntimeSourceLocation hs_runtime_source_location;
+
+void hs_set_source_location(const char *file, uint64_t line, uint64_t column) {
+  hs_runtime_source_location.file = file;
+  hs_runtime_source_location.line = line;
+  hs_runtime_source_location.column = column;
+}
+
 static void hs_fail(const char *message) {
-  fprintf(stderr, "hitsimple runtime error: %s\n", message);
+  fprintf(stderr, "hitsimple runtime error: %s", message);
+  if (hs_runtime_source_location.file != NULL &&
+      hs_runtime_source_location.line != 0 &&
+      hs_runtime_source_location.column != 0) {
+    fprintf(stderr, " at %s:%llu:%llu", hs_runtime_source_location.file,
+            (unsigned long long)hs_runtime_source_location.line,
+            (unsigned long long)hs_runtime_source_location.column);
+  }
+  fputc('\n', stderr);
   exit(HS_RUNTIME_ERROR);
 }
 

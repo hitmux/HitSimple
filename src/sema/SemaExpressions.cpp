@@ -398,6 +398,19 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
           return std::make_unique<hir::CallExpr>("put", std::move(arguments), 4,
                                                  false, stdlib::BuiltinId::Put);
         }
+        if (const auto templateName =
+                operatorTemplateName(*call->arguments[0]);
+            templateName && isStandardTemplateWithFormat(*templateName)) {
+          auto lowered = lowerStandardTemplatePrintCall(*call->arguments[0],
+                                                         *templateName);
+          if (!lowered) {
+            return nullptr;
+          }
+          return std::make_unique<hir::CallExpr>(
+              std::move(lowered->callee), std::move(lowered->arguments), 4,
+              false, lowered->builtin,
+              std::move(lowered->formatArgumentKinds));
+        }
       }
       const std::size_t formatIndex =
           builtin == stdlib::BuiltinId::Fprintf ? 1U : 0U;

@@ -311,6 +311,10 @@ HS_TEST(Sema_RejectsStageHInvalidJumps) {
   HS_EXPECT_TRUE(duplicate.unit == nullptr);
   HS_EXPECT_TRUE(duplicate.diagnostics[0].find("duplicate label 'here'") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(duplicate.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(duplicate.diagnostics[0].range->begin.line, 3U);
+  HS_EXPECT_EQ(duplicate.diagnostics[0].labels.size(), 1U);
+  HS_EXPECT_EQ(duplicate.diagnostics[0].labels[0].range.begin.line, 2U);
 
   auto inner = analyzeSource("func main() {\n"
                              "    goto inside\n"

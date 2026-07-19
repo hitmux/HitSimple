@@ -1,156 +1,199 @@
-# 标准库合同与多 Provider 实施计划
+# 诊断与调试可观测性改进计划
 
 ## 状态
 
-Phase 0–4 已完成。本计划取代已结束的 C/C++/Rust 互操作计划，范围仅覆盖 `Standard.md` Chapter 14 的 HitSimple 标准库实现与验收。跨平台结论已由 GitHub Actions Release workflow `29675128328` 的实际结果验收；该 PR workflow 不创建 GitHub Release。
+本计划从诊断体验和调试可观测性出发，取代已完成的标准库 provider
+计划。Phase 0 和 Phase 1 已完成并通过本地完整回归；Phase 2 已按已确认的
+checked 默认 policy 实现并完成本地定向验证，仍等待 Linux、macOS 和 Windows
+GitHub Actions 的实际 runtime 回归。Phase 3 在该验收前不提前开始或宣称完成。
 
 ## 目标
 
-让 Chapter 14 的每个标准库 API 都具备：
+让 HitSimple 的编译失败、静态安全失败、checked runtime 失败和原生调试
+形成一致、可定位且可被工具消费的链路：
 
-- 明确的官方 `.hsh` 入口和所属头；
-- 唯一的、可机器读取的 View 语义合同；
-- 明确的默认实现 provider；
-- 覆盖 `unchecked`、`static-checked`、`checked` 的诊断与运行时行为；
-- 已验证的产物链接和平台边界。
+```text
+源文件 / $include
+  -> SourceRange
+  -> compiler diagnostic / VS Code Problem
+  -> checked runtime failure 或 native debugger
+```
 
-这里的“完整”指完整实现 HitSimple 标准库合同，不承诺导入完整 C 标准库，也不扩大 `--c-compat` 或 FFI ABI 范围。
+完成后，用户应能从 CLI 或 VS Code 看到错误的文件、行、列和源码上下文；
+已知的 checked runtime 失败应在选定的 source-location policy 下指出触发
+检查的 HitSimple 调用点。这个目标不改变 `Standard.md` 定义的语言语义、
+View 模型或 safety-mode 合同。
 
 ## 当前基线
 
-- `stdlib/StandardLibraryManifest.json` v1 覆盖全部 75 个 `BuiltinId`；每项记录公开性、Chapter 14 归属、View 参数/结果模式、具体 overload、provider、safety obligations 和官方声明。
-- C++ `hsc_stdlib_manifest_tool` 使用 LLVM JSON API 生成 typed C++ registry 以及 7 个正式头：`stdlib.hsh`、`string.hsh`、`stdio.hsh`、`math.hsh`、`ctype.hsh`、`time.hsh`、`assert.hsh`。源码树不再保留手写 `.hsh` 声明；CMake 会拒绝重新加入的手写标准头。
-- 预处理器将官方头记录为 `standardHeaders` 并使用语义标记；sema 再按头文件归属注册 builtin。普通手写 `extern` 不能替代标准函数导入。
-- sema 从 generated registry 注册 builtin，HIR 标准调用保存 `BuiltinId`、provider、结果规则和 overload index；现有 codegen 行为保持不变。
-- `stdlib/ctype.hs` 是首个可随用户编译单元注入的 `CoreHs` source module；生成和安装目录同时包含该 module 与 7 个正式 `.hsh`。驱动会按 manifest 收集模块依赖、每个链接单元去重，并在 executable、`--emit-llvm`、`--emit-object` 和 `--crate-type=staticlib` 路径编译或合并所需 module。
-- 默认 `optimized` selection 按 manifest 选择实现（`ctype` 为 `Intrinsic`）；`--stdlib-provider=reference` 选择 manifest 声明的 reference 实现（`ctype` 为 `CoreHs`），用于可观察行为和产物差分验证。
-- `printf`、`print`、`fprintf`、`scanf`、`fscanf` 已有专用 HIR/codegen/runtime 描述符协议；checked memory/string/I/O 已有 `hs_*` runtime bridge。
+- `Diagnostic` 保存一个 primary `SourceRange` 和零个或多个关联 label。默认
+  human 首行仍为 `hsc: file:line:column: stage: severity: message`；关联位置以
+  后续 `note` 输出，JSON 使用 stderr NDJSON。
+- AST 和 HIR 都保留 source range。sema 的 `CurrentRangeGuard` 会将当前 AST
+  range 复制到新建 HIR 节点；LLVM codegen 在 `-g` 时已用 HIR range 生成
+  `DILocation`。
+- codegen 的 `addDiagnostic()` 现在会使用 HIR statement/expression lowering
+  和 static safety traversal 的当前 range；没有源节点的 target/toolchain/
+  internal 错误仍保持未定位。
+- `Diagnostic::format()` 继续只输出稳定的单行 primary diagnostic。stderr 的
+  human renderer 会在其后按需显示原始单行源码与 caret/underline；多行 range
+  或不可读取文件安全回退为首行。
+- 预处理器诊断使用 `preprocessor` stage。VS Code `$hsc` Problem Matcher 已接受
+  `preprocessor` 和 `note`，会捕获带有文件、行和列的 primary/file-level
+  diagnostics；扩展任务保持 human 格式。
+- `--timing`、`--timing-json=<path>`、`--dump-tokens`、`--dump-ast`、
+  `--dump-hir`、`--emit-llvm` 和 `-g` 已可用。`-g` 的 Linux GDB 回归已验证
+  函数、栈帧和局部变量；局部 View 在 debugger 中保持为底层字节存储，而非
+  C-like 静态类型。
+- checked runtime 以状态码 `120` 退出。每个 compiler-generated checked runtime
+  call 在调用前写入 HIR 的规范化 source path、line 和 column；runtime 以
+  thread-local context 保存该位置，并在可用时输出
+  `hitsimple runtime error: <message> at file:line:column`。无 compiler context
+  的 runtime 调用安全回退为原有消息。`extern` global、FFI 裸地址和 file
+  handle 的既有追踪边界不在本计划中扩大。
 
-当前实现在功能上已经覆盖大量 Chapter 14 能力；本计划不将既有测试通过直接视为完整合同闭环。
+## 稳定边界
 
-## 稳定设计决策
-
-### 1. 一个结构化合同真源
-
-新增受版本控制的 JSON manifest `stdlib/StandardLibraryManifest.json`，作为标准函数合同的唯一真源。它由使用 LLVM JSON API 的 C++ build tool 读取，不引入 Python、未固定的脚本解释器或第三方 manifest 解析依赖。它必须包含：
-
-- `BuiltinId`、函数名、所属 `StandardHeader`；
-- `visibility` 与 `standardSection`，明确区分公开 Chapter 14 API 和 compiler-only builtin；
-- 参数模式：`view`、`lview`、`mem_view`、`mem_lview`、`cstr_view`、`handle`、`iN/uN/fN/T`；
-- 具体重载展开、返回模板和长度规则；
-- `left-context`、动态 `none[len]`、格式参数等特殊结果规则；
-- 静态诊断和 checked-mode runtime obligations；
-- 默认 provider、参考 provider、所需 source module 或 runtime symbol。
-
-所有 75 个现有 `BuiltinId` 必须进入 manifest，不能静默遗漏。公开 API 必须恰有一个 `StandardHeader`；盘点出的 compiler-only builtin 不得伪装成标准库入口，须标为 internal 并迁出公开标准库注册路径。
-
-build tool 从 manifest 生成公开标准函数声明和说明、typed C++ registry 数据，并校验 provider 完整性。`.hsh` 中的 include guard、宏和类型别名等非函数内容可以保留为小型手写模板；公开标准函数声明不得手写。安装包只携带生成后的正式 `.hsh`。现有 `BuiltinSpec::signature` 字符串及 sema 中手工 `addBuiltin(...)` 列表不再承担合同真源职责。
-
-普通 core `extern` 不能表达所有标准库 meta-signature，因此生成的 `.hsh` 是官方用户接口；真实的 View 合同以 manifest 的结构化数据为准，不能由近似的普通 `extern` 参数类型推导。
-
-### 2. provider 只决定实现，不改变语义
-
-每个 HIR 标准调用保存 `BuiltinId`、已解析的具体 overload、结果规则和已知 safety obligations。codegen 仅根据这些已固化信息选择 provider，不能按裸函数名重新判断语义。
-
-每次编译在编译期选择一个 provider selection，不引入运行时分派。默认 `optimized` selection 按 manifest 固定每个 API 的实现；`--stdlib-provider=reference` 选择相应的 reference implementation，用于与默认优化 provider 的差分验证。
-
-| Provider | 用途 |
-| --- | --- |
-| `Semantic` | `length`、`resize_bytes` 等必须参与 View/长度推导的能力。 |
-| `Intrinsic` | 数值转换、`byte_swap`、整数和浮点基础运算等可直接生成 LLVM IR 的路径。 |
-| `CoreHs` | 可用 HitSimple 自身实现的可移植参考实现。 |
-| `RuntimeBridge` | checked object tracking、时间、断言、目标相关 `f128` 等需要宿主或 ABI 支持的能力。 |
-| `LibcBridge` | 与宿主 C 库等价的文件、字符串、随机数和进程能力；checked 模式按合同改走 wrapper。 |
-| `FormatProtocol` | `print`、`printf`、`fprintf`、`scanf`、`fscanf` 的描述符和 left-context 协议。 |
-
-### 3. 标准库 source module
-
-适合语言实现的库使用 `stdlib/<module>.hs`。当本次编译实际调用某个 `CoreHs` API 时，驱动将对应 module 作为内部虚拟翻译单元加入同一链接单元：
-
-- 同一个 module 在一次编译中至多加入一次，并按 manifest 声明的依赖顺序处理；
-- 实现符号使用保留内部名称，用户仍只调用公开标准函数名，且不能重定义这些名称；
-- `--emit-llvm`、`--emit-object` 和 `--crate-type=staticlib` 都必须包含所需 module，不能留下未定义符号；
-- module 不得借助 `--c-compat` 或未声明的 host ABI；需要 host 能力时仍经正式 builtin/runtime bridge；
-- 可对内部 module 使用以 compiler version、target、safety mode、provider 和 source hash 为键的缓存，但缓存不是正确性的前提。
-
-`CoreHs` 是参考实现来源，不要求默认产物执行慢路径。优化 provider 必须通过同一合同和差分测试证明等价。
-
-### 4. 固定的 provider 边界
-
-| 头 | 默认 provider 规划 |
-| --- | --- |
-| `stdlib.hsh` | `length`、`resize_bytes` 为 `Semantic`；转换和 `byte_swap` 为 `Intrinsic`；分配在 checked 模式走 runtime、其他模式走 libc；随机数与进程控制为 host bridge。 |
-| `string.hsh` | 默认 libc；checked 模式走 `hs_mem*`/`hs_str*`，负责边界、NUL、重叠和动态对象状态。 |
-| `stdio.hsh` | 普通文件 I/O 为 libc 或 checked wrapper；格式化和扫描始终使用 `FormatProtocol`。 |
-| `math.hsh` | `f32/f64` 使用 LLVM intrinsic 或 libm；`f16` 经过 `f32`；`f128` 使用目标 runtime。 |
-| `ctype.hsh` | 默认 `Intrinsic`；`ctype.hs` 提供 `CoreHs` ASCII reference 实现。 |
-| `time.hsh` | `hs_time_ms`、`hs_clock_ms` runtime bridge。 |
-| `assert.hsh` | `hs_assert`、`hs_panic` runtime bridge。 |
-
-`printf`/`scanf` 协议、动态 View 长度、运行时格式检查、checked memory bridge 和 `f128` 不迁移为普通 `.hs` 函数。
+1. `Standard.md` Chapter 18 的诊断和 checked-mode 要求仍是行为边界。改进
+   报告内容和定位，不得吞掉或延后既有必需诊断。
+2. 默认 human diagnostics 的首行继续保持
+   `hsc: file:line:column: stage: severity: message`。源码摘录、关联 note
+   等附加行写在首行之后，避免破坏 CLI 脚本和现有 VS Code matcher。
+3. 不为改善 GDB/LLDB/VS Code 显示而在 AST 或 HIR 中引入传统静态类型系统。
+   `bytes`/View 的调试表示必须保留内存和显式解释语义。
+4. 本计划不引入 LSP、定制 Debug Adapter、远程调试或跨目标调试。现有
+   `ms-vscode.cpptools` 路线继续分别使用 `cppdbg + GDB`、`cppdbg + LLDB`
+   和 `cppvsdbg + PDB`。
+5. 已确认 runtime source-location policy B：所有 checked 二进制默认嵌入
+   规范化 source path、line 和 column。路径是产物元数据，发布前需评估其泄露
+   风险；`unchecked` 和 `static-checked` 不插入 source-location call。
+6. 当前工作区存在与本计划无关的未提交编译器改动。实施时将诊断工作保持
+   为独立、可审查的变更集，不覆盖或重排这些改动。
 
 ## 分阶段实施
 
-### Phase 0：合同真源与无行为变化迁移
+### Phase 0：带范围的编译诊断与源码摘录
 
-**状态：已完成。** `StandardLibraryManifest.json` 是唯一的标准函数合同真源。LLVM JSON build tool 生成 registry 和正式 `.hsh`，CMake、static assertion 与 completeness tests 共同阻止缺失、未知、重复 `BuiltinId`、无 provider、无对应 header 的公开 API，以及手写标准头声明。手写 `BuiltinSpec::signature`、`BuiltinLowering` 和 sema 的 75 项 `addBuiltin(...)` 清单均已移除。
+**状态：已完成。** `Stage::Preprocessor`、codegen range propagation 和 stderr
+human renderer 均已落地，`Diagnostic::format()` 与 stdout action 合同保持不变。
 
-**验收证据：** `cmake -S . -B build-stdlib-phase0 -DBUILD_TESTING=ON`、`cmake --build build-stdlib-phase0 --parallel 4` 与 `ctest --test-dir build-stdlib-phase0 --output-on-failure --parallel 4` 已完成，234/234 通过。manifest 的缺失、重复和未知 `BuiltinId` 都在 generated-registry build 阶段被拒绝；安装到临时前缀后，安装版 `hsc --emit-llvm examples/hello.hs` 成功使用 7 个生成头。`StandardLibraryManifest_GeneratedHeadersMatchPublicRegistry` 同时核对每个生成头的 `extern` 声明与 public registry 恰好一致；`Sema_LowersFloatMathHelpers` 核对 HIR 中的 `Intrinsic` provider 和 `f64` overload identity。
+已实现内容：
 
-### Phase 1：内部 `.hs` 标准库 module 基础设施
+1. `src/preprocessor/` 产生 `preprocessor` stage；`vscode/hitsimple` 的 `$hsc`
+   matcher 和 Node tests 已覆盖该 stage。
+2. `LlvmEmitter` 在 HIR lowering 与 static safety traversal 中维护当前
+   `SourceRange`，static-checked `calloc` overflow 等 codegen diagnostics 会附加
+   正确的源文件、行和列。
+3. `src/diagnostic/` 的 renderer 仅在 primary line 后显示原始单行和
+   caret/underline，支持 tab 对齐；不可读取文件不会产生二次错误。
 
-**状态：已完成。** 驱动按 manifest 收集 `CoreHs` module 及依赖，以内部翻译单元分析并合并 LLVM IR；object 与 static library 路径分别生成 module object。内部实现符号受保留名称检查保护；同一 module 在多用户翻译单元和 archive 中只加入一次。`--stdlib-provider=optimized|reference` 在编译期固定 provider，默认值为 `optimized`。
+**验收条件：**
 
-**验收证据：** `hsc_ctype_reference_emit_llvm_injects_module`、`hsc_ctype_optimized_emit_llvm_omits_module`、`hsc_ctype_reference_object_includes_module`、`hsc_ctype_reference_staticlib_includes_module_once` 与 `hsc_ctype_reference_multifile_deduplicates_module` 已通过；安装前缀回归 `hsc_installed_ctype_reference_all_artifacts` 覆盖 executable、LLVM IR、object 和 staticlib。
+- 已验证 lexer、parser、sema、preprocessor 和 static-checked codegen CLI 回归，
+  均断言 primary location、stage 和源码摘录；`$include` 样例摘录 include 文件。
+- 已验证不可读取 source excerpt 安全回退；`--emit-llvm` 与 `--timing` stdout
+  对照保持一致，失败 action 不将 renderer 写入 stdout。
+- 已运行 `cmake --build build --parallel`、`./build/hsc_unit_tests`（413 tests,
+  0 failures）、`npm test`（25/25）和
+  `ctest --test-dir build --output-on-failure --parallel 4`（281/281）。
 
-### Phase 2：`ctype` 垂直切片
+### Phase 1：关联诊断、文件级诊断与结构化输出
 
-**状态：已完成。** `stdlib/ctype.hs` 实现 `is_digit`、`is_alpha`、`is_alnum`、`is_space`、`to_upper` 和 `to_lower` 的 ASCII 合同。默认 `Intrinsic` 路径与 `CoreHs` reference 路径共享公开 `<ctype.hsh>` 和 manifest signature；`to_upper/to_lower` 的结果模板在 HIR 中保留为 `u8`，因此 `0x80` 按无符号值 `128` 比较，不会发生 `i8` 符号扩展。
+**状态：已完成。** `Diagnostic` 现有 primary range 和关联 label；human 仍以
+稳定 primary 首行输出，并为每个 label 紧随一个 source-aware `note`。重复
+local/global/function/template/label 均把 primary 放在重定义处、把 note 放在
+首次声明处。
 
-**验收证据：** `ctype_reference.hs` 覆盖 `0x00`、ASCII 空白和字母/数字边界、`0x7f`、`0x80` 及大小写转换。`hsc_ctype_provider_modes_match` 对 optimized/reference 的 `--unchecked`、`--static-checked`、`--checked` 运行回归；reference timing JSON、IR、object、staticlib、安装前缀和多翻译单元回归均已通过。`ctest --test-dir build-stdlib-phase1 --output-on-failure --parallel 4` 于本轮通过 245/245；这是本机 Linux 证据，不替代其他平台验收。
+已实现内容：
 
-### Phase 3：provider 合同闭环
+1. 缺失 `main` 和跨翻译单元 C external ABI 冲突作为 file-level sema
+   diagnostics 附到相关 input 的 `1:1`；ABI 冲突还附带首次 external
+   declaration note。无输入 CLI 错误仍是未定位的 `hsc: missing input file`。
+2. `--diagnostic-format=json` 在 stderr 输出每条 compiler diagnostic 一个
+   NDJSON object：`severity`、`stage`、`message`、`primary` begin/end 或 `null`
+   以及 `related` labels。它不改变 human 默认、stdout action，或独立的
+   `--timing-json=<path>` 文件。
+3. `README.md`、`USAGE.md` 与 extension `additionalArgs` 配置说明了 JSON
+   仅供直接 CLI 消费；`$hsc` 继续消费 human diagnostics。Node 与 Extension Host
+   回归已把 missing `main` 验证为可捕获的 Problems marker。
 
-**状态：已完成（本机 Linux 验收）。** 75 个 Chapter 14 API 均由 manifest 提供参数模式、具体 overload、结果规则、provider 与测试归属；生成 registry 会拒绝缺失或无效合同。`cstr_view`、可写 `lview`/`mem_lview`、`addr` 和 `handle` 的 sema 合同已对齐，未标注的 `addr` 返回值保持 `addr` 模板。`mem_*` 的直接 View 与 `addr`/`&x` 地址算术按不同语义 lowering，checked runtime 能检测动态越界与 `memcpy` 重叠。
+**验收结果：**
 
-格式化/扫描仍走 `FormatProtocol`：`FormatArgKind` 从 sema 保留到 HIR 和 runtime descriptor，动态 `%f` checked 回归覆盖该链路。`abs(iN_min)`、`calloc`/`fread`/`fwrite` 乘法溢出、零长度 memory operand、cstr 终止、文件 handle、字符串容量和动态 scan target 都有 static 或 checked 回归。`static-checked` 对可证明问题停止编译且不插入 runtime check。`--target-info`、README 和 USAGE 已说明 provider 的编译期选择、runtime 覆盖与平台边界。
+- unit tests 覆盖 local/global/function/template/label 的 primary 与首次声明
+  label，以及 JSON range/null serialization。
+- CLI/CTest 覆盖 lexer、include-origin parser、多个 sema records、static-checked
+  codegen、file-level `main`、C ABI 冲突、无输入和 timing JSON 隔离。
+- 已运行 `cmake --build build --parallel`、`./build/hsc_unit_tests`（416 tests,
+  0 failures）、`npm test`（25/25）和
+  `ctest --test-dir build --output-on-failure --parallel 4`（289/289）。
 
-**验收证据：** `cmake --build build-stdlib-phase1 --parallel 4`、`./build-stdlib-phase1/hsc_unit_tests`（409/409 通过）和 `ctest --test-dir build-stdlib-phase1 --output-on-failure --parallel 4`（268/268 通过）。其中 `hsc_checked_printf_dynamic_float` 覆盖动态 format descriptor，`hsc_checked_memcpy_bounds_runtime_error` 与 `hsc_checked_memcpy_overlap_runtime_error` 覆盖动态 checked memory，`hsc_target_info_documents_checked_and_calloc_status` 核对对外说明。本机结果不替代 Phase 4 跨平台证据。
+### Phase 2：checked runtime source-location
 
-### Phase 4：跨平台与发布验收
+**状态：已实现并通过本地定向验证；跨平台 Actions 待运行。** 已确认
+policy B：所有 `--checked` 二进制默认写入规范化 runtime source location。
+该位置会增加产物中的 source path、line 和 column 元数据；`USAGE.md` 已说明
+这一分发隐私影响。
 
-**状态：已完成。** GitHub Actions Release workflow `29675128328`（2026-07-19）在 Linux x86_64/aarch64、macOS arm64/x86_64、Windows x64、Fedora/Rocky EL9 RPM 与 Debian/Ubuntu DEB 安装矩阵全部通过；对应下游 VS Code extension 与 release-asset 汇总也通过。
+已实现内容：
 
-**验收证据：**
+1. 复用 HIR range，在每个可能进入 `hs_fail` 的 generated checked runtime 调用
+   前设置调用点上下文；覆盖直接 memory check、算术 overflow、字符串、格式、
+   文件和分配 wrapper，以及 runtime frame/object registration。
+2. 在 `runtime/` 使用跨 Linux/macOS/Windows 的 thread-local context，防止
+   多线程 native interop 互相覆盖失败位置；无 context 时保留原有
+   `hitsimple runtime error: <message>` 输出。
+3. 保持 `unchecked` 和 `static-checked` 不插入 runtime context 写入；保持
+   runtime error 的类别、状态码 `120` 和既有安全边界。
+4. CTest 覆盖动态 out-of-bounds、double free、动态 scan format、
+   `abs(iN_min)` 的原因与精确 file/line/column；另覆盖无 context fallback 和
+   checked-only LLVM IR policy。release workflow 的 Linux aarch64 与 Windows
+   runtime steps 已增加相同断言；macOS 和 Linux x86_64 运行完整 CTest。
 
-- Linux x86_64 运行完整 CTest 并核对 native `f128` backend；aarch64 运行前端/可执行程序回归，包含 `f16_f128_fallback`、checked `f128_format_scan`、两种 provider 的三种 safety mode、checked memory 与动态 scan target。
-- macOS arm64/x86_64 运行完整 CTest、software `f128` runtime（数学、转换、format/parse round-trip）和可移动 tar smoke；安装后的编译器实际编译 `f16_f128_fallback`、`f128_format_scan` 与 reference provider fixture。
-- Windows x64 运行单元、portable CLI/CTest 与 full/slim ZIP smoke；从 Unicode 路径的完整包实际编译并运行 `f128` lowering、format/scan 和 reference provider fixture。
-- Linux tar/DEB、macOS tar、Windows full/slim ZIP、Fedora/Rocky RPM 与 Debian/Ubuntu DEB 均完成各自的解压或安装、运行与清理 smoke，并核对 runtime、生成的标准头和标准库 source module。
-- workflow 的 `Publish GitHub Release` 在 pull request 事件中按条件跳过；本阶段仅提供 CI 验收证据，未发布 GitHub Release。
+**本地验收结果：**
 
-## 测试策略
+- 已运行 `cmake --build build --parallel`、新增 codegen unit test，及 3 项
+  定向 CTest；动态案例和 IR policy 均通过。
 
-测试从 manifest 自动或半自动生成 matrix，每个 API 至少覆盖：
+**剩余验收：**
 
-1. 所属头导入、漏头、错头、禁止手写 `extern`；
-2. sema 的参数 View 合同、具体 overload、返回模板和长度；
-3. HIR 的 `BuiltinId` 与 provider identity；
-4. LLVM IR 的 intrinsic/runtime/libc/source-module 选择；
-5. `unchecked`、`static-checked`、`checked` 的可观察行为；
-6. 需要链接的 API 在 executable、object、staticlib 和多翻译单元中的产物完整性；
-7. target-dependent `f16/f128` 与 host ABI 路径。
+- Linux、macOS 和 Windows 的 GitHub Actions 必须实际运行各自的 runtime
+  source-location 回归后，才可将 Phase 2 标为完成或声明跨平台支持。
 
-reference 与 optimized provider 的差分测试必须比较输出、返回值、诊断、写入字节序列和 checked-mode failure，不只比较“能否编译”。
+### Phase 3：原生调试回归加固
+
+**状态：待开始。** 不新增调试器路线，验证现有 `-g` 和 VS Code integration
+在诊断改进后仍保持可用。
+
+1. 扩展 native debug tests，覆盖 source breakpoint、`helper`/`main` stack、
+   local View 存储、include source mapping 和相邻表达式的 stepping。
+2. 将 Phase 2 已实现的 checked runtime failure 纳入 `-g` 路线验证；不将
+   runtime 报错本身误称为 native stack trace。
+3. 继续按平台验证现有适配器：Linux `cppdbg + GDB`、macOS `cppdbg + LLDB`、
+   Windows `cppvsdbg + PDB`。只声明经过真实 debug-session 验证的平台。
+
+**验收条件：**
+
+- Linux GDB batch test 继续验证 DWARF、断点、stack 和 locals。
+- 对 extension 改动运行 Node tests、Extension Host tests、VSIX package/install
+  smoke；跨平台结论以对应 GitHub Actions 实际结果为准。
+- `-g` 关闭时 LLVM IR 不带 debug metadata；开启时保留 `DILocation`、
+  `DISubprogram` 和局部存储声明。
 
 ## 风险与暂缓事项
 
-- 后续 `CoreHs` module 仍会影响多翻译单元、object 与 archive 产物，新增 module 必须复用已验证的去重、依赖排序和安装前缀回归。
-- `mem_*`、字符串、文件、格式化、扫描和 `f128` 的行为跨 sema、LLVM、runtime；不得只改 registry 或头文件。
-- checked runtime 目前无法完整追踪 `extern` global、FFI 裸地址和 file handle；这些边界必须继续在文档和测试中明确。
-- 不为 source library 机制增加隐式 C 头、C vararg、未验证 ABI 或运行时动态 dispatch。
-- 任何新的标准函数或扩展应先进入 `Standard.md`；本计划不以实现便利反推语言规范。
+- human renderer 必须尊重 `$include` 的 original source origin、不可读取文件、
+  tab 对齐和多行 range；任何失败都只能降级显示，不能覆盖原诊断。
+- 人类输出首行和 JSON 是不同合同。修改首行、stdout dump 或 `--timing-json`
+  schema 会影响现有脚本和扩展，不在本计划范围内。
+- runtime source context 涉及 compiler/runtime internal ABI、优化器顺序和三种
+  原生平台；当前仅有 Linux 本地证据，Phase 2 尚不能宣称完成。
+- native debugger 中以字节数组表示 View 是既定语义映射。将来如需模板感知
+  展示，应作为 debugger visualizer 独立提案，不能改变编译器类型模型。
+- LSP、远程调试、custom launch configuration、cross-target debugging 和完整
+  runtime ownership tracking 均暂缓。
 
 ## 立即下一步
 
-本计划的全部阶段已完成。后续新增或修改 Chapter 14 API 时，应先更新 `Standard.md` 与 manifest 合同，再建立新的分阶段计划；在新的真实平台 workflow 通过前，不得扩大支持声明。
+运行 release workflow 中 Linux、macOS 和 Windows 的 runtime source-location
+回归并核实结果。仅在三平台均有实际通过证据后，将 Phase 2 标为完成并进入
+Phase 3。

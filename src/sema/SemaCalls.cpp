@@ -29,18 +29,6 @@ bool isInputBuiltin(stdlib::BuiltinId builtin) {
          builtin == stdlib::BuiltinId::Fscanf;
 }
 
-bool isStandardTemplateWithFormat(std::string_view name) {
-  if (name == "bool" || name == "addr" || name == "handle" || name == "cstr") {
-    return true;
-  }
-  if (name.size() >= 2 &&
-      (name[0] == 'i' || name[0] == 'u' || name[0] == 'f')) {
-    const auto bits = parseByteLength(name.substr(1));
-    return bits != 0 && bits % 8 == 0;
-  }
-  return false;
-}
-
 bool isFloatTemplate(std::string_view name) {
   return name == "f16" || name == "f32" || name == "f64" || name == "f128";
 }
@@ -59,20 +47,17 @@ std::optional<std::string> printfFormatForTemplate(std::string_view name) {
   if (name == "cstr") {
     return "\"%s\"";
   }
-  if (name.size() >= 2 && name[0] == 'i') {
+  if (name == "i8" || name == "i16" || name == "i32" ||
+      name == "i64") {
     return "\"%d\"";
   }
-  if (name.size() >= 2 && name[0] == 'u') {
+  if (name == "u8" || name == "u16" || name == "u32" ||
+      name == "u64") {
     return "\"%u\"";
   }
-  if (name.size() >= 2 && name[0] == 'f') {
-    const auto bits = parseByteLength(name.substr(1));
-    if (bits != 0 && bits % 8 == 0) {
-      const auto bytes = bits / 8;
-      if (bytes == 2 || bytes == 4 || bytes == 8 || bytes == 16) {
-        return "\"%f\"";
-      }
-    }
+  if (name == "f16" || name == "f32" || name == "f64" ||
+      name == "f128") {
+    return "\"%f\"";
   }
   return std::nullopt;
 }
@@ -241,6 +226,17 @@ std::optional<std::string> validateInputTarget(const FormatItem &item,
 
 } // namespace
 
+bool Analyzer::isStandardTemplateWithFormat(std::string_view name) const {
+  if (name == "bool" || name == "addr" || name == "handle" ||
+      name == "cstr" || name == "bytes") {
+    return true;
+  }
+  return name == "i8" || name == "i16" || name == "i32" ||
+         name == "i64" || name == "u8" || name == "u16" ||
+         name == "u32" || name == "u64" || name == "f16" ||
+         name == "f32" || name == "f64" || name == "f128";
+}
+
 std::unique_ptr<hir::Stmt> Analyzer::analyzeCall(const ast::CallExpr &call) {
   return analyzeCallStatement(call);
 }
@@ -280,12 +276,11 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
           std::move(lowered->file), lowered->resultByteLength);
     }
   }
-  if (builtin == stdlib::BuiltinId::Print && call.arguments.size() == 1U &&
-      dynamic_cast<const ast::AsExpr *>(call.arguments[0].get()) != nullptr) {
-    const auto &as =
-        *dynamic_cast<const ast::AsExpr *>(call.arguments[0].get());
-    if (as.templateName == "none") {
-      auto value = analyze(*as.operand);
+  if (builtin == stdlib::BuiltinId::Print && call.arguments.size() == 1U) {
+    const auto &value = *call.arguments[0];
+    if (const auto *as = dynamic_cast<const ast::AsExpr *>(&value);
+        as != nullptr && as->templateName == "none") {
+      auto value = analyze(*as->operand);
       if (!value) {
         return nullptr;
       }
@@ -294,7 +289,16 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
       return std::make_unique<hir::Call>("put", std::move(arguments),
                                          stdlib::BuiltinId::Put);
     }
-    return analyzeTemplatePrintCall(call);
+    if (const auto templateName = operatorTemplateName(value);
+        templateName && isStandardTemplateWithFormat(*templateName)) {
+      auto lowered = lowerStandardTemplatePrintCall(value, *templateName);
+      if (!lowered) {
+        return nullptr;
+      }
+      return std::make_unique<hir::Call>(
+          std::move(lowered->callee), std::move(lowered->arguments),
+          lowered->builtin, std::move(lowered->formatArgumentKinds));
+    }
   }
 
   if (isInputBuiltin(builtin)) {
@@ -583,81 +587,69 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
   return lowered;
 }
 
-std::unique_ptr<hir::Stmt>
-Analyzer::analyzeTemplatePrintCall(const ast::CallExpr &call) {
-  const auto &asExpr =
-      *dynamic_cast<const ast::AsExpr *>(call.arguments[0].get());
-  if (asExpr.templateName == "none") {
-    addDiagnostic("print raw output is not supported yet; use a literal "
-                  "format string");
-    return nullptr;
+std::optional<StandardTemplatePrintCallLowering>
+Analyzer::lowerStandardTemplatePrintCall(const ast::Expr &value,
+                                         std::string_view templateName) {
+  const ast::Expr *operand = &value;
+  if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&value);
+      asExpr != nullptr && asExpr->templateName == templateName) {
+    operand = asExpr->operand.get();
   }
 
-  const bool operandIsHandle = isHandleExpression(*asExpr.operand);
-  if (asExpr.templateName == "handle" && !operandIsHandle) {
+  const bool operandIsHandle = isHandleExpression(*operand);
+  if (templateName == "handle" && !operandIsHandle) {
     addDiagnostic("print handle formatting requires a handle value");
-    return nullptr;
+    return std::nullopt;
   }
-  if (asExpr.templateName != "handle" && operandIsHandle) {
+  if (templateName != "handle" && operandIsHandle) {
     addDiagnostic("handle values may only use handle formatting");
-    return nullptr;
+    return std::nullopt;
   }
 
-  const auto operandLength = inferByteLength(*asExpr.operand);
+  const auto operandLength = inferByteLength(*operand);
   if (!operandLength) {
     addDiagnostic("print template argument has no known byte length");
-    return nullptr;
+    return std::nullopt;
   }
-  if (const auto expectedLength = templateByteLength(asExpr.templateName);
+  if (const auto expectedLength = templateByteLength(templateName);
       expectedLength && *expectedLength != *operandLength) {
     addDiagnostic(
         "print template argument byte length does not match template '" +
-        asExpr.templateName + "'");
-    return nullptr;
+        std::string(templateName) + "'");
+    return std::nullopt;
   }
 
-  if (isStandardTemplateWithFormat(asExpr.templateName)) {
-    auto format = printfFormatForTemplate(asExpr.templateName);
-    if (!format) {
-      addDiagnostic("standard template '" + asExpr.templateName +
-                    "' formatted print is not supported yet");
-      return nullptr;
-    }
-    std::unique_ptr<hir::Expr> lowered;
-    if (asExpr.templateName.size() >= 2 && asExpr.templateName[0] == 'f') {
-      lowered = analyzeFloatOperand(*asExpr.operand, *operandLength);
-    } else {
-      lowered = analyze(*asExpr.operand);
-    }
-    if (!lowered) {
-      return nullptr;
-    }
-    std::vector<std::unique_ptr<hir::Expr>> arguments;
-    arguments.push_back(std::make_unique<hir::StringLiteral>(*format));
-    arguments.push_back(std::move(lowered));
-    std::vector<hir::FormatArgKind> formatArgumentKinds{
-        hir::FormatArgKind::String,
-        isFloatTemplate(asExpr.templateName)
-            ? hir::FormatArgKind::Float
-            : formatArgumentKind(*asExpr.operand, *arguments.back()),
-    };
-    return std::make_unique<hir::Call>("print", std::move(arguments),
-                                       stdlib::BuiltinId::Print,
-                                       std::move(formatArgumentKinds));
-  }
-
-  if (templates_.find(asExpr.templateName) == templates_.end()) {
-    addDiagnostic("unknown template '" + asExpr.templateName + "'");
-    return nullptr;
-  }
-  auto lowered = lowerUserTemplateFormatCall(call, stdlib::BuiltinId::Print,
-                                             asExpr.templateName, 0U);
+  auto lowered = isFloatTemplate(templateName)
+                     ? analyzeFloatOperand(*operand, *operandLength)
+                     : analyze(*operand);
   if (!lowered) {
-    return nullptr;
+    return std::nullopt;
   }
-  return std::make_unique<hir::UserTemplateFormatCall>(
-      std::move(lowered->callee), std::move(lowered->value), lowered->sink,
-      std::move(lowered->file), lowered->resultByteLength);
+
+  StandardTemplatePrintCallLowering result;
+  if (templateName == "bytes") {
+    result.callee = "put";
+    result.builtin = stdlib::BuiltinId::Put;
+    result.arguments.push_back(std::move(lowered));
+    return result;
+  }
+
+  const auto format = printfFormatForTemplate(templateName);
+  if (!format) {
+    addDiagnostic("standard template '" + std::string(templateName) +
+                  "' formatted print is not supported yet");
+    return std::nullopt;
+  }
+  result.callee = "print";
+  result.arguments.push_back(std::make_unique<hir::StringLiteral>(*format));
+  result.arguments.push_back(std::move(lowered));
+  result.formatArgumentKinds = {
+      hir::FormatArgKind::String,
+      isFloatTemplate(templateName)
+          ? hir::FormatArgKind::Float
+          : formatArgumentKind(*operand, *result.arguments.back()),
+  };
+  return result;
 }
 
 std::optional<UserTemplateFormatCallLowering>

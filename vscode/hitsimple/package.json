@@ -111,7 +111,7 @@
           },
           "default": [],
           "scope": "resource",
-          "description": "Additional hsc arguments passed as individual argv entries without shell parsing."
+          "description": "Additional hsc arguments passed as individual argv entries without shell parsing. Keep --diagnostic-format=json out of Build, Run, and Debug Current File tasks because the $hsc Problem Matcher consumes default human diagnostics."
         },
         "hitsimple.gdbPath": {
           "type": "string",
@@ -174,7 +174,7 @@
         "applyTo": "allDocuments",
         "fileLocation": "autoDetect",
         "pattern": {
-          "regexp": "^hsc: (.+):(\\d+):(\\d+): (?:cli|lexer|parser|sema|hir|codegen|runtime): (error|warning|note): (.*)$",
+          "regexp": "^hsc: (.+):(\\d+):(\\d+): (?:cli|preprocessor|lexer|parser|sema|hir|codegen|runtime): (error|warning|note): (.*)$",
           "file": 1,
           "line": 2,
           "column": 3,

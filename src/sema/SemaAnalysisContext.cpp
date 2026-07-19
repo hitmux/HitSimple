@@ -712,19 +712,41 @@ bool Analyzer::registerTopLevelName(std::string_view name) {
                   std::string(name) + "' cannot be declared by user code");
     return false;
   }
-  if (!topLevelNames_.insert(std::string(name)).second) {
+  const auto [found, inserted] =
+      topLevelNames_.emplace(std::string(name), currentRange_);
+  if (!inserted) {
     addDiagnostic("duplicate top-level declaration '" + std::string(name) +
-                  "'");
+                      "'",
+                  found->second);
     return false;
   }
   return true;
 }
 
-void Analyzer::addDiagnostic(std::string diagnostic) {
+std::optional<diagnostic::SourceRange>
+Analyzer::currentScopeDeclarationRange(std::string_view name) const {
+  if (scopes_.empty()) {
+    return std::nullopt;
+  }
+  const auto found = scopes_.back().find(std::string(name));
+  if (found == scopes_.back().end()) {
+    return std::nullopt;
+  }
+  return found->second.declarationRange;
+}
+
+void Analyzer::addDiagnostic(
+    std::string message, std::optional<diagnostic::SourceRange> relatedRange,
+    std::string relatedMessage) {
   auto entry = diagnostic::Diagnostic::error(diagnostic::Stage::Sema,
-                                             std::move(diagnostic));
+                                             std::move(message));
   if (currentRange_ && diagnostic::hasRange(*currentRange_)) {
     entry.range = *currentRange_;
+  }
+  if (relatedRange && diagnostic::hasRange(*relatedRange)) {
+    entry.labels.push_back(
+        diagnostic::DiagnosticLabel{std::move(*relatedRange),
+                                     std::move(relatedMessage)});
   }
   result_.diagnostics.push_back(std::move(entry));
 }
@@ -782,7 +804,7 @@ bool Analyzer::declare(std::string_view name, std::size_t byteLength,
     bindingName = makeBindingName(name);
   }
   out = Symbol{key, std::move(bindingName), byteLength, storage,
-               std::move(templateName)};
+               std::move(templateName), currentRange_};
   if (templates_.find(out.templateName) != templates_.end()) {
     userTemplateBindings_[out.bindingName] = out.templateName;
   }
@@ -1041,7 +1063,7 @@ bool Analyzer::collectImplOps(const ast::TranslationUnit &unit,
       }
       const std::string symbolName = "__hitsimple.implop." + decl->name + "." +
                                      std::to_string(implOps.size());
-      topLevelNames_.insert(symbolName);
+      topLevelNames_.emplace(symbolName, std::nullopt);
       std::vector<std::string> returnTemplateNames;
       std::vector<bool> returnHasExplicitUserTemplate;
       returnTemplateNames.reserve(op.returns.size());
@@ -1182,7 +1204,7 @@ bool Analyzer::collectImplMethods(const ast::TranslationUnit &unit) {
       const std::string symbolName = "__hitsimple.implmethod." + decl->name +
                                      "." +
                                      std::to_string(implMethodInfos_.size());
-      topLevelNames_.insert(symbolName);
+      topLevelNames_.emplace(symbolName, std::nullopt);
       const auto methodIndex = implMethodInfos_.size();
       implMethodIndexes_.emplace(overloadKey, methodIndex);
       implMethodInfos_.push_back(ImplMethodInfo{
@@ -1708,6 +1730,9 @@ Analyzer::expressionTemplateName(const ast::Expr &expression) {
 
 std::optional<std::string>
 Analyzer::operatorTemplateName(const ast::Expr &expression) {
+  if (dynamic_cast<const ast::StringLiteral *>(&expression) != nullptr) {
+    return std::string{"cstr"};
+  }
   if (const auto *identifier =
           dynamic_cast<const ast::IdentifierExpr *>(&expression)) {
     if (const auto *symbol = lookup(identifier->name);

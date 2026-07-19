@@ -62,6 +62,12 @@ HS_TEST(Sema_RejectsDuplicateDeclaration) {
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics[0].find("duplicate declaration 'x'") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 3U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels[0].message,
+               "first declaration is here");
+  HS_EXPECT_EQ(result.diagnostics[0].labels[0].range.begin.line, 2U);
 }
 
 HS_TEST(Sema_RejectsUndeclaredAssignmentTarget) {
@@ -221,6 +227,10 @@ HS_TEST(Sema_RejectsDuplicateTopLevelFunction) {
   HS_EXPECT_TRUE(
       result.diagnostics[0].find("duplicate top-level declaration 'helper'") !=
       std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 4U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels[0].range.begin.line, 1U);
 }
 
 HS_TEST(Sema_RejectsDuplicateTopLevelGlobal) {
@@ -235,6 +245,10 @@ HS_TEST(Sema_RejectsDuplicateTopLevelGlobal) {
   HS_EXPECT_TRUE(
       result.diagnostics[0].find("duplicate top-level declaration 'shared'") !=
       std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 2U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels[0].range.begin.line, 1U);
 }
 
 HS_TEST(Sema_LowersTopLevelInitializersIntoOrderedGlobalInitBlock) {
@@ -305,6 +319,32 @@ HS_TEST(Sema_RejectsTopLevelTemplateGlobalNameCollision) {
   HS_EXPECT_TRUE(
       result.diagnostics[0].find("duplicate top-level declaration 'Shared'") !=
       std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 4U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels[0].range.begin.line, 1U);
+}
+
+HS_TEST(Sema_RejectsDuplicateTopLevelTemplate) {
+  auto result = analyzeSource("template Shared {\n"
+                              "    value[4] as i32\n"
+                              "}\n"
+                              "template Shared {\n"
+                              "    value[8] as i64\n"
+                              "}\n"
+                              "func main() {\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(
+      result.diagnostics[0].find("duplicate top-level declaration 'Shared'") !=
+      std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 4U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics[0].labels[0].range.begin.line, 1U);
 }
 
 HS_TEST(Sema_RejectsTopLevelTemplateFunctionNameCollision) {

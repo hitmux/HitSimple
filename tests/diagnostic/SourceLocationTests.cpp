@@ -3,6 +3,8 @@
 #include "hitsimple/diagnostic/Diagnostic.h"
 #include "hitsimple/diagnostic/SourceLocation.h"
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 using hitsimple::diagnostic::Diagnostic;
@@ -55,4 +57,61 @@ HS_TEST(Diagnostic_FormatsSourceLocationWhenPresent) {
 
   HS_EXPECT_EQ(diagnostic.format(),
                "example.hs:3:7: parser: error: unexpected token");
+}
+
+HS_TEST(Diagnostic_FormatsPrimaryAndRelatedLocationsAsJson) {
+  auto diagnostic = Diagnostic::error(Stage::Sema, "duplicate declaration \"x\"");
+  diagnostic.range = SourceRange{{"example.hs", 3, 5}, {"example.hs", 3, 10}};
+  diagnostic.labels.push_back(
+      {SourceRange{{"example.hs", 2, 5}, {"example.hs", 2, 10}},
+       "first declaration is here"});
+
+  const auto json = diagnostic.formatJson();
+  HS_EXPECT_TRUE(json.find("\"severity\":\"error\"") != std::string::npos);
+  HS_EXPECT_TRUE(json.find("\"stage\":\"sema\"") != std::string::npos);
+  HS_EXPECT_TRUE(json.find("duplicate declaration \\\"x\\\"") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(json.find("\"primary\":{\"begin\":{\"file\":\"example.hs\",\"line\":3,\"column\":5}") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(json.find("\"related\":[{\"message\":\"first declaration is here\"") !=
+                 std::string::npos);
+}
+
+HS_TEST(Diagnostic_FormatsMissingPrimaryAsJsonNull) {
+  const auto diagnostic = Diagnostic::error(Stage::Cli, "missing input file");
+
+  HS_EXPECT_TRUE(diagnostic.formatJson().find("\"primary\":null") !=
+                 std::string::npos);
+}
+
+HS_TEST(Diagnostic_UsesPreprocessorStageName) {
+  HS_EXPECT_EQ(hitsimple::diagnostic::stageName(Stage::Preprocessor),
+               "preprocessor");
+}
+
+HS_TEST(Diagnostic_RendersSingleLineSourceExcerptWithTabs) {
+  const auto path = std::filesystem::temp_directory_path() /
+                    "hitsimple-diagnostic-source-excerpt.hs";
+  {
+    std::ofstream output(path, std::ios::binary);
+    output << "\tinvalid token\n";
+  }
+
+  auto diagnostic = Diagnostic::error(Stage::Lexer, "invalid token");
+  diagnostic.range = SourceRange{{path.string(), 1, 2},
+                                 {path.string(), 1, 9}};
+  const auto excerpt = hitsimple::diagnostic::renderSourceExcerpt(diagnostic);
+
+  HS_EXPECT_EQ(excerpt, "      invalid token\n      ^~~~~~~");
+  HS_EXPECT_EQ(diagnostic.format(),
+               path.string() + ":1:2: lexer: error: invalid token");
+  std::filesystem::remove(path);
+}
+
+HS_TEST(Diagnostic_SafelySkipsUnavailableSourceExcerpt) {
+  auto diagnostic = Diagnostic::error(Stage::Sema, "undeclared variable");
+  diagnostic.range = SourceRange{{"/does/not/exist.hs", 1, 1},
+                                 {"/does/not/exist.hs", 1, 1}};
+
+  HS_EXPECT_TRUE(hitsimple::diagnostic::renderSourceExcerpt(diagnostic).empty());
 }

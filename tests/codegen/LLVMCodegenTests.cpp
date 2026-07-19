@@ -1332,6 +1332,40 @@ HS_TEST(LLVMCodegen_CheckedUsesFileRuntimeBridges) {
   }
 }
 
+HS_TEST(LLVMCodegen_RuntimeSourceLocationsFollowCheckedModePolicy) {
+  constexpr std::string_view source =
+      "func main() {\n"
+      "    new source[4] = 0x03020100\n"
+      "    new destination[1]\n"
+      "    new count as u64 = get()\n"
+      "    new copied as addr = memcpy(destination, source, count)\n"
+      "    return 0\n"
+      "}\n";
+
+  const auto checked =
+      emitSource(source, optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(checked.diagnostics.empty());
+  const auto locationCall =
+      checked.llvmIr.find("call void @hs_set_source_location");
+  const auto runtimeCall = checked.llvmIr.find("call ptr @hs_memcpy");
+  HS_EXPECT_TRUE(locationCall != std::string::npos);
+  HS_EXPECT_TRUE(runtimeCall != std::string::npos);
+  HS_EXPECT_TRUE(locationCall < runtimeCall);
+  HS_EXPECT_TRUE(checked.llvmIr.find("test.hs") != std::string::npos);
+
+  const auto unchecked = emitSource(
+      source, optionsFor(hitsimple::codegen::SafetyMode::Unchecked));
+  HS_EXPECT_TRUE(unchecked.diagnostics.empty());
+  HS_EXPECT_TRUE(unchecked.llvmIr.find("hs_set_source_location") ==
+                 std::string::npos);
+
+  const auto staticChecked = emitSource(
+      source, optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+  HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
+  HS_EXPECT_TRUE(staticChecked.llvmIr.find("hs_set_source_location") ==
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_CheckedAbsReportsMinimumSignedValue) {
   const auto checked =
       emitSource("func magnitude(value as i8) -> i8 {\n"
@@ -1400,6 +1434,10 @@ HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticallyKnownLibraryProducts) {
   HS_EXPECT_TRUE(!result.diagnostics.empty());
   HS_EXPECT_TRUE(result.diagnostics[0].message.find("calloc size overflow") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.file, "test.hs");
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 4U);
+  HS_EXPECT_EQ(result.diagnostics[0].range->begin.column, 23U);
 }
 
 HS_TEST(LLVMCodegen_UsesTypedRuntimeDescriptorsForNativeFormatting) {

@@ -168,12 +168,26 @@ script or equivalent native-link configuration.
 | --- | --- |
 | `--unchecked` | Does not insert safety checks. This is the default mode. |
 | `--static-checked` | Reports statically provable issues without inserting runtime checks. |
-| `--checked` | Performs static checks and inserts runtime checks for supported dynamic errors. |
+| `--checked` | Performs static checks and inserts runtime checks for supported dynamic errors. Checked executables embed the normalized source location for each generated runtime check. |
 
 ```bash
 hsc --checked examples/hello.hs -o hello-checked
 hsc --static-checked examples/hello.hs -o hello-static
 ```
+
+When a checked runtime check fails, `hsc` preserves the existing error reason
+and appends its originating source location when one is available:
+
+```text
+hitsimple runtime error: invalid memcpy destination range at path/to/file.hs:8:26
+```
+
+The location context is thread-local for native interop. It is emitted only by
+`--checked`; `--unchecked` and `--static-checked` do not contain runtime
+source-location calls. Checked artifacts therefore contain normalized source
+paths plus line and column data. Treat source paths as build metadata when
+distributing binaries. A runtime call made without compiler-provided context
+falls back to the original `hitsimple runtime error: <message>` form.
 
 Use `--target-info` to inspect the actual coverage. `Standard.md` is the authority for the normative contract.
 
@@ -320,6 +334,35 @@ Successful and failed compilations both write a record. The current format is
 - Global `llvm_ir_write` and `clang_backend_link` stage states and durations.
 
 Each stage state is `not_started`, `skipped`, `completed`, or `failed`.
+
+## Diagnostics
+
+By default, compiler diagnostics use one stable human-readable primary line:
+
+```text
+hsc: file:line:column: stage: severity: message
+```
+
+When a declaration conflicts with an earlier local, global, function, template,
+or label declaration, the primary error points to the redefinition and a
+following `note` points to the first declaration. File-level errors such as a
+missing `main` or an incompatible C external ABI declaration point to line 1,
+column 1 of the relevant input file. CLI errors without an input remain
+unlocated.
+
+Use `--diagnostic-format=json` for CI or other direct CLI consumers. It writes
+newline-delimited JSON objects to standard error, one compiler diagnostic per
+line. Each object has `severity`, `stage`, `message`, `primary` (`null` or a
+range with `begin` and `end`), and `related` labels. It does not change the
+separate `--timing-json=<path>` file:
+
+```bash
+hsc --diagnostic-format=json --emit-llvm broken.hs
+```
+
+The VS Code `$hsc` Problem Matcher consumes the default human format, including
+file-level diagnostics. Do not put `--diagnostic-format=json` in
+`hitsimple.additionalArgs` for Build, Run, or Debug Current File tasks.
 
 ## Preprocess Only
 

@@ -13,6 +13,7 @@
 namespace hitsimple::codegen {
 
 void LlvmEmitter::emit(const hir::GlobalMemory &global) {
+  SourceRangeScope sourceRange(*this, global.range);
   if (globals_.find(global.bindingName) != globals_.end()) {
     addDiagnostic("duplicate global '" + global.name + "'");
     return;
@@ -118,6 +119,7 @@ void LlvmEmitter::declare(const hir::ExternFunction &function) {
 }
 
 llvm::Function *LlvmEmitter::declare(const hir::Function &function) {
+  SourceRangeScope sourceRange(*this, function.range);
   if (function.usesViewAbi) {
     if (function.abiSignature) {
       addDiagnostic("invalid internal View ABI function '" + function.name + "'");
@@ -174,6 +176,7 @@ llvm::Function *LlvmEmitter::declare(const hir::Function &function) {
 }
 
 void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
+  SourceRangeScope sourceRange(*this, block ? block->range : std::nullopt);
   auto *functionType = llvm::FunctionType::get(builder_.getVoidTy(), false);
   auto *function = llvm::Function::Create(
       functionType, llvm::GlobalValue::InternalLinkage,
@@ -230,6 +233,7 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
 }
 
 void LlvmEmitter::emit(const hir::Function &function) {
+  SourceRangeScope sourceRange(*this, function.range);
   auto *llvmFunction = declare(function);
   if (llvmFunction == nullptr) {
     return;

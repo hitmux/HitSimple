@@ -287,8 +287,9 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return builder_.CreateTrunc(loaded, integerType, "view.trunc");
     }
     if (hasRuntimeSafetyChecks()) {
-      builder_.CreateCall(declareCheckViewLength(),
-                          {view.length, builder_.getInt64(byteLength)});
+      (void)emitCheckedRuntimeCall(
+          declareCheckViewLength(),
+          {view.length, builder_.getInt64(byteLength)});
     }
     auto *loaded = builder_.CreateLoad(integerType, view.data, "dynamic.view");
     llvm::cast<llvm::LoadInst>(loaded)->setAlignment(llvm::Align(1));
@@ -392,8 +393,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                                             "deref.addr");
     if (hasRuntimeSafetyChecks() &&
         !hasKnownStaticAddressRange(*deref->address, deref->byteLength)) {
-      builder_.CreateCall(declareCheckLoad(),
-                          {pointer, builder_.getInt64(deref->byteLength)});
+      (void)emitCheckedRuntimeCall(
+          declareCheckLoad(), {pointer, builder_.getInt64(deref->byteLength)});
     }
     auto *loaded = builder_.CreateLoad(sourceType, pointer, "deref.value");
     if (sourceType == integerType) {
@@ -846,8 +847,9 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
     const auto bytes = decodeStringLiteral(string->value);
     auto *pointer = builder_.CreateGlobalStringPtr(bytes, std::string(name));
     if (hasRuntimeSafetyChecks()) {
-      builder_.CreateCall(declareRegisterStaticObject(),
-                          {pointer, builder_.getInt64(bytes.size() + 1U)});
+      (void)emitCheckedRuntimeCall(
+          declareRegisterStaticObject(),
+          {pointer, builder_.getInt64(bytes.size() + 1U)});
     }
     return pointer;
   }
@@ -998,8 +1000,8 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     auto *store = builder_.CreateStore(value, storage);
     store->setAlignment(llvm::Align(1));
     if (hasRuntimeSafetyChecks()) {
-      builder_.CreateCall(declareRegisterLocalObject(),
-                          {storage, builder_.getInt64(byteLength)});
+      (void)emitCheckedRuntimeCall(
+          declareRegisterLocalObject(), {storage, builder_.getInt64(byteLength)});
     }
     return ViewValue{storage, builder_.getInt64(byteLength), byteLength};
   };
@@ -1068,8 +1070,8 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), resultLength,
                                             "view.resize.bytes");
       if (hasRuntimeSafetyChecks()) {
-        builder_.CreateCall(declareRegisterLocalObject(),
-                            {result, resultLength});
+        (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
+                                     {result, resultLength});
       }
       builder_.CreateMemSet(result, builder_.getInt8(0), resultLength,
                             llvm::Align(1));
@@ -1093,11 +1095,11 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), source.length,
                                           "view.swap.bytes");
     if (hasRuntimeSafetyChecks()) {
-      builder_.CreateCall(declareRegisterLocalObject(),
-                          {result, source.length});
+      (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
+                                   {result, source.length});
     }
-    builder_.CreateCall(declareReverseBytes(),
-                        {result, source.data, source.length});
+    (void)emitCheckedRuntimeCall(declareReverseBytes(),
+                                 {result, source.data, source.length});
     return ViewValue{result, source.length, std::nullopt};
   }
 
@@ -1110,8 +1112,9 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
                                           builder_.getInt64(swap->byteLength),
                                           "view.swap.bytes");
     if (hasRuntimeSafetyChecks()) {
-      builder_.CreateCall(declareRegisterLocalObject(),
-                          {result, builder_.getInt64(swap->byteLength)});
+      (void)emitCheckedRuntimeCall(
+          declareRegisterLocalObject(),
+          {result, builder_.getInt64(swap->byteLength)});
     }
     if (swap->byteLength == 1 || swap->byteLength == 2 ||
         swap->byteLength == 4 || swap->byteLength == 8 ||
@@ -1131,9 +1134,9 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       auto *store = builder_.CreateStore(value, result);
       store->setAlignment(llvm::Align(1));
     } else {
-      builder_.CreateCall(declareReverseBytes(),
-                          {result, source.data,
-                           builder_.getInt64(swap->byteLength)});
+      (void)emitCheckedRuntimeCall(
+          declareReverseBytes(),
+          {result, source.data, builder_.getInt64(swap->byteLength)});
     }
     return ViewValue{result, builder_.getInt64(swap->byteLength),
                      swap->byteLength};
@@ -1143,8 +1146,9 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     const auto bytes = decodeStringLiteral(string->value);
     auto *pointer = builder_.CreateGlobalStringPtr(bytes, "view.string");
     if (hasRuntimeSafetyChecks()) {
-      builder_.CreateCall(declareRegisterStaticObject(),
-                          {pointer, builder_.getInt64(bytes.size() + 1U)});
+      (void)emitCheckedRuntimeCall(
+          declareRegisterStaticObject(),
+          {pointer, builder_.getInt64(bytes.size() + 1U)});
     }
     return ViewValue{pointer, builder_.getInt64(bytes.size() + 1U),
                      bytes.size() + 1U};
@@ -1308,8 +1312,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memset"
                                                              : "memset",
                                    ptrTy, {ptrTy, i32Ty, i64Ty});
-    auto *result = builder_.CreateCall(callee, {address, value, length},
-                                       "memset.ptr");
+    auto *result = emitCheckedRuntimeCall(callee, {address, value, length},
+                                          "memset.ptr");
     return builder_.CreatePtrToInt(result, i64Ty, "memset.addr");
   }
   if (builtin == stdlib::BuiltinId::Put) {
@@ -1319,7 +1323,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     }
     if (hasRuntimeSafetyChecks()) {
       auto callee = declareCFunction("hs_put", i32Ty, {ptrTy, i64Ty});
-      return builder_.CreateCall(callee, {source.data, source.length}, "put.ret");
+      return emitCheckedRuntimeCall(callee, {source.data, source.length},
+                                    "put.ret");
     }
     auto callee =
         declareCFunction("fwrite", i64Ty, {ptrTy, i64Ty, i64Ty, ptrTy});
@@ -1348,7 +1353,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!size) {
       return nullptr;
     }
-    auto *pointer = builder_.CreateCall(
+    auto *pointer = emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedAlloc() : declareMalloc(),
         {size}, "alloc.ptr");
     return builder_.CreatePtrToInt(pointer, builder_.getInt64Ty(), "alloc.addr");
@@ -1359,12 +1364,9 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!count || !size) {
       return nullptr;
     }
-    auto *pointer =
-        hasRuntimeSafetyChecks()
-            ? builder_.CreateCall(declareCheckedCalloc(), {count, size},
-                                  "calloc.ptr")
-            : builder_.CreateCall(declareCalloc(), {count, size},
-                                  "calloc.ptr");
+    auto *pointer = emitCheckedRuntimeCall(
+        hasRuntimeSafetyChecks() ? declareCheckedCalloc() : declareCalloc(),
+        {count, size}, "calloc.ptr");
     return builder_.CreatePtrToInt(pointer, builder_.getInt64Ty(),
                                    "calloc.addr");
   }
@@ -1376,7 +1378,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     }
     auto *pointer =
         builder_.CreateIntToPtr(address, builder_.getPtrTy(), "realloc.in");
-    auto *result = builder_.CreateCall(
+    auto *result = emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedRealloc() : declareRealloc(),
         {pointer, size}, "realloc.ptr");
     return builder_.CreatePtrToInt(result, builder_.getInt64Ty(),
@@ -1394,8 +1396,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                 ? "hs_" + call.callee
                                 : call.callee;
     auto callee = declareCFunction(calleeName, ptrTy, {ptrTy, ptrTy, i64Ty});
-    auto *result = builder_.CreateCall(callee, {dst, src, length},
-                                       call.callee + ".ptr");
+    auto *result = emitCheckedRuntimeCall(callee, {dst, src, length},
+                                          call.callee + ".ptr");
     return builder_.CreatePtrToInt(result, i64Ty, call.callee + ".addr");
   }
   if (builtin == stdlib::BuiltinId::Memcmp) {
@@ -1410,7 +1412,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memcmp"
                                                              : "memcmp",
                                    i32Ty, {ptrTy, ptrTy, i64Ty});
-    return builder_.CreateCall(callee, {left, right, length}, "memcmp.ret");
+    return emitCheckedRuntimeCall(callee, {left, right, length},
+                                  "memcmp.ret");
   }
   if (builtin == stdlib::BuiltinId::Strlen) {
     auto *str = emitBorrowedViewPointer(*call.arguments[0], "strlen.str");
@@ -1420,7 +1423,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strlen"
                                                              : "strlen",
                                    i64Ty, {ptrTy});
-    return builder_.CreateCall(callee, {str}, "strlen.ret");
+    return emitCheckedRuntimeCall(callee, {str}, "strlen.ret");
   }
   if (builtin == stdlib::BuiltinId::Strcmp) {
     auto *left =
@@ -1433,7 +1436,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strcmp"
                                                              : "strcmp",
                                    i32Ty, {ptrTy, ptrTy});
-    return builder_.CreateCall(callee, {left, right}, "strcmp.ret");
+    return emitCheckedRuntimeCall(callee, {left, right}, "strcmp.ret");
   }
   if (builtin == stdlib::BuiltinId::Strcpy ||
       builtin == stdlib::BuiltinId::Strcat) {
@@ -1446,7 +1449,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                 ? "hs_" + call.callee
                                 : call.callee;
     auto callee = declareCFunction(calleeName, ptrTy, {ptrTy, ptrTy});
-    auto *result = builder_.CreateCall(callee, {dst, src}, call.callee + ".ptr");
+    auto *result = emitCheckedRuntimeCall(callee, {dst, src},
+                                          call.callee + ".ptr");
     return builder_.CreatePtrToInt(result, i64Ty, call.callee + ".addr");
   }
   if (builtin == stdlib::BuiltinId::Strncpy) {
@@ -1461,7 +1465,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strncpy"
                                                              : "strncpy",
                                    ptrTy, {ptrTy, ptrTy, i64Ty});
-    auto *result = builder_.CreateCall(callee, {dst, src, count}, "strncpy.ptr");
+    auto *result = emitCheckedRuntimeCall(callee, {dst, src, count},
+                                          "strncpy.ptr");
     return builder_.CreatePtrToInt(result, i64Ty, "strncpy.addr");
   }
   if (builtin == stdlib::BuiltinId::Strchr) {
@@ -1473,7 +1478,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strchr"
                                                              : "strchr",
                                    ptrTy, {ptrTy, i32Ty});
-    auto *result = builder_.CreateCall(callee, {str, byte}, "strchr.ptr");
+    auto *result = emitCheckedRuntimeCall(callee, {str, byte}, "strchr.ptr");
     return builder_.CreatePtrToInt(result, i64Ty, "strchr.addr");
   }
   if (builtin == stdlib::BuiltinId::Fopen) {
@@ -1485,7 +1490,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fopen"
                                                              : "fopen",
                                    ptrTy, {ptrTy, ptrTy});
-    auto *result = builder_.CreateCall(callee, {name, mode}, "fopen.ptr");
+    auto *result = emitCheckedRuntimeCall(callee, {name, mode}, "fopen.ptr");
     return builder_.CreatePtrToInt(result, i64Ty, "fopen.handle");
   }
   if (builtin == stdlib::BuiltinId::Fclose ||
@@ -1500,7 +1505,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                 ? "hs_" + call.callee
                                 : call.callee;
     auto callee = declareCFunction(calleeName, i32Ty, {ptrTy});
-    return builder_.CreateCall(callee, {file}, call.callee + ".ret");
+    return emitCheckedRuntimeCall(callee, {file}, call.callee + ".ret");
   }
   if (builtin == stdlib::BuiltinId::Get) {
     auto callee = declareCFunction("getchar", i32Ty, {});
@@ -1514,7 +1519,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fget"
                                                              : "fgetc",
                                    i32Ty, {ptrTy});
-    return builder_.CreateCall(callee, {file}, "fget.ret");
+    return emitCheckedRuntimeCall(callee, {file}, "fget.ret");
   }
   if (builtin == stdlib::BuiltinId::Fput) {
     auto *file = emitPointerValue(*call.arguments[0], "fput.file");
@@ -1524,8 +1529,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     }
     if (hasRuntimeSafetyChecks()) {
       auto callee = declareCFunction("hs_fput", i32Ty, {ptrTy, ptrTy, i64Ty});
-      return builder_.CreateCall(callee, {file, source.data, source.length},
-                                 "fput.ret");
+      return emitCheckedRuntimeCall(callee, {file, source.data, source.length},
+                                    "fput.ret");
     }
     auto callee = declareCFunction("fwrite", i64Ty, {ptrTy, i64Ty, i64Ty, ptrTy});
     auto *written = builder_.CreateCall(callee,
@@ -1548,8 +1553,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                 : call.callee;
     auto callee = declareCFunction(calleeName, i64Ty,
                                    {ptrTy, i64Ty, i64Ty, ptrTy});
-    return builder_.CreateCall(callee, {buffer, size, count, file},
-                               call.callee + ".ret");
+    return emitCheckedRuntimeCall(callee, {buffer, size, count, file},
+                                  call.callee + ".ret");
   }
   if (builtin == stdlib::BuiltinId::Fseek) {
     auto *file = emitPointerValue(*call.arguments[0], "fseek.file");
@@ -1561,7 +1566,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fseek"
                                                              : "fseek",
                                    i32Ty, {ptrTy, i64Ty, i32Ty});
-    return builder_.CreateCall(callee, {file, offset, origin}, "fseek.ret");
+    return emitCheckedRuntimeCall(callee, {file, offset, origin},
+                                  "fseek.ret");
   }
   if (builtin == stdlib::BuiltinId::Ftell) {
     auto *file = emitPointerValue(*call.arguments[0], "ftell.file");
@@ -1571,7 +1577,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_ftell"
                                                              : "ftell",
                                    i64Ty, {ptrTy});
-    return builder_.CreateCall(callee, {file}, "ftell.ret");
+    return emitCheckedRuntimeCall(callee, {file}, "ftell.ret");
   }
   if (builtin == stdlib::BuiltinId::Rand) {
     auto callee = declareCFunction("rand", i32Ty, {});
@@ -1605,7 +1611,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
 
       builder_.SetInsertPoint(overflowBlock);
       auto callee = declareCFunction("hs_abs_overflow", builder_.getVoidTy(), {});
-      builder_.CreateCall(callee);
+      (void)emitCheckedRuntimeCall(callee, {});
       builder_.CreateUnreachable();
 
       builder_.SetInsertPoint(continueBlock);

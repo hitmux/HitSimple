@@ -59,6 +59,11 @@ enum class EntryMode {
   Native,
 };
 
+enum class DiagnosticOutputFormat {
+  Human,
+  Json,
+};
+
 enum class LinkerLanguage {
   C,
   Cxx,
@@ -180,6 +185,8 @@ void printHelp(std::ostream& out) {
       << "  --timing          Print compilation timing to stderr\n"
       << "  --timing-json=<path>\n"
       << "                   Write versioned compilation timing JSON\n"
+      << "  --diagnostic-format=json\n"
+      << "                   Write compiler diagnostics as NDJSON to stderr\n"
       << "  --c-compat        Parse all inputs as C compatibility source\n"
       << "  -E, --preprocess-only\n"
       << "                   Print preprocessed source\n"
@@ -363,14 +370,75 @@ void printTargetInfo(std::ostream& out,
       << "stdlib.unsupported: none in current core bridge group\n";
 }
 
+DiagnosticOutputFormat diagnosticOutputFormat = DiagnosticOutputFormat::Human;
+
+class DiagnosticOutputFormatScope final {
+public:
+  explicit DiagnosticOutputFormatScope(DiagnosticOutputFormat format)
+      : previous_(diagnosticOutputFormat) {
+    diagnosticOutputFormat = format;
+  }
+
+  ~DiagnosticOutputFormatScope() { diagnosticOutputFormat = previous_; }
+
+  DiagnosticOutputFormatScope(const DiagnosticOutputFormatScope&) = delete;
+  DiagnosticOutputFormatScope& operator=(const DiagnosticOutputFormatScope&) =
+      delete;
+
+private:
+  DiagnosticOutputFormat previous_;
+};
+
+void printHumanDiagnostic(const hitsimple::diagnostic::Diagnostic& diagnostic) {
+  std::cerr << "hsc: " << diagnostic.format() << '\n';
+  const auto excerpt = hitsimple::diagnostic::renderSourceExcerpt(diagnostic);
+  if (!excerpt.empty()) {
+    std::cerr << excerpt << '\n';
+  }
+}
+
+void printDiagnostic(const hitsimple::diagnostic::Diagnostic& diagnostic) {
+  if (diagnosticOutputFormat == DiagnosticOutputFormat::Json) {
+    std::cerr << diagnostic.formatJson() << '\n';
+    return;
+  }
+
+  printHumanDiagnostic(diagnostic);
+  for (const auto& label : diagnostic.labels) {
+    auto note = hitsimple::diagnostic::Diagnostic::error(
+        diagnostic.stage, label.message);
+    note.severity = hitsimple::diagnostic::Severity::Note;
+    note.range = label.range;
+    printHumanDiagnostic(note);
+  }
+}
+
 bool printDiagnostics(const std::vector<hitsimple::diagnostic::Diagnostic>& diagnostics) {
   bool hasError = false;
   for (const auto& diagnostic : diagnostics) {
-    std::cerr << "hsc: " << diagnostic << '\n';
+    printDiagnostic(diagnostic);
     hasError = hasError ||
                diagnostic.severity == hitsimple::diagnostic::Severity::Error;
   }
   return hasError;
+}
+
+hitsimple::diagnostic::SourceRange
+fileStartRange(std::string_view inputPath) {
+  const hitsimple::diagnostic::SourceLocation location{std::string(inputPath),
+                                                        1, 1};
+  return {location, location};
+}
+
+hitsimple::diagnostic::Diagnostic
+fileLevelDiagnostic(hitsimple::diagnostic::Stage stage, std::string message,
+                    std::string_view inputPath) {
+  auto diagnostic = hitsimple::diagnostic::Diagnostic::error(
+      stage, std::move(message));
+  if (!inputPath.empty()) {
+    diagnostic.range = fileStartRange(inputPath);
+  }
+  return diagnostic;
 }
 
 std::string escapeLexeme(std::string_view lexeme) {
@@ -564,6 +632,7 @@ std::size_t mainDefinitionCount(const hitsimple::ast::TranslationUnit& unit) {
 }
 
 struct CompiledTranslationUnit {
+  std::string inputPath;
   std::string llvmIr;
   std::size_t mainDefinitionCount = 0;
   std::vector<hitsimple::compat::LinkageMetadata> compatibilityLinkage;
@@ -615,21 +684,39 @@ bool sameCExternalAbi(const hitsimple::compat::LinkageMetadata& left,
 
 bool validateCCompatibilityExternalAbi(
     const std::vector<CompiledTranslationUnit>& units) {
-  std::unordered_map<std::string,
-                     const hitsimple::compat::LinkageMetadata*> declarations;
+  struct Declaration final {
+    const CompiledTranslationUnit* unit = nullptr;
+    const hitsimple::compat::LinkageMetadata* metadata = nullptr;
+  };
+  std::unordered_map<std::string, Declaration> declarations;
   for (const auto& unit : units) {
     for (const auto& item : unit.compatibilityLinkage) {
       if (item.linkage != hitsimple::compat::Linkage::External) {
         continue;
       }
       const auto [found, inserted] =
-          declarations.emplace(item.coreName, &item);
-      if (inserted || sameCExternalAbi(*found->second, item)) {
+          declarations.emplace(item.coreName, Declaration{&unit, &item});
+      if (inserted || sameCExternalAbi(*found->second.metadata, item)) {
         continue;
       }
       const auto& name = item.sourceName.empty() ? item.coreName : item.sourceName;
-      std::cerr << "hsc: incompatible C external declaration '" << name
-                << "' across translation units\n";
+      const auto sourcePath = !item.range.begin.file.empty()
+                                  ? item.range.begin.file
+                                  : unit.inputPath;
+      auto diagnostic = fileLevelDiagnostic(
+          hitsimple::diagnostic::Stage::Sema,
+          "incompatible C external declaration '" + name +
+              "' across translation units",
+          sourcePath);
+      const auto& previous = *found->second.metadata;
+      const auto previousPath = !previous.range.begin.file.empty()
+                                    ? previous.range.begin.file
+                                    : found->second.unit->inputPath;
+      if (!previousPath.empty()) {
+        diagnostic.labels.push_back(
+            {fileStartRange(previousPath), "previous external declaration is here"});
+      }
+      printDiagnostic(diagnostic);
       return false;
     }
   }
@@ -821,9 +908,7 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
       hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
                                       cCompatibilityMode, internalStandardModule});
   if (!analyzeResult.unit) {
-    for (const auto& diagnostic : analyzeResult.diagnostics) {
-      std::cerr << "hsc: " << diagnostic << '\n';
-    }
+    printDiagnostics(analyzeResult.diagnostics);
     metrics.fail(unitMetrics.semaHir, semaStarted);
     metrics.fail("sema_hir");
     return std::nullopt;
@@ -846,9 +931,7 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
       hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, inputPath,
                                      codegenOptions);
   if (!emitResult.diagnostics.empty()) {
-    for (const auto& diagnostic : emitResult.diagnostics) {
-      std::cerr << "hsc: " << diagnostic << '\n';
-    }
+    printDiagnostics(emitResult.diagnostics);
     metrics.fail(unitMetrics.llvmEmission, emissionStarted);
     metrics.fail("llvm_emission");
     return std::nullopt;
@@ -856,7 +939,7 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
   metrics.complete(unitMetrics.llvmEmission, emissionStarted);
   unitMetrics.llvmIrBytes = emitResult.llvmIr.size();
 
-  return CompiledTranslationUnit{std::move(emitResult.llvmIr), mainCount,
+  return CompiledTranslationUnit{inputPath, std::move(emitResult.llvmIr), mainCount,
                                  std::move(parsed->compatibilityLinkage),
                                  sourceModules};
 }
@@ -976,7 +1059,7 @@ int dumpTokens(const std::string& inputPath) {
       if (!token.lexeme.empty()) {
         diagnostic.message += " `" + escapeLexeme(token.lexeme) + '`';
       }
-      std::cerr << "hsc: " << diagnostic << '\n';
+      printDiagnostic(diagnostic);
       return EXIT_FAILURE;
     }
   }
@@ -1004,9 +1087,7 @@ int dumpHir(const std::string& inputPath, bool cCompatibilityMode,
       hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
                                       cCompatibilityMode});
   if (!analyzeResult.unit) {
-    for (const auto& diagnostic : analyzeResult.diagnostics) {
-      std::cerr << "hsc: " << diagnostic << '\n';
-    }
+    printDiagnostics(analyzeResult.diagnostics);
     return EXIT_FAILURE;
   }
   if (cCompatibilityMode &&
@@ -1198,9 +1279,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
       hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
                                       cCompatibilityMode, false});
   if (!analyzeResult.unit) {
-    for (const auto& diagnostic : analyzeResult.diagnostics) {
-      std::cerr << "hsc: " << diagnostic << '\n';
-    }
+    printDiagnostics(analyzeResult.diagnostics);
     metrics.fail(unitMetrics.semaHir, semaStarted);
     metrics.fail("sema_hir");
     return std::nullopt;
@@ -1222,9 +1301,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   auto emitResult = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit,
                                                     inputPath, codegenOptions);
   if (!emitResult.diagnostics.empty()) {
-    for (const auto& diagnostic : emitResult.diagnostics) {
-      std::cerr << "hsc: " << diagnostic << '\n';
-    }
+    printDiagnostics(emitResult.diagnostics);
     metrics.fail(unitMetrics.llvmEmission, emissionStarted);
     metrics.fail("llvm_emission");
     return std::nullopt;
@@ -1232,7 +1309,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   std::string llvmIr = std::move(emitResult.llvmIr);
   if (includeSourceModules && !sourceModules.empty()) {
     std::vector<CompiledTranslationUnit> units;
-    units.push_back(CompiledTranslationUnit{std::move(llvmIr), mainCount,
+    units.push_back(CompiledTranslationUnit{inputPath, std::move(llvmIr), mainCount,
                                             parsed->compatibilityLinkage,
                                             sourceModules});
     auto modules = compileSourceModules(sourceModules, codegenOptions, metrics);
@@ -1556,20 +1633,16 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   }
 
   if (mainCount == 0) {
-    std::cerr << "hsc: "
-              << hitsimple::diagnostic::Diagnostic::error(
-                     hitsimple::diagnostic::Stage::Sema,
-                     "program must define a main function")
-              << '\n';
+    printDiagnostic(fileLevelDiagnostic(
+        hitsimple::diagnostic::Stage::Sema,
+        "program must define a main function", inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
   if (mainCount > 1) {
-    std::cerr << "hsc: "
-              << hitsimple::diagnostic::Diagnostic::error(
-                     hitsimple::diagnostic::Stage::Sema,
-                     "program must define only one main function")
-              << '\n';
+    printDiagnostic(fileLevelDiagnostic(
+        hitsimple::diagnostic::Stage::Sema,
+        "program must define only one main function", inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
@@ -1814,29 +1887,23 @@ int compileMixedExecutable(
     hitSimpleObjects.push_back(objectPath);
   }
   if (externalInputs.entryMode == EntryMode::HitSimple && mainCount == 0) {
-    std::cerr << "hsc: "
-              << hitsimple::diagnostic::Diagnostic::error(
-                     hitsimple::diagnostic::Stage::Sema,
-                     "program must define a main function")
-              << '\n';
+    printDiagnostic(fileLevelDiagnostic(
+        hitsimple::diagnostic::Stage::Sema,
+        "program must define a main function", inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
   if (externalInputs.entryMode == EntryMode::HitSimple && mainCount > 1) {
-    std::cerr << "hsc: "
-              << hitsimple::diagnostic::Diagnostic::error(
-                     hitsimple::diagnostic::Stage::Sema,
-                     "program must define only one main function")
-              << '\n';
+    printDiagnostic(fileLevelDiagnostic(
+        hitsimple::diagnostic::Stage::Sema,
+        "program must define only one main function", inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
   if (externalInputs.entryMode == EntryMode::Native && mainCount != 0) {
-    std::cerr << "hsc: "
-              << hitsimple::diagnostic::Diagnostic::error(
-                     hitsimple::diagnostic::Stage::Sema,
-                     "--entry=native forbids a HitSimple main function")
-              << '\n';
+    printDiagnostic(fileLevelDiagnostic(
+        hitsimple::diagnostic::Stage::Sema,
+        "--entry=native forbids a HitSimple main function", inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
@@ -1844,7 +1911,8 @@ int compileMixedExecutable(
   compatibilityUnits.reserve(units.size());
   for (const auto& unit : units) {
     compatibilityUnits.push_back(
-        {"", unit.mainDefinitionCount, unit.compatibilityLinkage, {}});
+        {inputPaths[compatibilityUnits.size()], "", unit.mainDefinitionCount,
+         unit.compatibilityLinkage, {}});
   }
   if (!validateCCompatibilityExternalAbi(compatibilityUnits)) {
     metrics.fail("sema_hir");
@@ -2050,6 +2118,7 @@ int hscMain(const std::vector<std::string>& arguments) {
   bool shouldPrintTargetInfo = false;
   bool cCompatibilityMode = false;
   bool shouldPrintTiming = false;
+  auto requestedDiagnosticFormat = DiagnosticOutputFormat::Human;
   CrateType crateType = CrateType::Bin;
   bool crateTypeSelected = false;
   auto providerSelection =
@@ -2259,6 +2328,24 @@ int hscMain(const std::vector<std::string>& arguments) {
       }
       timingJsonPath = std::string(path);
       continue;
+    }
+
+    if (arg == "--diagnostic-format=json") {
+      requestedDiagnosticFormat = DiagnosticOutputFormat::Json;
+      continue;
+    }
+
+    if (arg.starts_with("--diagnostic-format=")) {
+      std::cerr << "hsc: unsupported --diagnostic-format '"
+                << arg.substr(std::string_view("--diagnostic-format=").size())
+                << "'; expected json\n";
+      return finish(EXIT_FAILURE);
+    }
+
+    if (arg == "--diagnostic-format") {
+      std::cerr << "hsc: --diagnostic-format requires "
+                   "--diagnostic-format=json\n";
+      return finish(EXIT_FAILURE);
     }
 
     if (arg == "--timing-json") {
@@ -2486,6 +2573,9 @@ int hscMain(const std::vector<std::string>& arguments) {
 
     inputPaths.push_back(std::string(arg));
   }
+
+  const DiagnosticOutputFormatScope diagnosticFormatScope(
+      requestedDiagnosticFormat);
 
   std::vector<std::string_view> actions;
   if (shouldDumpTokens) {

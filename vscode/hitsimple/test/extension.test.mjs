@@ -191,6 +191,10 @@ test("contribution JSON files parse and all referenced paths exist", async () =>
   ]);
   assert.equal(settings["hitsimple.outputDirectory"].default, ".hitsimple/build");
   assert.equal(settings["hitsimple.additionalArgs"].type, "array");
+  assert.match(
+    settings["hitsimple.additionalArgs"].description,
+    /--diagnostic-format=json/,
+  );
   assert.equal(settings["hitsimple.gdbPath"].default, "gdb");
   assert.equal(settings["hitsimple.gdbPath"].scope, "machine-overridable");
   assert.equal(settings["hitsimple.lldbPath"].default, "lldb");
@@ -575,10 +579,21 @@ test("$hsc matcher captures located samples and ignores unlocated output", async
     "warning",
     "sample warning",
   ]);
+
+  const preprocessor = regexp.exec(
+    "hsc: tests/cases/sample.hs:1:1: preprocessor: error: bare # is not valid HitSimple source",
+  );
+  assert.deepEqual(preprocessor?.slice(1), [
+    "tests/cases/sample.hs",
+    "1",
+    "1",
+    "error",
+    "bare # is not valid HitSimple source",
+  ]);
   assert.equal(regexp.test("hsc: sema: error: missing main"), false);
 });
 
-test("$hsc matcher covers real relative, absolute, include, sema, and unlocated diagnostics", async () => {
+test("$hsc matcher covers real relative, absolute, include, sema, and file-level diagnostics", async () => {
   await access(hscPath());
   const manifest = await readJson("package.json");
   const regexp = new RegExp(manifest.contributes.problemMatchers[0].pattern.regexp);
@@ -606,7 +621,9 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
   ]);
   assert.equal(sema.status, 1, sema.stderr);
   assert.equal(sema.stdout, "");
-  const semaMatch = regexp.exec(sema.stderr.trim());
+  const semaMatch = regexp.exec(
+    sema.stderr.split(/\r?\n/).find((line) => line.startsWith("hsc: ")),
+  );
   assert.ok(semaMatch, sema.stderr);
   const [, semaPath, semaLine, semaColumn, semaSeverity, semaMessage] = semaMatch;
   const sourceSuffix = "/tests/cases/run/try_catch_integer_to_float_rejected.hs";
@@ -619,7 +636,7 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     ["3", "15", "error", "float operand is not a float expression"],
   );
 
-  function assertLocatedDiagnostic(match, sourcePath, line, column, severity, message) {
+function assertLocatedDiagnostic(match, sourcePath, line, column, severity, message) {
     assert.ok(match, "expected a located compiler diagnostic");
     const [, diagnosticPath, actualLine, actualColumn, actualSeverity, actualMessage] = match;
     assert.ok(
@@ -632,13 +649,17 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     );
   }
 
+  function firstDiagnosticLine(output) {
+    return output.split(/\r?\n/).find((line) => line.startsWith("hsc: "));
+  }
+
   const directory = await mkdtemp(path.join(tmpdir(), "hitsimple-vscode-diagnostics-"));
   try {
     const directPath = path.join(directory, "direct-error.hs");
     await writeFile(directPath, "func main(]\n", "utf8");
     const direct = runHsc(["--dump-ast", directPath]);
     assert.equal(direct.status, 1, direct.stderr);
-    const directMatch = regexp.exec(direct.stderr.trim());
+    const directMatch = regexp.exec(firstDiagnosticLine(direct.stderr));
     assertLocatedDiagnostic(
       directMatch,
       directPath,
@@ -654,7 +675,7 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     const directLexer = runHsc(["--dump-tokens", lexerPath]);
     assert.equal(directLexer.status, 1, directLexer.stderr);
     assertLocatedDiagnostic(
-      regexp.exec(directLexer.stderr.trim()),
+      regexp.exec(firstDiagnosticLine(directLexer.stderr)),
       lexerPath,
       "1",
       "1",
@@ -668,7 +689,7 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     await writeFile(mainPath, '$ include "broken.hsi"\n', "utf8");
     const included = runHsc(["--dump-ast", mainPath]);
     assert.equal(included.status, 1, included.stderr);
-    const includedMatch = regexp.exec(included.stderr.trim());
+    const includedMatch = regexp.exec(firstDiagnosticLine(included.stderr));
     assertLocatedDiagnostic(
       includedMatch,
       includePath,
@@ -686,7 +707,7 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
     const includedLexer = runHsc(["--dump-ast", lexerMainPath]);
     assert.equal(includedLexer.status, 1, includedLexer.stderr);
     assertLocatedDiagnostic(
-      regexp.exec(includedLexer.stderr.trim()),
+      regexp.exec(firstDiagnosticLine(includedLexer.stderr)),
       lexerIncludePath,
       "1",
       "1",
@@ -696,14 +717,17 @@ test("$hsc matcher covers real relative, absolute, include, sema, and unlocated 
 
     const noMainPath = path.join(directory, "no-main.hs");
     await writeFile(noMainPath, "func helper() {\n    return 0\n}\n", "utf8");
-    const unlocated = runHsc([noMainPath, "-o", path.join(directory, "no-main")]);
-    assert.equal(unlocated.status, 1, unlocated.stderr);
-    assert.equal(unlocated.stdout, "");
-    assert.match(
-      unlocated.stderr,
-      /^hsc: sema: error: program must define a main function\s*$/,
+    const fileLevel = runHsc([noMainPath, "-o", path.join(directory, "no-main")]);
+    assert.equal(fileLevel.status, 1, fileLevel.stderr);
+    assert.equal(fileLevel.stdout, "");
+    assertLocatedDiagnostic(
+      regexp.exec(firstDiagnosticLine(fileLevel.stderr)),
+      noMainPath,
+      "1",
+      "1",
+      "error",
+      "program must define a main function",
     );
-    assert.equal(regexp.test(unlocated.stderr.trim()), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
