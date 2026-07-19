@@ -1,5 +1,7 @@
 #include "LlvmEmitter.h"
 
+#include "hitsimple/codegen/LlvmCompatibility.h"
+
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
@@ -141,8 +143,7 @@ void LlvmEmitter::emit(const hir::Label &label) {
 
 void LlvmEmitter::emit(const hir::Throw &throwStmt) {
   if (catchTargets_.empty()) {
-    auto *trapType = llvm::FunctionType::get(builder_.getVoidTy(), false);
-    auto trap = module_->getOrInsertFunction("llvm.trap", trapType);
+    auto trap = declareIntrinsic(*module_, llvm::Intrinsic::trap);
     builder_.CreateCall(trap);
     builder_.CreateUnreachable();
     return;

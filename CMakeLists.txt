@@ -552,19 +552,19 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> --stdlib-provider=optimized --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && ! grep -Fq '__hs_stdlib_ctype_is_digit' module.ll"
   )
   add_hsc_shell_test(hsc_ctype_reference_object_includes_module
-    "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Fq ' T __hs_stdlib_ctype_is_digit'"
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Eq ' T _?__hs_stdlib_ctype_is_digit'"
   )
   add_hsc_shell_test(hsc_ctype_reference_object_timing_includes_module
     "$<TARGET_FILE:hsc> --stdlib-provider=reference --timing-json=timing.json --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${CMAKE_COMMAND} -DJSON=$PWD/timing.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=2 -DEXPECTED_C_COMPAT_LOWERING_STATUS=skipped -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
   )
   add_hsc_shell_test(hsc_ctype_reference_staticlib_includes_module_once
-    "$<TARGET_FILE:hsc> --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -c ' T __hs_stdlib_ctype_is_digit$')\" = 1"
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -Ec ' T _?__hs_stdlib_ctype_is_digit$')\" = 1"
   )
   add_hsc_shell_test(hsc_ctype_reference_multifile_deduplicates_module
     "$<TARGET_FILE:hsc> --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o program && ./program"
   )
   add_hsc_shell_test(hsc_installed_ctype_reference_all_artifacts
-    "${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix $PWD/install && $PWD/install/bin/hsc --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program && $PWD/install/bin/hsc --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && $PWD/install/bin/hsc --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Fq ' T __hs_stdlib_ctype_is_digit' && $PWD/install/bin/hsc --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -c ' T __hs_stdlib_ctype_is_digit$')\" = 1"
+    "${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix $PWD/install && $PWD/install/bin/hsc --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program && $PWD/install/bin/hsc --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && $PWD/install/bin/hsc --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Eq ' T _?__hs_stdlib_ctype_is_digit' && $PWD/install/bin/hsc --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -Ec ' T _?__hs_stdlib_ctype_is_digit$')\" = 1"
   )
   add_hsc_shell_test(hsc_rejects_user_stdlib_implementation_symbol
     "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/sema/reserved_stdlib_implementation.hs -o program >stdout 2>stderr && grep -Fq 'reserved standard library implementation symbol' stderr"
