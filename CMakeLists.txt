@@ -964,7 +964,7 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> --checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o checked.ll && grep -Fq '@hs_set_source_location' checked.ll && $<TARGET_FILE:hsc> --unchecked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o unchecked.ll && ! grep -Fq '@hs_set_source_location' unchecked.ll && $<TARGET_FILE:hsc> --static-checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o static-checked.ll && ! grep -Fq '@hs_set_source_location' static-checked.ll"
   )
   add_hsc_shell_test(hsc_runtime_source_location_fallback
-    "${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/runtime/runtime_source_location_fallback.c $<TARGET_FILE:hitsimple_runtime> -lm -o program && ! ./program >stdout 2>stderr && grep -Fx 'hitsimple runtime error: abs of minimum signed value' stderr"
+    "${CMAKE_CXX_COMPILER} -x c ${PROJECT_SOURCE_DIR}/tests/cases/runtime/runtime_source_location_fallback.c -x none $<TARGET_FILE:hitsimple_runtime> -lm -o program && ! ./program >stdout 2>stderr && grep -Fx 'hitsimple runtime error: abs of minimum signed value' stderr"
   )
   add_test(NAME hsc_compile_hello
     COMMAND hsc ${PROJECT_SOURCE_DIR}/examples/hello.hs
