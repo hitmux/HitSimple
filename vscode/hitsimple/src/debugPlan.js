@@ -3,6 +3,8 @@
 const path = require("node:path");
 
 const DEBUG_INFO_FLAG = "-g";
+const DEBUG_OPTIMIZATION_FLAG = "-O0";
+const OPTIMIZATION_FLAGS = new Set(["-O0", "-O1", "-O2", "-O3", "-Os"]);
 const DEBUG_PLATFORM_MATRIX = Object.freeze([
   Object.freeze({
     platform: "linux",
@@ -52,7 +54,9 @@ function normalizeDebugBuildArgs(buildArguments) {
   }
   return [
     DEBUG_INFO_FLAG,
-    ...buildArguments.filter((argument) => argument !== DEBUG_INFO_FLAG),
+    DEBUG_OPTIMIZATION_FLAG,
+    ...buildArguments.filter((argument) =>
+      argument !== DEBUG_INFO_FLAG && !OPTIMIZATION_FLAGS.has(argument)),
   ];
 }
 

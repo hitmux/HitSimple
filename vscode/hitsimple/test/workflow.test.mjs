@@ -178,12 +178,14 @@ test("build plan rejects path escape and extension-controlled arguments", () => 
   }
 });
 
-test("debug plan injects one -g and preserves program argv without shell parsing", () => {
+test("debug plan injects one -g and -O0 while preserving program argv without shell parsing", () => {
   assert.deepEqual(
     normalizeDebugBuildArgs([
       "--checked",
+      "-O3",
       "-g",
       "--timing",
+      "-Os",
       "-g",
       "/workspace/main.hs",
       "-o",
@@ -191,6 +193,7 @@ test("debug plan injects one -g and preserves program argv without shell parsing
     ]),
     [
       "-g",
+      "-O0",
       "--checked",
       "--timing",
       "/workspace/main.hs",
@@ -558,9 +561,9 @@ test("build workflow saves, removes stale output, builds, and verifies executabl
   assert.deepEqual(harness.errors, []);
 });
 
-test("debug build normalizes configured -g flags before creating the task", async () => {
+test("debug build forces -O0 and normalizes configured debug flags before creating the task", async () => {
   const harness = createWorkflowHarness({
-    configuration: { additionalArgs: ["-g", "--timing", "-g"] },
+    configuration: { additionalArgs: ["-O3", "-g", "--timing", "-O1", "-g"] },
   });
   const result = await harness.workflows.buildCurrentFile({
     announceSuccess: false,
@@ -571,6 +574,7 @@ test("debug build normalizes configured -g flags before creating the task", asyn
   assert.equal(result.plan.debugInfo, true);
   assert.deepEqual(result.plan.args, [
     "-g",
+    "-O0",
     "--checked",
     "--timing",
     "/workspace/src/demo.hs",

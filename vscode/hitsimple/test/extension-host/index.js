@@ -322,6 +322,10 @@ async function verifyDebug() {
     assert.ok(result && result.ok, result && result.message);
     assert.equal(result.stage, "debug");
     assert.equal(result.build.plan.args.filter((argument) => argument === "-g").length, 1);
+    assert.deepEqual(
+      result.build.plan.args.filter((argument) => /^-O(?:0|1|2|3|s)$/.test(argument)),
+      ["-O0"],
+    );
     assert.deepEqual(result.launchConfiguration.args, ["argument with spaces"]);
     assert.equal(result.launchConfiguration.type, platform.adapterType);
     if (platform.miMode) {
