@@ -2,7 +2,7 @@
   "name": "hitsimple-vscode",
   "displayName": "HitSimple",
   "description": "HitSimple language support for VS Code: syntax highlighting, snippets, diagnostics, Build/Run, and native platform debugging.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "hitmux",
   "license": "LGPL-3.0-or-later",
   "repository": {
