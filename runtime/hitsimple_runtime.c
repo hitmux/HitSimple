@@ -9,6 +9,10 @@
 #include <string.h>
 #include <time.h>
 
+#if !defined(_WIN32)
+#include <sys/types.h>
+#endif
+
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -85,6 +89,8 @@ static void hs_fail(const char *message) {
   fprintf(stderr, "hitsimple runtime error: %s\n", message);
   exit(HS_RUNTIME_ERROR);
 }
+
+void hs_abs_overflow(void) { hs_fail("abs of minimum signed value"); }
 
 static HsAlloc *hs_find(void *ptr) {
   uintptr_t address = (uintptr_t)ptr;
@@ -323,6 +329,15 @@ static uint64_t hs_cstr_length(const char *value, const char *message) {
   return 0;
 }
 
+static FILE *hs_require_file(FILE *file) {
+  if (file == NULL) {
+    hs_fail("invalid file handle");
+  }
+  return file;
+}
+
+void hs_check_file_handle(FILE *file) { (void)hs_require_file(file); }
+
 void *hs_memset(void *dst, int value, uint64_t size) {
   hs_check(dst, size, "invalid memset range");
   if (size == 0) {
@@ -411,7 +426,40 @@ char *hs_strchr(const char *value, int ch) {
   return memchr(value, ch, (size_t)(length + 1U));
 }
 
+FILE *hs_fopen(const char *name, const char *mode) {
+  (void)hs_cstr_length(name, "unterminated checked file name");
+  (void)hs_cstr_length(mode, "unterminated checked file mode");
+  return fopen(name, mode);
+}
+
+int32_t hs_fclose(FILE *file) { return fclose(hs_require_file(file)); }
+
+int32_t hs_fget(FILE *file) { return fgetc(hs_require_file(file)); }
+
+int32_t hs_fflush(FILE *file) { return fflush(hs_require_file(file)); }
+
+int32_t hs_feof(FILE *file) { return feof(hs_require_file(file)); }
+
+int32_t hs_ferror(FILE *file) { return ferror(hs_require_file(file)); }
+
+int32_t hs_fseek(FILE *file, int64_t offset, int32_t whence) {
+#if defined(_WIN32)
+  return _fseeki64(hs_require_file(file), offset, whence);
+#else
+  return fseeko(hs_require_file(file), (off_t)offset, whence);
+#endif
+}
+
+int64_t hs_ftell(FILE *file) {
+#if defined(_WIN32)
+  return _ftelli64(hs_require_file(file));
+#else
+  return (int64_t)ftello(hs_require_file(file));
+#endif
+}
+
 uint64_t hs_fread(void *dst, uint64_t size, uint64_t count, FILE *file) {
+  file = hs_require_file(file);
   const uint64_t total =
       hs_checked_product(size, count, "fread size overflow");
   hs_check(dst, total, "invalid fread destination range");
@@ -423,6 +471,7 @@ uint64_t hs_fread(void *dst, uint64_t size, uint64_t count, FILE *file) {
 
 uint64_t hs_fwrite(const void *src, uint64_t size, uint64_t count,
                    FILE *file) {
+  file = hs_require_file(file);
   const uint64_t total =
       hs_checked_product(size, count, "fwrite size overflow");
   hs_check((void *)src, total, "invalid fwrite source range");
@@ -441,6 +490,7 @@ int32_t hs_put(const void *src, uint64_t size) {
 }
 
 int32_t hs_fput(FILE *file, const void *src, uint64_t size) {
+  file = hs_require_file(file);
   hs_check((void *)src, size, "invalid fput source range");
   if (size == 0) {
     return 0;

@@ -46,6 +46,10 @@ EmitObjectResult emitObjectFile(const hir::TranslationUnit& unit,
                                 const std::filesystem::path& outputPath,
                                 CodegenOptions options = {});
 
+EmitObjectResult emitObjectFile(std::string_view llvmIr,
+                                const std::filesystem::path& outputPath,
+                                CodegenOptions options = {});
+
 DebugInfoFormat debugInfoFormatForTargetTriple(std::string_view targetTriple);
 
 } // namespace hitsimple::codegen

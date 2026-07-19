@@ -81,6 +81,7 @@ private:
     llvm::DebugLoc previous_;
   };
   struct StaticAddressRange {
+    std::string bindingName;
     std::int64_t lowerBound = 0;
     std::int64_t offset = 0;
     std::uint64_t upperBound = 0;
@@ -138,6 +139,10 @@ private:
   void validateSafety(const hir::Expr &expression);
   std::optional<StaticAddressRange>
   staticAddressRange(const hir::Expr &expression) const;
+  std::optional<StaticAddressRange>
+  staticViewRange(const hir::Expr &expression) const;
+  std::optional<StaticAddressRange>
+  staticMemoryOperandRange(const hir::Expr &expression) const;
   bool targetsRegisteredInternalObject(const hir::Expr &expression) const;
   bool hasKnownStaticAddressRange(const hir::Expr &expression,
                                   std::size_t byteLength) const;
@@ -150,6 +155,10 @@ private:
                                 bool unsignedInterpretation);
   llvm::Value *emitPointerValue(const hir::Expr &expression,
                                 std::string_view name);
+  llvm::Value *emitBorrowedViewPointer(const hir::Expr &expression,
+                                       std::string_view name);
+  llvm::Value *emitMemoryOperandPointer(const hir::Expr &expression,
+                                        std::string_view name);
   llvm::Value *emitFloatValue(const hir::Expr &expression,
                               std::size_t byteLength);
   llvm::Value *convertFloatValue(llvm::Value *value,
@@ -288,6 +297,8 @@ private:
   std::unordered_map<std::string, Local> globals_;
   std::unordered_map<std::string, std::optional<std::int64_t>>
       staticIntegerValues_;
+  std::unordered_map<std::string, std::optional<std::uint64_t>>
+      staticUnsignedIntegerValues_;
   std::vector<LoopTargets> loopTargets_;
   std::vector<CatchTarget> catchTargets_;
   std::unordered_map<std::string, llvm::BasicBlock *> labelBlocks_;

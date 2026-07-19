@@ -5,6 +5,7 @@
 
 #include "hitsimple/literal/Literal.h"
 
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/Intrinsics.h>
@@ -45,7 +46,20 @@ std::optional<bool> integerOperationIsUnsigned(std::string_view op) {
   return std::nullopt;
 }
 
+bool isUnsignedIntegerTemplate(std::string_view name) {
+  return name == "u8" || name == "u16" || name == "u32" || name == "u64";
+}
+
 bool isUnsignedExpression(const hir::Expr &expression) {
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    return isUnsignedIntegerTemplate(variable->templateName);
+  }
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
+    return isUnsignedIntegerTemplate(call->templateName);
+  }
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return isUnsignedIntegerTemplate(view->templateName);
+  }
   if (dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr) {
     return true;
   }
@@ -54,7 +68,15 @@ bool isUnsignedExpression(const hir::Expr &expression) {
   }
   if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
     const auto isUnsigned = integerOperationIsUnsigned(binary->op);
-    return isUnsigned && *isUnsigned;
+    return isUnsigned.value_or(isUnsignedExpression(*binary->left) ||
+                               isUnsignedExpression(*binary->right));
+  }
+  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
+    return isUnsignedExpression(*unary->operand);
+  }
+  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression)) {
+    return isUnsignedExpression(*ternary->thenExpr) ||
+           isUnsignedExpression(*ternary->elseExpr);
   }
   return false;
 }
@@ -882,6 +904,50 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
   return builder_.CreateIntToPtr(address, builder_.getPtrTy(), std::string(name));
 }
 
+llvm::Value *LlvmEmitter::emitBorrowedViewPointer(
+    const hir::Expr &expression, std::string_view name) {
+  const auto view = emitViewValue(expression);
+  if (view.data == nullptr) {
+    addDiagnostic("cannot materialize borrowed View pointer for '" +
+                  std::string(name) + "'");
+    return nullptr;
+  }
+  return view.data;
+}
+
+llvm::Value *LlvmEmitter::emitMemoryOperandPointer(
+    const hir::Expr &expression, std::string_view name) {
+  const auto isRawAddress = [](const auto &self,
+                               const hir::Expr &candidate) -> bool {
+    if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&candidate)) {
+      return variable->templateName == "addr";
+    }
+    if (const auto *view =
+            dynamic_cast<const hir::TemplateViewExpr *>(&candidate)) {
+      return view->templateName == "addr";
+    }
+    if (const auto *call = dynamic_cast<const hir::CallExpr *>(&candidate)) {
+      return call->templateName == "addr";
+    }
+    if (dynamic_cast<const hir::AddressOfExpr *>(&candidate) != nullptr) {
+      return true;
+    }
+    if (const auto *unsignedValue =
+            dynamic_cast<const hir::UnsignedExpr *>(&candidate)) {
+      return self(self, *unsignedValue->operand);
+    }
+    if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&candidate)) {
+      return (binary->op == "+" || binary->op == "-") &&
+             self(self, *binary->left);
+    }
+    return false;
+  };
+  if (isRawAddress(isRawAddress, expression)) {
+    return emitPointerValue(expression, name);
+  }
+  return emitBorrowedViewPointer(expression, name);
+}
+
 ViewValue LlvmEmitter::emitUserTemplateOpCall(
     std::string_view calleeName,
     const std::vector<std::unique_ptr<hir::Expr>> &callArguments,
@@ -1232,7 +1298,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                             call.callee);
   }
   if (builtin == stdlib::BuiltinId::Memset) {
-    auto *address = emitPointerValue(*call.arguments[0], "memset.dst");
+    auto *address =
+        emitMemoryOperandPointer(*call.arguments[0], "memset.dst");
     auto *value = emitIntegerValue(*call.arguments[1], 4, true);
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (address == nullptr || value == nullptr || length == nullptr) {
@@ -1317,8 +1384,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   if (builtin == stdlib::BuiltinId::Memcpy ||
       builtin == stdlib::BuiltinId::Memmove) {
-    auto *dst = emitPointerValue(*call.arguments[0], "mem.dst");
-    auto *src = emitPointerValue(*call.arguments[1], "mem.src");
+    auto *dst = emitMemoryOperandPointer(*call.arguments[0], "mem.dst");
+    auto *src = emitMemoryOperandPointer(*call.arguments[1], "mem.src");
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!dst || !src || !length) {
       return nullptr;
@@ -1332,8 +1399,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreatePtrToInt(result, i64Ty, call.callee + ".addr");
   }
   if (builtin == stdlib::BuiltinId::Memcmp) {
-    auto *left = emitPointerValue(*call.arguments[0], "memcmp.left");
-    auto *right = emitPointerValue(*call.arguments[1], "memcmp.right");
+    auto *left =
+        emitMemoryOperandPointer(*call.arguments[0], "memcmp.left");
+    auto *right =
+        emitMemoryOperandPointer(*call.arguments[1], "memcmp.right");
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!left || !right || !length) {
       return nullptr;
@@ -1344,7 +1413,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreateCall(callee, {left, right, length}, "memcmp.ret");
   }
   if (builtin == stdlib::BuiltinId::Strlen) {
-    auto *str = emitPointerValue(*call.arguments[0], "strlen.str");
+    auto *str = emitBorrowedViewPointer(*call.arguments[0], "strlen.str");
     if (!str) {
       return nullptr;
     }
@@ -1354,8 +1423,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreateCall(callee, {str}, "strlen.ret");
   }
   if (builtin == stdlib::BuiltinId::Strcmp) {
-    auto *left = emitPointerValue(*call.arguments[0], "strcmp.left");
-    auto *right = emitPointerValue(*call.arguments[1], "strcmp.right");
+    auto *left =
+        emitBorrowedViewPointer(*call.arguments[0], "strcmp.left");
+    auto *right =
+        emitBorrowedViewPointer(*call.arguments[1], "strcmp.right");
     if (!left || !right) {
       return nullptr;
     }
@@ -1366,8 +1437,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   if (builtin == stdlib::BuiltinId::Strcpy ||
       builtin == stdlib::BuiltinId::Strcat) {
-    auto *dst = emitPointerValue(*call.arguments[0], "str.dst");
-    auto *src = emitPointerValue(*call.arguments[1], "str.src");
+    auto *dst = emitBorrowedViewPointer(*call.arguments[0], "str.dst");
+    auto *src = emitBorrowedViewPointer(*call.arguments[1], "str.src");
     if (!dst || !src) {
       return nullptr;
     }
@@ -1379,8 +1450,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreatePtrToInt(result, i64Ty, call.callee + ".addr");
   }
   if (builtin == stdlib::BuiltinId::Strncpy) {
-    auto *dst = emitPointerValue(*call.arguments[0], "strncpy.dst");
-    auto *src = emitPointerValue(*call.arguments[1], "strncpy.src");
+    auto *dst =
+        emitBorrowedViewPointer(*call.arguments[0], "strncpy.dst");
+    auto *src =
+        emitBorrowedViewPointer(*call.arguments[1], "strncpy.src");
     auto *count = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!dst || !src || !count) {
       return nullptr;
@@ -1392,7 +1465,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreatePtrToInt(result, i64Ty, "strncpy.addr");
   }
   if (builtin == stdlib::BuiltinId::Strchr) {
-    auto *str = emitPointerValue(*call.arguments[0], "strchr.str");
+    auto *str = emitBorrowedViewPointer(*call.arguments[0], "strchr.str");
     auto *byte = emitIntegerValue(*call.arguments[1], 4, true);
     if (!str || !byte) {
       return nullptr;
@@ -1404,12 +1477,14 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreatePtrToInt(result, i64Ty, "strchr.addr");
   }
   if (builtin == stdlib::BuiltinId::Fopen) {
-    auto *name = emitPointerValue(*call.arguments[0], "fopen.name");
-    auto *mode = emitPointerValue(*call.arguments[1], "fopen.mode");
+    auto *name = emitBorrowedViewPointer(*call.arguments[0], "fopen.name");
+    auto *mode = emitBorrowedViewPointer(*call.arguments[1], "fopen.mode");
     if (!name || !mode) {
       return nullptr;
     }
-    auto callee = declareCFunction("fopen", ptrTy, {ptrTy, ptrTy});
+    auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fopen"
+                                                             : "fopen",
+                                   ptrTy, {ptrTy, ptrTy});
     auto *result = builder_.CreateCall(callee, {name, mode}, "fopen.ptr");
     return builder_.CreatePtrToInt(result, i64Ty, "fopen.handle");
   }
@@ -1421,7 +1496,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!file) {
       return nullptr;
     }
-    auto callee = declareCFunction(call.callee, i32Ty, {ptrTy});
+    const auto calleeName = hasRuntimeSafetyChecks()
+                                ? "hs_" + call.callee
+                                : call.callee;
+    auto callee = declareCFunction(calleeName, i32Ty, {ptrTy});
     return builder_.CreateCall(callee, {file}, call.callee + ".ret");
   }
   if (builtin == stdlib::BuiltinId::Get) {
@@ -1433,7 +1511,9 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!file) {
       return nullptr;
     }
-    auto callee = declareCFunction("fgetc", i32Ty, {ptrTy});
+    auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fget"
+                                                             : "fgetc",
+                                   i32Ty, {ptrTy});
     return builder_.CreateCall(callee, {file}, "fget.ret");
   }
   if (builtin == stdlib::BuiltinId::Fput) {
@@ -1455,7 +1535,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   if (builtin == stdlib::BuiltinId::Fread ||
       builtin == stdlib::BuiltinId::Fwrite) {
-    auto *buffer = emitPointerValue(*call.arguments[0], call.callee + ".buffer");
+    auto *buffer =
+        emitBorrowedViewPointer(*call.arguments[0], call.callee + ".buffer");
     auto *size = emitIntegerValue(*call.arguments[1], sizeof(void *), true);
     auto *count = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     auto *file = emitPointerValue(*call.arguments[3], call.callee + ".file");
@@ -1477,7 +1558,9 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!file || !offset || !origin) {
       return nullptr;
     }
-    auto callee = declareCFunction("fseek", i32Ty, {ptrTy, i64Ty, i32Ty});
+    auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fseek"
+                                                             : "fseek",
+                                   i32Ty, {ptrTy, i64Ty, i32Ty});
     return builder_.CreateCall(callee, {file, offset, origin}, "fseek.ret");
   }
   if (builtin == stdlib::BuiltinId::Ftell) {
@@ -1485,7 +1568,9 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     if (!file) {
       return nullptr;
     }
-    auto callee = declareCFunction("ftell", i64Ty, {ptrTy});
+    auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_ftell"
+                                                             : "ftell",
+                                   i64Ty, {ptrTy});
     return builder_.CreateCall(callee, {file}, "ftell.ret");
   }
   if (builtin == stdlib::BuiltinId::Rand) {
@@ -1503,6 +1588,28 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
       return nullptr;
     }
     auto *zero = llvm::ConstantInt::get(value->getType(), 0);
+    if (hasRuntimeSafetyChecks()) {
+      auto *function = builder_.GetInsertBlock()->getParent();
+      auto *overflowBlock =
+          llvm::BasicBlock::Create(context_, "abs.overflow", function);
+      auto *continueBlock =
+          llvm::BasicBlock::Create(context_, "abs.continue", function);
+      const auto signedMinimum =
+          call.byteLength == 8
+              ? std::numeric_limits<std::int64_t>::min()
+              : -(std::int64_t{1} << (call.byteLength * 8U - 1U));
+      const auto minimum =
+          llvm::ConstantInt::getSigned(value->getType(), signedMinimum);
+      auto *isMinimum = builder_.CreateICmpEQ(value, minimum, "abs.ismin");
+      builder_.CreateCondBr(isMinimum, overflowBlock, continueBlock);
+
+      builder_.SetInsertPoint(overflowBlock);
+      auto callee = declareCFunction("hs_abs_overflow", builder_.getVoidTy(), {});
+      builder_.CreateCall(callee);
+      builder_.CreateUnreachable();
+
+      builder_.SetInsertPoint(continueBlock);
+    }
     auto *negated = builder_.CreateNeg(value, "abs.neg");
     auto *negative = builder_.CreateICmpSLT(value, zero, "abs.isneg");
     return builder_.CreateSelect(negative, negated, value, "abs.ret");

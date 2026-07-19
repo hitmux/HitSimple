@@ -6,6 +6,21 @@
 namespace hitsimple::hir {
 namespace {
 
+std::string formatArgumentKinds(const std::vector<FormatArgKind> &kinds) {
+  std::string result;
+  for (std::size_t index = 0; index < kinds.size(); ++index) {
+    if (index != 0U) {
+      result += ',';
+    }
+    switch (kinds[index]) {
+    case FormatArgKind::Bytes: result += "bytes"; break;
+    case FormatArgKind::Float: result += "float"; break;
+    case FormatArgKind::String: result += "string"; break;
+    }
+  }
+  return result;
+}
+
 class HirDumper {
 public:
   explicit HirDumper(std::ostream &out) : out_(out) {}
@@ -227,7 +242,14 @@ private:
     }
 
     if (const auto *call = dynamic_cast<const Call *>(&statement)) {
-      line("Call callee=" + call->callee);
+      line("Call callee=" + call->callee +
+           " builtin=" + std::to_string(static_cast<unsigned>(call->builtin)) +
+           " provider=" + std::string(stdlib::toString(call->provider)) +
+           " returnRule=" + std::string(stdlib::toString(call->returnMode)) +
+           " overload=" + std::to_string(call->overloadIndex) +
+           (call->formatArgumentKinds.empty()
+                ? ""
+                : " formatArgs=" + formatArgumentKinds(call->formatArgumentKinds)));
       ++indent_;
       for (const auto &argument : call->arguments) {
         dump(*argument);
@@ -593,7 +615,15 @@ private:
     if (const auto *call = dynamic_cast<const CallExpr *>(&expression)) {
       line("CallExpr callee=" + call->callee +
            " bytes=" + std::to_string(call->byteLength) +
-           (call->isFloating ? " floating=true" : ""));
+           (call->isFloating ? " floating=true" : "") +
+           " builtin=" + std::to_string(static_cast<unsigned>(call->builtin)) +
+           " provider=" + std::string(stdlib::toString(call->provider)) +
+           " returnRule=" + std::string(stdlib::toString(call->returnMode)) +
+           " overload=" + std::to_string(call->overloadIndex) +
+           (call->templateName.empty() ? "" : " template=" + call->templateName) +
+           (call->formatArgumentKinds.empty()
+                ? ""
+                : " formatArgs=" + formatArgumentKinds(call->formatArgumentKinds)));
       ++indent_;
       for (const auto &argument : call->arguments) {
         dump(*argument);

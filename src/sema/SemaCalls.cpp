@@ -30,8 +30,7 @@ bool isInputBuiltin(stdlib::BuiltinId builtin) {
 }
 
 bool isStandardTemplateWithFormat(std::string_view name) {
-  if (name == "bool" || name == "addr" || name == "handle" ||
-      name == "cstr") {
+  if (name == "bool" || name == "addr" || name == "handle" || name == "cstr") {
     return true;
   }
   if (name.size() >= 2 &&
@@ -43,8 +42,7 @@ bool isStandardTemplateWithFormat(std::string_view name) {
 }
 
 bool isFloatTemplate(std::string_view name) {
-  return name == "f16" || name == "f32" || name == "f64" ||
-         name == "f128";
+  return name == "f16" || name == "f32" || name == "f64" || name == "f128";
 }
 
 bool isPointerTemplate(std::string_view name) {
@@ -162,8 +160,8 @@ FormatParseResult parseLiteralFormat(std::string_view literal) {
   return result;
 }
 
-std::optional<std::string>
-validateInputTarget(const FormatItem &item, const hir::Expr &argument) {
+std::optional<std::string> validateInputTarget(const FormatItem &item,
+                                               const hir::Expr &argument) {
   const auto *address = dynamic_cast<const hir::AddressOfExpr *>(&argument);
   if (address == nullptr) {
     return "scanf/fscanf target must be a writable address";
@@ -204,8 +202,8 @@ validateInputTarget(const FormatItem &item, const hir::Expr &argument) {
   return std::nullopt;
 }
 
-std::optional<std::string>
-validateInputTarget(const FormatItem &item, const MemoryReference &target) {
+std::optional<std::string> validateInputTarget(const FormatItem &item,
+                                               const MemoryReference &target) {
   const auto targetLength = target.byteLength;
   if (item.specifier == 'c') {
     if (targetLength < 1) {
@@ -250,10 +248,10 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeCall(const ast::CallExpr &call) {
 std::unique_ptr<hir::Stmt>
 Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
   if (stdlib::isRemovedLegacyName(call.callee)) {
-    addDiagnostic("legacy standard library name '" + call.callee +
-                  "' is not accepted; use " +
-                  std::string(stdlib::replacementForRemovedLegacyName(
-                      call.callee)));
+    addDiagnostic(
+        "legacy standard library name '" + call.callee +
+        "' is not accepted; use " +
+        std::string(stdlib::replacementForRemovedLegacyName(call.callee)));
     return nullptr;
   }
   if (rejectUnavailableStandardBuiltin(call)) {
@@ -272,14 +270,14 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
     }
     if (const auto templateName =
             expressionTemplateName(*call.arguments[formatIndex])) {
-      auto lowered =
-          lowerUserTemplateFormatCall(call, builtin, *templateName, formatIndex);
+      auto lowered = lowerUserTemplateFormatCall(call, builtin, *templateName,
+                                                 formatIndex);
       if (!lowered) {
         return nullptr;
       }
       return std::make_unique<hir::UserTemplateFormatCall>(
-          std::move(lowered->callee), std::move(lowered->value),
-          lowered->sink, std::move(lowered->file), lowered->resultByteLength);
+          std::move(lowered->callee), std::move(lowered->value), lowered->sink,
+          std::move(lowered->file), lowered->resultByteLength);
     }
   }
   if (builtin == stdlib::BuiltinId::Print && call.arguments.size() == 1U &&
@@ -300,7 +298,8 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
   }
 
   if (isInputBuiltin(builtin)) {
-    addDiagnostic("scanf/fscanf must be used as a left-context multi-assignment");
+    addDiagnostic(
+        "scanf/fscanf must be used as a left-context multi-assignment");
     return nullptr;
   }
 
@@ -326,8 +325,9 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
     if (!result_.diagnostics.empty()) {
       return nullptr;
     }
-    return std::make_unique<hir::Call>(call.callee, std::move(arguments),
-                                       builtin);
+    return std::make_unique<hir::Call>(
+        call.callee, std::move(arguments), builtin,
+        std::vector<hir::FormatArgKind>{}, builtinOverloadIndex(call, builtin));
   }
 
   if (builtin == stdlib::BuiltinId::Print) {
@@ -347,8 +347,15 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
     addDiagnostic("fprintf file argument must be a handle");
     return nullptr;
   }
-  if (isFormatOutput &&
-      expressionTemplateName(*call.arguments[formatIndex])) {
+  if ((builtin == stdlib::BuiltinId::Printf ||
+       builtin == stdlib::BuiltinId::Fprintf) &&
+      !expressionTemplateName(*call.arguments[formatIndex]) &&
+      !isCStringExpression(*call.arguments[formatIndex])) {
+    addDiagnostic("function call '" + call.callee + "' argument " +
+                  std::to_string(formatIndex + 1U) + " must be a cstr View");
+    return nullptr;
+  }
+  if (isFormatOutput && expressionTemplateName(*call.arguments[formatIndex])) {
     addDiagnostic("user template formatting requires a direct print(value), "
                   "printf(value), or fprintf(file, value) call");
     return nullptr;
@@ -357,8 +364,9 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
     for (std::size_t index = formatIndex + 1U; index < call.arguments.size();
          ++index) {
       if (expressionTemplateName(*call.arguments[index])) {
-        addDiagnostic("user template formatting requires a direct print(value), "
-                      "printf(value), or fprintf(file, value) call");
+        addDiagnostic(
+            "user template formatting requires a direct print(value), "
+            "printf(value), or fprintf(file, value) call");
         return nullptr;
       }
     }
@@ -379,14 +387,14 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
       dynamic_cast<hir::StringLiteral *>(arguments[formatIndex].get());
   if (format == nullptr) {
     return std::make_unique<hir::Call>(call.callee, std::move(arguments),
-                                       builtin, std::move(formatArgumentKinds));
+                                       builtin, std::move(formatArgumentKinds),
+                                       builtinOverloadIndex(call, builtin));
   }
 
   const auto parsedFormat = parseLiteralFormat(format->value);
   if (!parsedFormat.diagnostic.empty()) {
     addDiagnostic("function call '" + call.callee +
-                  "' has invalid format string: " +
-                  parsedFormat.diagnostic);
+                  "' has invalid format string: " + parsedFormat.diagnostic);
     return nullptr;
   }
 
@@ -399,8 +407,9 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
 
   if (isInputBuiltin(builtin)) {
     for (std::size_t index = 0; index < parsedFormat.items.size(); ++index) {
-      if (const auto diagnostic = validateInputTarget(
-              parsedFormat.items[index], *arguments[formatIndex + 1U + index])) {
+      if (const auto diagnostic =
+              validateInputTarget(parsedFormat.items[index],
+                                  *arguments[formatIndex + 1U + index])) {
         addDiagnostic(*diagnostic);
         return nullptr;
       }
@@ -409,14 +418,16 @@ Analyzer::analyzeCallStatement(const ast::CallExpr &call) {
 
   for (std::size_t index = 0; index < parsedFormat.items.size(); ++index) {
     const auto &argument = *call.arguments[formatIndex + 1U + index];
-    if (isHandleExpression(argument) && parsedFormat.items[index].specifier != 'p') {
+    if (isHandleExpression(argument) &&
+        parsedFormat.items[index].specifier != 'p') {
       addDiagnostic("handle values can only be formatted with %p");
       return nullptr;
     }
   }
 
-  return std::make_unique<hir::Call>(call.callee, std::move(arguments),
-                                     builtin, std::move(formatArgumentKinds));
+  return std::make_unique<hir::Call>(call.callee, std::move(arguments), builtin,
+                                     std::move(formatArgumentKinds),
+                                     builtinOverloadIndex(call, builtin));
 }
 
 std::optional<AssignmentLowering>
@@ -430,8 +441,14 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
                   "format arguments");
     return std::nullopt;
   }
+  if (!isCStringExpression(*call.arguments[formatIndex])) {
+    addDiagnostic("function call '" + call.callee + "' argument " +
+                  std::to_string(formatIndex + 1U) + " must be a cstr View");
+    return std::nullopt;
+  }
   if (assign.values.size() != 1U) {
-    addDiagnostic("scanf/fscanf left-context must be the only right-side value");
+    addDiagnostic(
+        "scanf/fscanf left-context must be the only right-side value");
     return std::nullopt;
   }
   if (assign.targets.size() < 2U) {
@@ -447,8 +464,7 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
     parsedFormat = parseLiteralFormat(formatLiteral->value);
     if (!parsedFormat->diagnostic.empty()) {
       addDiagnostic("function call '" + call.callee +
-                    "' has invalid format string: " +
-                    parsedFormat->diagnostic);
+                    "' has invalid format string: " + parsedFormat->diagnostic);
       return std::nullopt;
     }
     if (parsedFormat->items.empty()) {
@@ -484,7 +500,8 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
   if (countIdentifier->name != "_") {
     const auto *symbol = lookup(countIdentifier->name);
     if (symbol == nullptr) {
-      addDiagnostic("use of undeclared variable '" + countIdentifier->name + "'");
+      addDiagnostic("use of undeclared variable '" + countIdentifier->name +
+                    "'");
       return std::nullopt;
     }
     if (symbol->byteLength != 4) {
@@ -558,7 +575,7 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
     lowered.byteLength = resultSymbol->byteLength;
     lowered.result = std::make_unique<hir::VariableRef>(
         resultSymbol->name, resultSymbol->bindingName, resultSymbol->byteLength,
-        resultSymbol->storage);
+        resultSymbol->storage, resultSymbol->templateName);
   } else {
     lowered.byteLength = 4;
     lowered.result = std::make_unique<hir::IntegerLiteral>("0", 4);
@@ -593,8 +610,9 @@ Analyzer::analyzeTemplatePrintCall(const ast::CallExpr &call) {
   }
   if (const auto expectedLength = templateByteLength(asExpr.templateName);
       expectedLength && *expectedLength != *operandLength) {
-    addDiagnostic("print template argument byte length does not match template '" +
-                  asExpr.templateName + "'");
+    addDiagnostic(
+        "print template argument byte length does not match template '" +
+        asExpr.templateName + "'");
     return nullptr;
   }
 
@@ -623,9 +641,9 @@ Analyzer::analyzeTemplatePrintCall(const ast::CallExpr &call) {
             ? hir::FormatArgKind::Float
             : formatArgumentKind(*asExpr.operand, *arguments.back()),
     };
-    return std::make_unique<hir::Call>(
-        "print", std::move(arguments), stdlib::BuiltinId::Print,
-        std::move(formatArgumentKinds));
+    return std::make_unique<hir::Call>("print", std::move(arguments),
+                                       stdlib::BuiltinId::Print,
+                                       std::move(formatArgumentKinds));
   }
 
   if (templates_.find(asExpr.templateName) == templates_.end()) {
@@ -643,12 +661,14 @@ Analyzer::analyzeTemplatePrintCall(const ast::CallExpr &call) {
 }
 
 std::optional<UserTemplateFormatCallLowering>
-Analyzer::lowerUserTemplateFormatCall(
-    const ast::CallExpr &call, stdlib::BuiltinId builtin,
-    std::string_view templateName, std::size_t valueIndex) {
+Analyzer::lowerUserTemplateFormatCall(const ast::CallExpr &call,
+                                      stdlib::BuiltinId builtin,
+                                      std::string_view templateName,
+                                      std::size_t valueIndex) {
   const std::string lookupKey = "format|" + std::string(templateName) + "|addr";
   const auto binding = implOpIndexes_.find(lookupKey);
-  if (binding == implOpIndexes_.end() || binding->second >= implOpInfos_.size()) {
+  if (binding == implOpIndexes_.end() ||
+      binding->second >= implOpInfos_.size()) {
     addDiagnostic("user template '" + std::string(templateName) +
                   "' requires matching op format");
     return std::nullopt;
@@ -656,8 +676,9 @@ Analyzer::lowerUserTemplateFormatCall(
   const auto &format = implOpInfos_[binding->second];
   if (format.implTemplate != templateName ||
       format.returnByteLengths != std::vector<std::size_t>{4}) {
-    addDiagnostic("internal error: invalid format impl op binding for template '" +
-                  std::string(templateName) + "'");
+    addDiagnostic(
+        "internal error: invalid format impl op binding for template '" +
+        std::string(templateName) + "'");
     return std::nullopt;
   }
 
@@ -674,9 +695,9 @@ Analyzer::lowerUserTemplateFormatCall(
       return std::nullopt;
     }
   }
-  return UserTemplateFormatCallLowering{
-      format.symbolName, std::move(value), sink, std::move(file),
-      format.returnByteLengths.front()};
+  return UserTemplateFormatCallLowering{format.symbolName, std::move(value),
+                                        sink, std::move(file),
+                                        format.returnByteLengths.front()};
 }
 
 std::vector<std::unique_ptr<hir::Expr>>
@@ -685,20 +706,36 @@ Analyzer::analyzeCallArguments(const ast::CallExpr &call,
   std::vector<std::unique_ptr<hir::Expr>> arguments;
   if (call.arguments.size() != signature.parameterByteLengths.size()) {
     addDiagnostic("function call '" + call.callee +
-                    "' argument count does not match declaration");
+                  "' argument count does not match declaration");
     return arguments;
   }
   if (!validateHandleCallArguments(call, signature)) {
     return arguments;
   }
+  if (!validateBuiltinViewArguments(call, signature)) {
+    return arguments;
+  }
+  const auto *builtin = stdlib::findBuiltin(signature.builtin);
   for (std::size_t index = 0; index < call.arguments.size(); ++index) {
+    const auto parameterMode =
+        builtin != nullptr && index < builtin->parameters.size()
+            ? builtin->parameters[index].mode
+            : stdlib::BuiltinParameterMode::None;
+    const bool acceptsAnyView =
+        parameterMode == stdlib::BuiltinParameterMode::View ||
+        parameterMode == stdlib::BuiltinParameterMode::LView ||
+        parameterMode == stdlib::BuiltinParameterMode::MemView ||
+        parameterMode == stdlib::BuiltinParameterMode::MemLView ||
+        parameterMode == stdlib::BuiltinParameterMode::CStrView ||
+        parameterMode == stdlib::BuiltinParameterMode::BytesView;
     const auto templateName =
         index < signature.parameterTemplateNames.size()
             ? std::string_view{signature.parameterTemplateNames[index]}
             : std::string_view{};
     const auto expectedLength = signature.parameterByteLengths[index];
     if (isFloatTemplate(templateName)) {
-      auto lowered = analyzeFloatOperand(*call.arguments[index], expectedLength);
+      auto lowered =
+          analyzeFloatOperand(*call.arguments[index], expectedLength);
       if (!lowered) {
         return arguments;
       }
@@ -707,14 +744,22 @@ Analyzer::analyzeCallArguments(const ast::CallExpr &call,
     }
     auto lowered = analyze(*call.arguments[index]);
     if (!lowered) {
+      if (result_.diagnostics.empty()) {
+        addDiagnostic("function argument cannot be lowered");
+      }
       return arguments;
     }
     if (signature.builtin == stdlib::BuiltinId::None &&
         hasRuntimeDynamicView(*lowered)) {
-      addDiagnostic("dynamic View cannot be passed to fixed function parameter");
+      addDiagnostic(
+          "dynamic View cannot be passed to fixed function parameter");
       return arguments;
     }
     if (!isIntegerExpression(*lowered)) {
+      if (acceptsAnyView) {
+        arguments.push_back(std::move(lowered));
+        continue;
+      }
       if (index < signature.stringParameters.size() &&
           signature.stringParameters[index] &&
           dynamic_cast<hir::StringLiteral *>(lowered.get()) != nullptr) {
@@ -730,7 +775,7 @@ Analyzer::analyzeCallArguments(const ast::CallExpr &call,
       return arguments;
     }
     const auto actualLength = integerExpressionByteLength(*lowered).value_or(4);
-    if (actualLength > expectedLength && expectedLength < 8) {
+    if (!acceptsAnyView && actualLength > expectedLength && expectedLength < 8) {
       addDiagnostic("function argument byte length does not fit parameter");
       return arguments;
     }

@@ -58,6 +58,20 @@ HitSimple static library.
 These output modes do not require a `main` function and cannot be combined
 with dump, preprocessing, or `--emit-llvm` actions.
 
+## Select a Standard-Library Provider
+
+```bash
+hsc --stdlib-provider=optimized examples/hello.hs -o hello
+hsc --stdlib-provider=reference examples/hello.hs -o hello-reference
+```
+
+`optimized` is the default selection. `reference` chooses the reference
+provider declared by `StandardLibraryManifest.json` when an API has one; APIs
+without a reference provider keep their default implementation. Selection
+happens at compile time and does not change the public View contract or the
+selected safety mode. The reference selection is primarily useful for
+contract and artifact-difference validation.
+
 ## C ABI Interoperability
 
 Use `extern "C"` to select the stable C ABI explicitly:

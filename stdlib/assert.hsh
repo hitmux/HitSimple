@@ -1,7 +1,0 @@
-$ifndef HITSIMPLE_ASSERT_HSH
-$define HITSIMPLE_ASSERT_HSH 1
-
-extern assert(condition as bool, error_code as i32) -> ()
-extern panic(error_code as i32) -> ()
-
-$endif

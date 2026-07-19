@@ -20,6 +20,7 @@ struct AnalyzeOptions {
   bool requireMain = true;
   std::vector<stdlib::StandardHeader> standardHeaders;
   bool cCompatibilityMode = false;
+  bool internalStandardModule = false;
 };
 
 AnalyzeResult analyze(const ast::TranslationUnit& unit,

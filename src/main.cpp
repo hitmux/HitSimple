@@ -8,6 +8,7 @@
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/preprocessor/Preprocessor.h"
 #include "hitsimple/sema/Sema.h"
+#include "hitsimple/stdlib/StandardLibraryModules.h"
 #include "hitsimple/support/Process.h"
 #include "hitsimple/support/Path.h"
 #include "hitsimple/support/CompilationMetrics.h"
@@ -17,6 +18,12 @@
 
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
+#include <llvm/AsmParser/Parser.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/Linker/Linker.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/SourceMgr.h>
 
 #include <algorithm>
 #include <bit>
@@ -32,6 +39,7 @@
 #include <string_view>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifdef _WIN32
@@ -197,7 +205,11 @@ void printTargetInfo(std::ostream& out,
       << "checked.address_coverage: local objects are removed when their function "
          "frame exits; internal globals/statics persist; extern globals, FFI "
          "raw addresses, and file handles are not registered\n"
+      << "checked.file_handle_coverage: null handles are rejected by checked "
+         "file I/O; handle ownership and open/closed state are not tracked\n"
       << "static-checked.runtime-overhead: none\n"
+      << "throw.uncaught: exits with status 1 through libc exit; no diagnostic "
+         "is emitted and host libc performs its ordinary stream cleanup\n"
       << "abi.symbol.names: source identifiers use external linkage as written\n"
       << "abi.main: unannotated main uses i32, fallthrough returns 0\n"
       << "build.translation_units: each input is preprocessed, parsed, analyzed, "
@@ -250,6 +262,11 @@ void printTargetInfo(std::ostream& out,
       << "stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, "
          "ctype.hsh, time.hsh, and assert.hsh; each standard function "
          "requires its owning system header\n"
+      << "stdlib.provider.selection: optimized is the default; reference uses "
+         "a manifest-declared reference implementation when available and "
+         "otherwise keeps the default provider\n"
+      << "stdlib.provider.dispatch: provider selection is compile-time and "
+         "does not change the public View contract or safety mode\n"
       << "stdlib.print.template: standard fixed templates lower to "
          "printf-style print; user templates require a matching op format "
          "candidate in sema\n"
@@ -469,6 +486,7 @@ struct CompiledTranslationUnit {
   std::string llvmIr;
   std::size_t mainDefinitionCount = 0;
   std::vector<hitsimple::compat::LinkageMetadata> compatibilityLinkage;
+  std::vector<std::string> sourceModules;
 };
 
 bool sameCAbiType(const hitsimple::compat::CAbiType& left,
@@ -705,7 +723,10 @@ bool applyCCompatibilityMetadata(
 std::optional<CompiledTranslationUnit> compileTranslationUnit(
     const std::string& inputPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
-    bool cCompatibilityMode, hitsimple::support::CompilationMetrics& metrics) {
+    bool cCompatibilityMode,
+    hitsimple::stdlib::BuiltinProviderSelection providerSelection,
+    bool internalStandardModule,
+    hitsimple::support::CompilationMetrics& metrics) {
   auto& unitMetrics = metrics.addTranslationUnit(inputPath);
   auto parsed = parseInput(inputPath, cCompatibilityMode, metrics, unitMetrics);
   if (!parsed) {
@@ -717,7 +738,7 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
   auto analyzeResult = hitsimple::sema::analyze(
       *parsed->unit,
       hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
-                                      cCompatibilityMode});
+                                      cCompatibilityMode, internalStandardModule});
   if (!analyzeResult.unit) {
     for (const auto& diagnostic : analyzeResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
@@ -733,6 +754,8 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
     metrics.fail("sema_hir");
     return std::nullopt;
   }
+  const auto sourceModules = hitsimple::stdlib::selectStandardLibraryProviders(
+      *analyzeResult.unit, providerSelection);
   unitMetrics.hirNodes =
       hitsimple::support::collectHirNodeMetrics(*analyzeResult.unit);
   metrics.complete(unitMetrics.semaHir, semaStarted);
@@ -753,7 +776,90 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
   unitMetrics.llvmIrBytes = emitResult.llvmIr.size();
 
   return CompiledTranslationUnit{std::move(emitResult.llvmIr), mainCount,
-                                 std::move(parsed->compatibilityLinkage)};
+                                 std::move(parsed->compatibilityLinkage),
+                                 sourceModules};
+}
+
+std::vector<std::string> collectRequiredSourceModules(
+    const std::vector<CompiledTranslationUnit>& units) {
+  std::vector<std::string> modules;
+  std::unordered_set<std::string> seen;
+  for (const auto& unit : units) {
+    for (const auto& module : unit.sourceModules) {
+      if (seen.insert(module).second) {
+        modules.push_back(module);
+      }
+    }
+  }
+  return modules;
+}
+
+std::optional<std::vector<CompiledTranslationUnit>> compileSourceModules(
+    const std::vector<std::string>& moduleIds,
+    hitsimple::codegen::CodegenOptions codegenOptions,
+    hitsimple::support::CompilationMetrics& metrics) {
+  std::vector<CompiledTranslationUnit> modules;
+  modules.reserve(moduleIds.size());
+  for (const auto& id : moduleIds) {
+    const auto* module = hitsimple::stdlib::findSourceModule(id);
+    if (module == nullptr) {
+      std::cerr << "hsc: standard library source module '" << id
+                << "' is not declared by the manifest\n";
+      return std::nullopt;
+    }
+    const auto sourcePath = hitsimple::support::standardLibraryRoot() /
+        std::string(module->file);
+    if (!std::filesystem::is_regular_file(sourcePath)) {
+      std::cerr << "hsc: standard library source module is unavailable '"
+                << hitsimple::support::pathToUtf8(sourcePath) << "'\n";
+      return std::nullopt;
+    }
+    auto compiled = compileTranslationUnit(
+        hitsimple::support::pathToUtf8(sourcePath), codegenOptions, false,
+        hitsimple::stdlib::BuiltinProviderSelection::Optimized, true, metrics);
+    if (!compiled) {
+      return std::nullopt;
+    }
+    modules.push_back(std::move(*compiled));
+  }
+  return modules;
+}
+
+std::optional<std::string> mergeLlvmModules(
+    const std::vector<CompiledTranslationUnit>& units, std::string& error) {
+  if (units.empty()) {
+    error = "no LLVM modules to merge";
+    return std::nullopt;
+  }
+  llvm::LLVMContext context;
+  llvm::SMDiagnostic diagnostic;
+  std::unique_ptr<llvm::Module> merged;
+  for (std::size_t index = 0; index < units.size(); ++index) {
+    auto buffer = llvm::MemoryBuffer::getMemBuffer(
+        units[index].llvmIr, "hitsimple-module-" + std::to_string(index));
+    auto module = llvm::parseAssembly(*buffer, diagnostic, context);
+    if (!module) {
+      std::string diagnosticText;
+      llvm::raw_string_ostream stream(diagnosticText);
+      diagnostic.print("hsc", stream);
+      error = stream.str();
+      return std::nullopt;
+    }
+    if (!merged) {
+      merged = std::move(module);
+      continue;
+    }
+    llvm::Linker linker(*merged);
+    if (linker.linkInModule(std::move(module))) {
+      error = "LLVM IR linker rejected an internal standard library module";
+      return std::nullopt;
+    }
+  }
+  std::string result;
+  llvm::raw_string_ostream output(result);
+  merged->print(output, nullptr);
+  output.flush();
+  return result;
 }
 
 int dumpTokens(const std::string& inputPath) {
@@ -805,7 +911,8 @@ int dumpAst(const std::string& inputPath, bool cCompatibilityMode) {
   return EXIT_SUCCESS;
 }
 
-int dumpHir(const std::string& inputPath, bool cCompatibilityMode) {
+int dumpHir(const std::string& inputPath, bool cCompatibilityMode,
+            hitsimple::stdlib::BuiltinProviderSelection providerSelection) {
   auto parsed = parseInput(inputPath, cCompatibilityMode);
   if (!parsed) {
     return EXIT_FAILURE;
@@ -826,6 +933,8 @@ int dumpHir(const std::string& inputPath, bool cCompatibilityMode) {
                                    parsed->compatibilityLinkage)) {
     return EXIT_FAILURE;
   }
+  (void)hitsimple::stdlib::selectStandardLibraryProviders(*analyzeResult.unit,
+                                                          providerSelection);
 
   hitsimple::hir::dump(*analyzeResult.unit, std::cout);
   return EXIT_SUCCESS;
@@ -835,15 +944,32 @@ int emitLlvm(const std::string& inputPath,
              const std::optional<std::string>& outputPath,
              hitsimple::codegen::CodegenOptions codegenOptions,
              bool cCompatibilityMode,
+             hitsimple::stdlib::BuiltinProviderSelection providerSelection,
              hitsimple::support::CompilationMetrics& metrics) {
-  auto compiled =
-      compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode, metrics);
+  auto compiled = compileTranslationUnit(inputPath, codegenOptions,
+                                         cCompatibilityMode, providerSelection,
+                                         false, metrics);
   if (!compiled) {
+    return EXIT_FAILURE;
+  }
+  std::vector<CompiledTranslationUnit> units;
+  units.push_back(std::move(*compiled));
+  const auto moduleIds = collectRequiredSourceModules(units);
+  auto sourceModules = compileSourceModules(moduleIds, codegenOptions, metrics);
+  if (!sourceModules) {
+    return EXIT_FAILURE;
+  }
+  units.insert(units.end(), std::make_move_iterator(sourceModules->begin()),
+               std::make_move_iterator(sourceModules->end()));
+  std::string mergeError;
+  const auto llvmIr = mergeLlvmModules(units, mergeError);
+  if (!llvmIr) {
+    std::cerr << "hsc: cannot merge LLVM IR: " << mergeError << '\n';
     return EXIT_FAILURE;
   }
 
   if (!outputPath) {
-    std::cout << compiled->llvmIr;
+    std::cout << *llvmIr;
     metrics.markSkipped(metrics.llvmIrWrite());
     metrics.markSkipped(metrics.clangBackendLink());
     return EXIT_SUCCESS;
@@ -855,7 +981,7 @@ int emitLlvm(const std::string& inputPath,
     metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
   }
-  if (!writeFile(*outputPath, compiled->llvmIr)) {
+  if (!writeFile(*outputPath, *llvmIr)) {
     std::cerr << "hsc: cannot write output file '" << *outputPath << "'\n";
     metrics.fail(metrics.llvmIrWrite(), writeStarted);
     metrics.fail("llvm_ir_write");
@@ -870,12 +996,17 @@ int emitLlvm(const std::string& inputPath,
 struct CompiledObjectTranslationUnit {
   std::size_t mainDefinitionCount = 0;
   std::vector<hitsimple::compat::LinkageMetadata> compatibilityLinkage;
+  std::vector<std::string> sourceModules;
 };
 
 std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     const std::string& inputPath, const std::filesystem::path& outputPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
-    bool cCompatibilityMode, hitsimple::support::CompilationMetrics& metrics) {
+    bool cCompatibilityMode,
+    hitsimple::stdlib::BuiltinProviderSelection providerSelection,
+    bool includeSourceModules,
+    hitsimple::support::CompilationMetrics& metrics) {
+  const auto metricsIndex = metrics.translationUnits().size();
   auto& unitMetrics = metrics.addTranslationUnit(inputPath);
   auto parsed = parseInput(inputPath, cCompatibilityMode, metrics, unitMetrics);
   if (!parsed) {
@@ -888,7 +1019,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   auto analyzeResult = hitsimple::sema::analyze(
       *parsed->unit,
       hitsimple::sema::AnalyzeOptions{false, parsed->standardHeaders,
-                                      cCompatibilityMode});
+                                      cCompatibilityMode, false});
   if (!analyzeResult.unit) {
     for (const auto& diagnostic : analyzeResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
@@ -897,6 +1028,8 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     metrics.fail("sema_hir");
     return std::nullopt;
   }
+  const auto sourceModules = hitsimple::stdlib::selectStandardLibraryProviders(
+      *analyzeResult.unit, providerSelection);
   if (cCompatibilityMode &&
       !applyCCompatibilityMetadata(*analyzeResult.unit,
                                    parsed->compatibilityLinkage)) {
@@ -909,8 +1042,8 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   metrics.complete(unitMetrics.semaHir, semaStarted);
 
   const auto emissionStarted = metrics.now();
-  const auto emitResult = hitsimple::codegen::emitObjectFile(
-      *analyzeResult.unit, inputPath, outputPath, codegenOptions);
+  auto emitResult = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit,
+                                                    inputPath, codegenOptions);
   if (!emitResult.diagnostics.empty()) {
     for (const auto& diagnostic : emitResult.diagnostics) {
       std::cerr << "hsc: " << diagnostic << '\n';
@@ -919,9 +1052,40 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     metrics.fail("llvm_emission");
     return std::nullopt;
   }
-  metrics.complete(unitMetrics.llvmEmission, emissionStarted);
+  std::string llvmIr = std::move(emitResult.llvmIr);
+  if (includeSourceModules && !sourceModules.empty()) {
+    std::vector<CompiledTranslationUnit> units;
+    units.push_back(CompiledTranslationUnit{std::move(llvmIr), mainCount,
+                                            parsed->compatibilityLinkage,
+                                            sourceModules});
+    auto modules = compileSourceModules(sourceModules, codegenOptions, metrics);
+    if (!modules) {
+      return std::nullopt;
+    }
+    units.insert(units.end(), std::make_move_iterator(modules->begin()),
+                 std::make_move_iterator(modules->end()));
+    std::string mergeError;
+    auto merged = mergeLlvmModules(units, mergeError);
+    if (!merged) {
+      std::cerr << "hsc: cannot merge LLVM IR: " << mergeError << '\n';
+      return std::nullopt;
+    }
+    llvmIr = std::move(*merged);
+  }
+  auto& completedUnitMetrics = metrics.translationUnits().at(metricsIndex);
+  const auto objectResult = hitsimple::codegen::emitObjectFile(
+      llvmIr, outputPath, codegenOptions);
+  if (!objectResult.diagnostics.empty()) {
+    for (const auto& diagnostic : objectResult.diagnostics) {
+      std::cerr << "hsc: " << diagnostic << '\n';
+    }
+    metrics.fail(completedUnitMetrics.llvmEmission, emissionStarted);
+    metrics.fail("llvm_emission");
+    return std::nullopt;
+  }
+  metrics.complete(completedUnitMetrics.llvmEmission, emissionStarted);
   std::error_code sizeError;
-  unitMetrics.llvmIrBytes = static_cast<std::size_t>(
+  completedUnitMetrics.llvmIrBytes = static_cast<std::size_t>(
       std::filesystem::file_size(outputPath, sizeError));
   if (sizeError) {
     std::cerr << "hsc: cannot inspect object output '"
@@ -931,7 +1095,8 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     return std::nullopt;
   }
   return CompiledObjectTranslationUnit{mainCount,
-                                       std::move(parsed->compatibilityLinkage)};
+                                       std::move(parsed->compatibilityLinkage),
+                                       sourceModules};
 }
 
 std::string defaultObjectOutputPath(const std::string& inputPath) {
@@ -944,6 +1109,7 @@ int compileObject(const std::vector<std::string>& inputPaths,
                   const std::optional<std::string>& outputPath,
                   hitsimple::codegen::CodegenOptions codegenOptions,
                   bool cCompatibilityMode,
+                  hitsimple::stdlib::BuiltinProviderSelection providerSelection,
                   hitsimple::support::CompilationMetrics& metrics) {
   if (inputPaths.size() != 1U) {
     std::cerr << "hsc: --crate-type=object supports exactly one input file\n";
@@ -959,7 +1125,7 @@ int compileObject(const std::vector<std::string>& inputPaths,
   const auto writeStarted = metrics.now();
   if (!compileObjectTranslationUnit(
           inputPaths.front(), hitsimple::support::pathFromUtf8(objectPath),
-          codegenOptions, cCompatibilityMode, metrics)) {
+          codegenOptions, cCompatibilityMode, providerSelection, true, metrics)) {
     return EXIT_FAILURE;
   }
   metrics.complete(metrics.llvmIrWrite(), writeStarted);
@@ -986,6 +1152,7 @@ int compileStaticLibrary(
     const std::vector<std::string>& inputPaths,
     const std::optional<std::string>& outputPath,
     hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
+    hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     const hitsimple::support::LlvmArSelection& llvmAr,
     hitsimple::support::CompilationMetrics& metrics) {
   if (!llvmAr.path) {
@@ -1016,12 +1183,37 @@ int compileStaticLibrary(
 
   std::vector<std::filesystem::path> objectPaths;
   objectPaths.reserve(inputPaths.size());
+  std::vector<std::string> sourceModuleIds;
+  std::unordered_set<std::string> seenSourceModules;
   for (std::size_t index = 0; index < inputPaths.size(); ++index) {
     const auto objectPath = temporaryPath / ("unit-" +
         std::to_string(index) + ".o");
-    if (!compileObjectTranslationUnit(inputPaths[index], objectPath,
-                                      codegenOptions, cCompatibilityMode,
-                                      metrics)) {
+    auto compiled = compileObjectTranslationUnit(
+        inputPaths[index], objectPath, codegenOptions, cCompatibilityMode,
+        providerSelection, false, metrics);
+    if (!compiled) {
+      return EXIT_FAILURE;
+    }
+    for (const auto& module : compiled->sourceModules) {
+      if (seenSourceModules.insert(module).second) {
+        sourceModuleIds.push_back(module);
+      }
+    }
+    objectPaths.push_back(objectPath);
+  }
+  auto sourceModules = compileSourceModules(sourceModuleIds, codegenOptions, metrics);
+  if (!sourceModules) {
+    return EXIT_FAILURE;
+  }
+  for (std::size_t index = 0; index < sourceModules->size(); ++index) {
+    const auto objectPath = temporaryPath /
+        ("stdlib-" + std::to_string(index) + ".o");
+    const auto result = hitsimple::codegen::emitObjectFile(
+        (*sourceModules)[index].llvmIr, objectPath, codegenOptions);
+    if (!result.diagnostics.empty()) {
+      for (const auto& diagnostic : result.diagnostics) {
+        std::cerr << "hsc: " << diagnostic << '\n';
+      }
       return EXIT_FAILURE;
     }
     objectPaths.push_back(objectPath);
@@ -1158,6 +1350,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                       const std::optional<std::string>& outputPath,
                       hitsimple::codegen::CodegenOptions codegenOptions,
                       bool cCompatibilityMode,
+                      hitsimple::stdlib::BuiltinProviderSelection providerSelection,
                       const hitsimple::support::ClangSelection& clang,
                       hitsimple::support::CompilationMetrics& metrics) {
   if (!clang.path) {
@@ -1173,7 +1366,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   for (const auto& inputPath : inputPaths) {
     auto compiled =
         compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode,
-                               metrics);
+                               providerSelection, false, metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
@@ -1203,6 +1396,14 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
+  const auto sourceModuleIds = collectRequiredSourceModules(units);
+  auto sourceModules = compileSourceModules(sourceModuleIds, codegenOptions,
+                                            metrics);
+  if (!sourceModules) {
+    return EXIT_FAILURE;
+  }
+  units.insert(units.end(), std::make_move_iterator(sourceModules->begin()),
+               std::make_move_iterator(sourceModules->end()));
 
 #ifdef _WIN32
   const std::string executablePath = outputPath.value_or("a.exe");
@@ -1330,6 +1531,7 @@ int compileMixedExecutable(
     const std::vector<std::string>& inputPaths,
     const std::optional<std::string>& outputPath,
     hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
+    hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     const std::optional<std::filesystem::path>& clangOverride,
     const std::optional<std::filesystem::path>& clangxxOverride,
     const ExternalBuildInputs& externalInputs,
@@ -1392,18 +1594,25 @@ int compileMixedExecutable(
   units.reserve(inputPaths.size());
   std::vector<std::filesystem::path> hitSimpleObjects;
   hitSimpleObjects.reserve(inputPaths.size());
+  std::vector<std::string> sourceModuleIds;
+  std::unordered_set<std::string> seenSourceModules;
   std::size_t mainCount = 0;
   for (std::size_t index = 0; index < inputPaths.size(); ++index) {
     const auto objectPath = temporaryPath /
         ("hitsimple-" + std::to_string(index) + ".o");
     auto compiled = compileObjectTranslationUnit(
         inputPaths[index], objectPath, codegenOptions, cCompatibilityMode,
-        metrics);
+        providerSelection, false, metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
     mainCount += compiled->mainDefinitionCount;
     units.push_back(std::move(*compiled));
+    for (const auto& module : units.back().sourceModules) {
+      if (seenSourceModules.insert(module).second) {
+        sourceModuleIds.push_back(module);
+      }
+    }
     hitSimpleObjects.push_back(objectPath);
   }
   if (externalInputs.entryMode == EntryMode::HitSimple && mainCount == 0) {
@@ -1437,11 +1646,30 @@ int compileMixedExecutable(
   compatibilityUnits.reserve(units.size());
   for (const auto& unit : units) {
     compatibilityUnits.push_back(
-        {"", unit.mainDefinitionCount, unit.compatibilityLinkage});
+        {"", unit.mainDefinitionCount, unit.compatibilityLinkage, {}});
   }
   if (!validateCCompatibilityExternalAbi(compatibilityUnits)) {
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
+  }
+  auto sourceModules = compileSourceModules(sourceModuleIds, codegenOptions,
+                                            metrics);
+  if (!sourceModules) {
+    return EXIT_FAILURE;
+  }
+  for (std::size_t index = 0; index < sourceModules->size(); ++index) {
+    const auto objectPath = temporaryPath /
+        ("hitsimple-stdlib-" + std::to_string(index) + ".o");
+    const auto result = hitsimple::codegen::emitObjectFile(
+        (*sourceModules)[index].llvmIr, objectPath, codegenOptions);
+    if (!result.diagnostics.empty()) {
+      for (const auto& diagnostic : result.diagnostics) {
+        std::cerr << "hsc: " << diagnostic << '\n';
+      }
+      metrics.fail("llvm_emission");
+      return EXIT_FAILURE;
+    }
+    hitSimpleObjects.push_back(objectPath);
   }
 
 #ifdef _WIN32
@@ -1625,6 +1853,8 @@ int hscMain(const std::vector<std::string>& arguments) {
   bool shouldPrintTiming = false;
   CrateType crateType = CrateType::Bin;
   bool crateTypeSelected = false;
+  auto providerSelection =
+      hitsimple::stdlib::BuiltinProviderSelection::Optimized;
   hitsimple::support::CompilationMetrics metrics;
   hitsimple::codegen::CodegenOptions codegenOptions;
   codegenOptions.targetTriple = targetTriple();
@@ -1765,6 +1995,27 @@ int hscMain(const std::vector<std::string>& arguments) {
     if (arg == "--c-compat") {
       cCompatibilityMode = true;
       continue;
+    }
+
+    if (arg.starts_with("--stdlib-provider=")) {
+      const auto value =
+          arg.substr(std::string_view("--stdlib-provider=").size());
+      if (value == "optimized") {
+        providerSelection = hitsimple::stdlib::BuiltinProviderSelection::Optimized;
+      } else if (value == "reference") {
+        providerSelection = hitsimple::stdlib::BuiltinProviderSelection::Reference;
+      } else {
+        std::cerr << "hsc: unsupported --stdlib-provider '" << value
+                  << "'; expected optimized or reference\n";
+        return finish(EXIT_FAILURE);
+      }
+      continue;
+    }
+
+    if (arg == "--stdlib-provider") {
+      std::cerr << "hsc: --stdlib-provider requires "
+                   "--stdlib-provider=optimized|reference\n";
+      return finish(EXIT_FAILURE);
     }
 
     if (arg == "-E" || arg == "--preprocess-only") {
@@ -2132,7 +2383,8 @@ int hscMain(const std::vector<std::string>& arguments) {
       std::cerr << "hsc: --dump-hir supports exactly one input file\n";
       return finish(EXIT_FAILURE);
     }
-    return finish(dumpHir(inputPaths.front(), cCompatibilityMode));
+    return finish(dumpHir(inputPaths.front(), cCompatibilityMode,
+                          providerSelection));
   }
 
   if (shouldEmitLlvm) {
@@ -2145,7 +2397,7 @@ int hscMain(const std::vector<std::string>& arguments) {
       return finish(EXIT_FAILURE);
     }
     return finish(emitLlvm(inputPaths.front(), outputPath, codegenOptions,
-                           cCompatibilityMode, metrics));
+                           cCompatibilityMode, providerSelection, metrics));
   }
 
   if (shouldPreprocessOnly) {
@@ -2167,11 +2419,12 @@ int hscMain(const std::vector<std::string>& arguments) {
 
   if (crateType == CrateType::Object) {
     return finish(compileObject(inputPaths, outputPath, codegenOptions,
-                                cCompatibilityMode, metrics));
+                                cCompatibilityMode, providerSelection, metrics));
   }
   if (crateType == CrateType::StaticLib) {
     return finish(compileStaticLibrary(
         inputPaths, outputPath, codegenOptions, cCompatibilityMode,
+        providerSelection,
         hitsimple::support::resolveLlvmAr(), metrics));
   }
 
@@ -2203,11 +2456,13 @@ int hscMain(const std::vector<std::string>& arguments) {
   if (externalInputs.hasMixedBuildOptions()) {
     return finish(compileMixedExecutable(
         inputPaths, outputPath, codegenOptions, cCompatibilityMode,
+        providerSelection,
         clangOverride, clangxxOverride, externalInputs, metrics));
   }
 
   return finish(compileExecutable(
       inputPaths, outputPath, codegenOptions, cCompatibilityMode,
+      providerSelection,
       hitsimple::support::resolveClang(clangOverride), metrics));
 }
 

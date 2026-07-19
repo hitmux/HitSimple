@@ -26,6 +26,7 @@ find_program(RE2C_EXECUTABLE re2c REQUIRED)
 find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
 find_program(CLANGXX_EXECUTABLE NAMES clang++-18 clang++ REQUIRED)
 find_program(LLVM_AR_EXECUTABLE NAMES llvm-ar-18 llvm-ar REQUIRED)
+find_program(LLVM_NM_EXECUTABLE NAMES llvm-nm-18 llvm-nm REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
   NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
 )
@@ -45,6 +46,8 @@ endif()
 llvm_map_components_to_libnames(
   LLVM_LIBS
   Core
+  AsmParser
+  Linker
   Support
   Target
   TargetParser
@@ -60,6 +63,76 @@ message(STATUS "Found re2c: ${RE2C_EXECUTABLE}")
 message(STATUS "Found clang: ${CLANG_EXECUTABLE}")
 message(STATUS "Found clang++: ${CLANGXX_EXECUTABLE}")
 message(STATUS "Found llvm-ar: ${LLVM_AR_EXECUTABLE}")
+
+file(GLOB HITSIMPLE_HANDWRITTEN_STANDARD_HEADERS
+  "${PROJECT_SOURCE_DIR}/stdlib/*.hsh"
+)
+if(HITSIMPLE_HANDWRITTEN_STANDARD_HEADERS)
+  message(FATAL_ERROR
+    "standard library headers must be generated from StandardLibraryManifest.json; found: ${HITSIMPLE_HANDWRITTEN_STANDARD_HEADERS}"
+  )
+endif()
+
+add_executable(hsc_stdlib_manifest_tool
+  src/stdlib/StandardLibraryManifestTool.cpp
+)
+target_include_directories(hsc_stdlib_manifest_tool
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+target_include_directories(hsc_stdlib_manifest_tool
+  SYSTEM PRIVATE
+    ${HITSIMPLE_LLVM_INCLUDE_DIRS}
+)
+target_link_libraries(hsc_stdlib_manifest_tool PRIVATE ${LLVM_LIBS})
+if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+  target_compile_options(hsc_stdlib_manifest_tool PRIVATE /W4)
+else()
+  target_compile_options(hsc_stdlib_manifest_tool PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+set(HITSIMPLE_GENERATED_STDLIB_DIR
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/stdlib"
+)
+set(HITSIMPLE_GENERATED_STDLIB_CPP
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/StandardLibraryGenerated.cpp"
+)
+set(HITSIMPLE_GENERATED_STDLIB_HEADERS
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/stdlib.hsh"
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/string.hsh"
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/stdio.hsh"
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/math.hsh"
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/ctype.hsh"
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/time.hsh"
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/assert.hsh"
+)
+set(HITSIMPLE_STDLIB_SOURCE_MODULES
+  "${HITSIMPLE_GENERATED_STDLIB_DIR}/ctype.hs"
+)
+add_custom_command(
+  OUTPUT
+    ${HITSIMPLE_GENERATED_STDLIB_CPP}
+    ${HITSIMPLE_GENERATED_STDLIB_HEADERS}
+    ${HITSIMPLE_STDLIB_SOURCE_MODULES}
+  COMMAND $<TARGET_FILE:hsc_stdlib_manifest_tool>
+          --manifest ${PROJECT_SOURCE_DIR}/stdlib/StandardLibraryManifest.json
+          --cpp-out ${HITSIMPLE_GENERATED_STDLIB_CPP}
+          --headers-out-dir ${HITSIMPLE_GENERATED_STDLIB_DIR}
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          ${PROJECT_SOURCE_DIR}/stdlib/ctype.hs
+          ${HITSIMPLE_GENERATED_STDLIB_DIR}/ctype.hs
+  DEPENDS
+    hsc_stdlib_manifest_tool
+    ${PROJECT_SOURCE_DIR}/stdlib/StandardLibraryManifest.json
+    ${PROJECT_SOURCE_DIR}/stdlib/ctype.hs
+  VERBATIM
+)
+add_custom_target(hitsimple_stdlib_generated
+  DEPENDS
+    ${HITSIMPLE_GENERATED_STDLIB_CPP}
+    ${HITSIMPLE_GENERATED_STDLIB_HEADERS}
+    ${HITSIMPLE_STDLIB_SOURCE_MODULES}
+)
 
 add_executable(hsc_mcpp
   third_party/mcpp/src/main.c
@@ -142,7 +215,8 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaExpressions.cpp
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
-  src/stdlib/StandardLibrary.cpp
+  src/stdlib/StandardLibraryModules.cpp
+  ${HITSIMPLE_GENERATED_STDLIB_CPP}
   src/support/Cargo.cpp
   src/support/CompilationMetrics.cpp
   src/support/Path.cpp
@@ -150,6 +224,7 @@ add_library(hitsimple_frontend STATIC
   src/support/ResourcePaths.cpp
   src/support/Toolchain.cpp
 )
+add_dependencies(hitsimple_frontend hitsimple_stdlib_generated)
 
 if(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
   add_library(hitsimple_runtime STATIC IMPORTED GLOBAL)
@@ -203,6 +278,7 @@ target_compile_definitions(hitsimple_frontend
     ${LLVM_DEFINITIONS}
     HITSIMPLE_VERSION="${PROJECT_VERSION}"
     HITSIMPLE_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    HITSIMPLE_BUILT_STDLIB_DIR="${HITSIMPLE_GENERATED_STDLIB_DIR}"
     HITSIMPLE_MCPP_EXECUTABLE="$<TARGET_FILE:hsc_mcpp>"
     HITSIMPLE_RUNTIME_SOURCE="${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c"
     HITSIMPLE_RUNTIME_LIBRARY="$<TARGET_FILE:hitsimple_runtime>"
@@ -271,9 +347,12 @@ else()
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/hitsimple
   )
 endif()
-install(DIRECTORY stdlib/
+install(FILES ${HITSIMPLE_GENERATED_STDLIB_HEADERS}
   DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/stdlib
-  FILES_MATCHING PATTERN "*.hsh"
+)
+install(FILES
+  ${PROJECT_SOURCE_DIR}/stdlib/ctype.hs
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/stdlib
 )
 install(FILES LICENSE README.md USAGE.md Standard.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
@@ -341,6 +420,7 @@ if(BUILD_TESTING)
     tests/support/ProcessTests.cpp
     tests/support/CompilationMetricsTests.cpp
     tests/support/ResourcePathsTests.cpp
+    tests/stdlib/StandardLibraryTests.cpp
     tests/support/TestRunner.cpp
   )
 
@@ -398,6 +478,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_target_info_documents_main_abi
     "$<TARGET_FILE:hsc> --target-info | grep -Fx 'abi.main: unannotated main uses i32, fallthrough returns 0'"
   )
+  add_hsc_shell_test(hsc_target_info_documents_uncaught_throw
+    "$<TARGET_FILE:hsc> --target-info | grep -Fx 'throw.uncaught: exits with status 1 through libc exit; no diagnostic is emitted and host libc performs its ordinary stream cleanup'"
+  )
   add_hsc_shell_test(hsc_target_info_documents_native_interop
     "$<TARGET_FILE:hsc> --target-info | grep -Fq 'build.native_interop: Linux x86_64/aarch64' && $<TARGET_FILE:hsc> --target-info | grep -Fq 'build.cargo: Linux x86_64/aarch64'"
   )
@@ -408,7 +491,7 @@ target_link_libraries(hsc_unit_tests
     set(HITSIMPLE_EXPECTED_F128_BACKEND "native.fp128")
   endif()
   add_hsc_shell_test(hsc_target_info_documents_checked_and_calloc_status
-    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: ${HITSIMPLE_EXPECTED_F128_BACKEND}' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics persist; extern globals, FFI raw addresses, and file handles are not registered' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
+    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: ${HITSIMPLE_EXPECTED_F128_BACKEND}' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider' target-info.out && grep -Fq 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics persist; extern globals, FFI raw addresses, and file handles are not registered' target-info.out && grep -Fq 'checked.file_handle_coverage: null handles are rejected by checked file I/O; handle ownership and open/closed state are not tracked' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
   )
   add_test(NAME hsc_compile_with_explicit_clang
     COMMAND hsc --clang ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/hello.hs
@@ -455,6 +538,39 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_emits_target_object
     "$<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs -o hello.o && test -s hello.o"
+  )
+  add_hsc_shell_test(hsc_ctype_reference_executable
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_ctype_optimized_matches_reference
+    "$<TARGET_FILE:hsc> --stdlib-provider=optimized ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_ctype_provider_modes_match
+    "for mode in --unchecked --static-checked --checked; do for provider in optimized reference; do $<TARGET_FILE:hsc> --stdlib-provider=$provider $mode ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program-$provider-$mode && ./program-$provider-$mode; done; done"
+  )
+  add_hsc_shell_test(hsc_ctype_reference_emit_llvm_injects_module
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && grep -Fq 'call i8 @__hs_stdlib_ctype_is_digit(i32' module.ll"
+  )
+  add_hsc_shell_test(hsc_ctype_optimized_emit_llvm_omits_module
+    "$<TARGET_FILE:hsc> --stdlib-provider=optimized --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && ! grep -Fq '__hs_stdlib_ctype_is_digit' module.ll"
+  )
+  add_hsc_shell_test(hsc_ctype_reference_object_includes_module
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Eq ' T _?__hs_stdlib_ctype_is_digit'"
+  )
+  add_hsc_shell_test(hsc_ctype_reference_object_timing_includes_module
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference --timing-json=timing.json --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${CMAKE_COMMAND} -DJSON=$PWD/timing.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=2 -DEXPECTED_C_COMPAT_LOWERING_STATUS=skipped -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
+  add_hsc_shell_test(hsc_ctype_reference_staticlib_includes_module_once
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -Ec ' T _?__hs_stdlib_ctype_is_digit$')\" = 1"
+  )
+  add_hsc_shell_test(hsc_ctype_reference_multifile_deduplicates_module
+    "$<TARGET_FILE:hsc> --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_installed_ctype_reference_all_artifacts
+    "${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix $PWD/install && $PWD/install/bin/hsc --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program && $PWD/install/bin/hsc --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && $PWD/install/bin/hsc --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Eq ' T _?__hs_stdlib_ctype_is_digit' && $PWD/install/bin/hsc --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -Ec ' T _?__hs_stdlib_ctype_is_digit$')\" = 1"
+  )
+  add_hsc_shell_test(hsc_rejects_user_stdlib_implementation_symbol
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/sema/reserved_stdlib_implementation.hs -o program >stdout 2>stderr && grep -Fq 'reserved standard library implementation symbol' stderr"
   )
   add_hsc_shell_test(hsc_c_abi_object_native_to_hsc
     "$<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export.hs -o hsc_export.o && ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_export_caller.c hsc_export.o $<TARGET_FILE:hitsimple_runtime> -lm -o program && ./program"
@@ -715,6 +831,69 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_run_checked_memory_bridge
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memory_bridge.hs -o ${CMAKE_CURRENT_BINARY_DIR}/checked_memory_bridge && ${CMAKE_CURRENT_BINARY_DIR}/checked_memory_bridge"
+  )
+  add_hsc_shell_test(hsc_checked_abs_minimum_static_diagnostic
+    "! $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_abs_minimum_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: abs of minimum signed value' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_calloc_overflow_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_calloc_overflow.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: calloc size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_memcpy_overlap_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_memcpy_overlap.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: overlapping memcpy ranges' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_fread_bounds_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_fread_bounds.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: fread destination range out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_fwrite_bounds_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_fwrite_bounds.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: fwrite source range out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_abs_minimum_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_abs_minimum.hs -o program && ! printf '%s\\n' '-128' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: abs of minimum signed value' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_abs_minimum_omits_runtime_check
+    "$<TARGET_FILE:hsc> --static-checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_abs_minimum.hs -o module.ll && ! grep -Fq '@hs_abs_overflow' module.ll"
+  )
+  add_hsc_shell_test(hsc_checked_unterminated_fopen_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_unterminated_fopen.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: unterminated checked file name' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_null_file_handle_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_null_file_handle.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid file handle' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_calloc_overflow_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_calloc_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: calloc size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_fread_overflow_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: fread size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_fwrite_overflow_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fwrite_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: fwrite size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_fread_bounds_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid fread destination range' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_fwrite_bounds_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fwrite_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid fwrite source range' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_unterminated_strlen_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_unterminated_strlen.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: unterminated checked string' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_strcpy_capacity_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_strcpy_capacity.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: insufficient strcpy destination capacity' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_strcat_capacity_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_strcat_capacity.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: insufficient strcat destination capacity' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_memcpy_bounds_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid memcpy destination range' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_memcpy_overlap_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_overlap.hs -o program && ! printf '1' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: overlapping memcpy ranges' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_zero_length_memory_operands
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_zero_length_memory.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_checked_dynamic_scan_target_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_scan_target.hs -o program && ! printf 'x\\n' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr"
   )
   add_test(NAME hsc_compile_hello
     COMMAND hsc ${PROJECT_SOURCE_DIR}/examples/hello.hs
@@ -1063,6 +1242,13 @@ target_link_libraries(hsc_unit_tests
   add_test(NAME hsc_run_f16_f128_fallback
     COMMAND ${CMAKE_CURRENT_BINARY_DIR}/f16_f128_fallback_smoke
   )
+  add_test(NAME hsc_compile_f128_format_scan
+    COMMAND hsc ${PROJECT_SOURCE_DIR}/tests/cases/run/f128_format_scan.hs
+            -o ${CMAKE_CURRENT_BINARY_DIR}/f128_format_scan_smoke
+  )
+  add_hsc_shell_test(hsc_run_f128_format_scan
+    "printf '1.5\\n' | ${CMAKE_CURRENT_BINARY_DIR}/f128_format_scan_smoke >stdout && grep -Fx '1.5' stdout"
+  )
   add_test(NAME hsc_compile_checked_internal_global_pointer
     COMMAND hsc --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_internal_global_pointer.hs
             -o ${CMAKE_CURRENT_BINARY_DIR}/checked_internal_global_pointer_smoke
@@ -1400,6 +1586,12 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_run_f16_f128_fallback
     PROPERTIES FIXTURES_REQUIRED f16_f128_fallback_executable
+  )
+  set_tests_properties(hsc_compile_f128_format_scan
+    PROPERTIES FIXTURES_SETUP f128_format_scan_executable
+  )
+  set_tests_properties(hsc_run_f128_format_scan
+    PROPERTIES FIXTURES_REQUIRED f128_format_scan_executable
   )
   set_tests_properties(hsc_compile_checked_internal_global_pointer
     PROPERTIES FIXTURES_SETUP checked_internal_global_pointer_executable

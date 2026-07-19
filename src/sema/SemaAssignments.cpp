@@ -162,7 +162,8 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
           lowered.byteLength = lastTarget->byteLength;
           lowered.result = std::make_unique<hir::VariableRef>(
               lastTarget->name, lastTarget->bindingName,
-              lastTarget->byteLength, lastTarget->storage);
+              lastTarget->byteLength, lastTarget->storage,
+              lastTarget->templateName);
         } else {
           lowered.byteLength = 1;
           lowered.result = std::make_unique<hir::IntegerLiteral>("0", 1);
@@ -222,7 +223,7 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
     lowered.byteLength = lastTarget->byteLength;
     lowered.result = std::make_unique<hir::VariableRef>(
         lastTarget->name, lastTarget->bindingName, lastTarget->byteLength,
-        lastTarget->storage);
+        lastTarget->storage, lastTarget->templateName);
   } else {
     lowered.byteLength = 1;
     lowered.result = std::make_unique<hir::IntegerLiteral>("0", 1);
@@ -648,7 +649,7 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       arguments.push_back(std::make_unique<hir::VariableRef>(
           targetRef.name, targetRef.bindingName, targetRef.byteLength,
-          targetRef.storage, targetRef.offset));
+          targetRef.storage, targetRef.offset, targetRef.templateName));
       arguments.push_back(std::move(loweredValue));
       return std::make_unique<hir::UserTemplateOpCall>(
           info.symbolName, std::move(arguments), info.returnByteLengths.front());
@@ -767,7 +768,7 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
     }
     std::unique_ptr<hir::Expr> left = std::make_unique<hir::VariableRef>(
         targetRef.name, targetRef.bindingName, targetRef.byteLength,
-        targetRef.storage, targetRef.offset);
+        targetRef.storage, targetRef.offset, targetRef.templateName);
     if (unsignedTarget) {
       left = std::make_unique<hir::UnsignedExpr>(std::move(left),
                                                  targetRef.byteLength);
@@ -896,7 +897,8 @@ Analyzer::analyzeCompoundAssign(const ast::AssignStmt &assign,
   }
 
   auto left = std::make_unique<hir::VariableRef>(
-      target.name, target.bindingName, target.byteLength, target.storage);
+      target.name, target.bindingName, target.byteLength, target.storage,
+      target.templateName);
   auto value = std::make_unique<hir::BinaryExpr>(
       std::move(left), compoundBinaryOperator(assign.op), std::move(right),
       assignmentOp.byteLength);
