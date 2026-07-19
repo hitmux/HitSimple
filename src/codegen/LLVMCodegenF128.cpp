@@ -52,7 +52,7 @@ llvm::Value *LlvmEmitter::emitF128ResultCall(
     }
   }
   auto callee = declareCFunction(symbol, builder_.getVoidTy(), parameterTypes);
-  (void)emitCheckedRuntimeCall(callee, runtimeArguments);
+  builder_.CreateCall(callee, runtimeArguments);
   return builder_.CreateLoad(f128Type, resultStorage, std::string(name));
 }
 
@@ -85,7 +85,7 @@ LlvmEmitter::emitF128ScalarCall(std::string_view symbol, llvm::Type *returnType,
     }
   }
   auto callee = declareCFunction(symbol, returnType, parameterTypes);
-  return emitCheckedRuntimeCall(callee, runtimeArguments, name);
+  return builder_.CreateCall(callee, runtimeArguments, std::string(name));
 }
 
 } // namespace hitsimple::codegen
