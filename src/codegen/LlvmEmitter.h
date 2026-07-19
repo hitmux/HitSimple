@@ -65,8 +65,6 @@ public:
   LlvmEmitter(std::string moduleName, CodegenOptions options);
 
   EmitResult emit(const hir::TranslationUnit &unit);
-  EmitObjectResult emitObject(const hir::TranslationUnit &unit,
-                              const std::filesystem::path &outputPath);
 
 private:
   class DebugLocationScope final {

@@ -3,7 +3,6 @@
 #include "hitsimple/diagnostic/Diagnostic.h"
 #include "hitsimple/hir/HIR.h"
 
-#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,10 +11,6 @@ namespace hitsimple::codegen {
 
 struct EmitResult {
   std::string llvmIr;
-  std::vector<diagnostic::Diagnostic> diagnostics;
-};
-
-struct EmitObjectResult {
   std::vector<diagnostic::Diagnostic> diagnostics;
 };
 
@@ -40,15 +35,6 @@ struct CodegenOptions {
 EmitResult emitLlvmIr(const hir::TranslationUnit& unit,
                       std::string moduleName,
                       CodegenOptions options = {});
-
-EmitObjectResult emitObjectFile(const hir::TranslationUnit& unit,
-                                std::string moduleName,
-                                const std::filesystem::path& outputPath,
-                                CodegenOptions options = {});
-
-EmitObjectResult emitObjectFile(std::string_view llvmIr,
-                                const std::filesystem::path& outputPath,
-                                CodegenOptions options = {});
 
 DebugInfoFormat debugInfoFormatForTargetTriple(std::string_view targetTriple);
 

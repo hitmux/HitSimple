@@ -27,6 +27,7 @@ find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
 find_program(CLANGXX_EXECUTABLE NAMES clang++-18 clang++ REQUIRED)
 find_program(LLVM_AR_EXECUTABLE NAMES llvm-ar-18 llvm-ar REQUIRED)
 find_program(LLVM_NM_EXECUTABLE NAMES llvm-nm-18 llvm-nm REQUIRED)
+find_program(LLVM_PROFDATA_EXECUTABLE NAMES llvm-profdata-18 llvm-profdata REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
   NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
 )
@@ -63,6 +64,7 @@ message(STATUS "Found re2c: ${RE2C_EXECUTABLE}")
 message(STATUS "Found clang: ${CLANG_EXECUTABLE}")
 message(STATUS "Found clang++: ${CLANGXX_EXECUTABLE}")
 message(STATUS "Found llvm-ar: ${LLVM_AR_EXECUTABLE}")
+message(STATUS "Found llvm-profdata: ${LLVM_PROFDATA_EXECUTABLE}")
 
 file(GLOB HITSIMPLE_HANDWRITTEN_STANDARD_HEADERS
   "${PROJECT_SOURCE_DIR}/stdlib/*.hsh"
@@ -538,6 +540,24 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_emits_target_object
     "$<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs -o hello.o && test -s hello.o"
+  )
+  add_hsc_shell_test(hsc_optimization_levels_build_all_artifact_types
+    "for opt in -O0 -O1 -O2 -O3 -Os; do $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o executable-$opt && ./executable-$opt && $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} --emit-object $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object-$opt.o && test -s object-$opt.o && $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} --crate-type=staticlib $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o staticlib-$opt.a && test -s staticlib-$opt.a; done"
+  )
+  add_hsc_shell_test(hsc_optimization_is_forwarded_to_all_clang_build_steps
+    "printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANG_EXECUTABLE} \"$@\"' > clang-wrapper && printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANGXX_EXECUTABLE} \"$@\"' > clangxx-wrapper && chmod +x clang-wrapper clangxx-wrapper && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper ${PROJECT_SOURCE_DIR}/examples/hello.hs -o default-program && grep -Fx -- '-O2' clang.args && ! grep -Eq -- '^-O(0|1|3|s)$' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -O0 -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o last-wins-program && grep -Fx -- '-O3' clang.args && ! grep -Fx -- '-O0' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --emit-object -O1 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object.o && grep -Fx -- '-O1' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --crate-type=staticlib -Os ${PROJECT_SOURCE_DIR}/examples/hello.hs -o library.a && grep -Fx -- '-Os' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o mixed-c && ./mixed-c && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-c.optimizations && test \"$(wc -l < mixed-c.optimizations)\" -eq 3 && test \"$(sort -u mixed-c.optimizations | wc -l)\" -eq 1 && grep -Fx -- '-Os' mixed-c.optimizations && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --clangxx $PWD/clangxx-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o mixed-cxx && ./mixed-cxx && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-cxx.optimizations && test \"$(wc -l < mixed-cxx.optimizations)\" -eq 3 && test \"$(sort -u mixed-cxx.optimizations | wc -l)\" -eq 1 && grep -Fx -- '-Os' mixed-cxx.optimizations"
+  )
+  add_hsc_shell_test(hsc_emit_llvm_ignores_native_optimization_selection
+    "$<TARGET_FILE:hsc> --emit-llvm -O0 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o o0.ll && $<TARGET_FILE:hsc> --emit-llvm -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o o3.ll && cmp -s o0.ll o3.ll"
+  )
+  add_hsc_shell_test(hsc_pgo_instrument_and_use
+    "$<TARGET_FILE:hsc> -O2 --pgo-instrument=program.profraw ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-instrumented && ./program-instrumented >instrumented.stdout && grep -Fx '42' instrumented.stdout && test -s program.profraw && ${LLVM_PROFDATA_EXECUTABLE} merge -sparse program.profraw -o program.profdata && test -s program.profdata && $<TARGET_FILE:hsc> -O2 --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-pgo && ./program-pgo >pgo.stdout && grep -Fx '42' pgo.stdout"
+  )
+  add_hsc_shell_test(hsc_pgo_reports_invalid_options_and_outputs
+    "! $<TARGET_FILE:hsc> --pgo-unknown ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq \"unknown option '--pgo-unknown'\" stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'mutually exclusive' stderr && ! $<TARGET_FILE:hsc> --pgo-use=missing.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'PGO profile data does not exist' stderr && mkdir -p profile-directory && ! $<TARGET_FILE:hsc> --pgo-use=profile-directory ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'PGO profile data is not a regular file' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'only supported for --crate-type=bin' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --crate-type=staticlib ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'only supported for --crate-type=bin' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'not supported with --emit-llvm' stderr"
+  )
+  add_hsc_shell_test(hsc_help_documents_optimization_and_pgo
+    "$<TARGET_FILE:hsc> --help > help.txt && grep -Fq -- '-O0, -O1, -O2, -O3, -Os' help.txt && grep -Fq 'default: -O2' help.txt && grep -Fq -- '--pgo-instrument=<profraw>' help.txt && grep -Fq -- '--pgo-use=<profdata>' help.txt && grep -Fq 'llvm-profdata merge -sparse' help.txt"
   )
   add_hsc_shell_test(hsc_ctype_reference_executable
     "$<TARGET_FILE:hsc> --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program"

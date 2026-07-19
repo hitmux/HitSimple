@@ -86,6 +86,73 @@ struct ExternalBuildInputs final {
   }
 };
 
+enum class OptimizationLevel {
+  O0,
+  O1,
+  O2,
+  O3,
+  Os,
+};
+
+enum class PgoMode {
+  None,
+  Instrument,
+  Use,
+};
+
+struct NativeBackendOptions final {
+  OptimizationLevel optimization = OptimizationLevel::O2;
+  PgoMode pgoMode = PgoMode::None;
+  std::filesystem::path profilePath;
+};
+
+std::string_view clangOptimizationFlag(OptimizationLevel level) {
+  switch (level) {
+  case OptimizationLevel::O0:
+    return "-O0";
+  case OptimizationLevel::O1:
+    return "-O1";
+  case OptimizationLevel::O2:
+    return "-O2";
+  case OptimizationLevel::O3:
+    return "-O3";
+  case OptimizationLevel::Os:
+    return "-Os";
+  }
+  return "-O2";
+}
+
+void appendClangCodegenArguments(
+    std::vector<std::string>& arguments,
+    const NativeBackendOptions& backendOptions) {
+  arguments.emplace_back(clangOptimizationFlag(backendOptions.optimization));
+  switch (backendOptions.pgoMode) {
+  case PgoMode::None:
+    return;
+  case PgoMode::Instrument:
+    arguments.push_back(
+        "-fprofile-instr-generate=" +
+        hitsimple::support::pathToUtf8(backendOptions.profilePath));
+    return;
+  case PgoMode::Use:
+    arguments.push_back(
+        "-fprofile-instr-use=" +
+        hitsimple::support::pathToUtf8(backendOptions.profilePath));
+    return;
+  }
+}
+
+void appendClangLinkArguments(
+    std::vector<std::string>& arguments,
+    const NativeBackendOptions& backendOptions) {
+  arguments.emplace_back(clangOptimizationFlag(backendOptions.optimization));
+  if (backendOptions.pgoMode == PgoMode::Instrument) {
+    arguments.push_back(
+        "-fprofile-instr-generate=" +
+        hitsimple::support::pathToUtf8(backendOptions.profilePath));
+  }
+}
+
 void printHelp(std::ostream& out) {
   out << "Usage: hsc [options] <input>...\n"
       << "\n"
@@ -101,7 +168,15 @@ void printHelp(std::ostream& out) {
       << "  --emit-object     Emit one target object file\n"
       << "  --crate-type=<bin|object|staticlib>\n"
       << "                   Select executable, object, or static library output\n"
+      << "  -O0, -O1, -O2, -O3, -Os\n"
+      << "                   Select native optimization level (default: -O2);\n"
+      << "                   when repeated, the last option wins\n"
       << "  -g                Emit native debug information\n"
+      << "  --pgo-instrument=<profraw>\n"
+      << "                   Build an instrumented executable that writes LLVM\n"
+      << "                   raw profile data to <profraw>\n"
+      << "  --pgo-use=<profdata>\n"
+      << "                   Build an executable using an LLVM merged profile\n"
       << "  --timing          Print compilation timing to stderr\n"
       << "  --timing-json=<path>\n"
       << "                   Write versioned compilation timing JSON\n"
@@ -136,7 +211,13 @@ void printHelp(std::ostream& out) {
       << "                   Pass Cargo's comma- or space-separated feature list\n"
       << "  --cargo-no-default-features\n"
       << "                   Disable Cargo default features\n"
-      << "  -o <path>         Write output to <path>\n";
+      << "  -o <path>         Write output to <path>\n"
+      << "\n"
+      << "PGO workflow (executable builds only):\n"
+      << "  hsc -O2 --pgo-instrument=program.profraw program.hs -o program-instrumented\n"
+      << "  ./program-instrumented\n"
+      << "  llvm-profdata merge -sparse program.profraw -o program.profdata\n"
+      << "  hsc -O2 --pgo-use=program.profdata program.hs -o program-pgo\n";
 }
 
 void printVersion(std::ostream& out) {
@@ -993,6 +1074,98 @@ int emitLlvm(const std::string& inputPath,
   return EXIT_SUCCESS;
 }
 
+class TemporaryDirectory final {
+public:
+  explicit TemporaryDirectory(std::filesystem::path path) : path_(std::move(path)) {}
+
+  ~TemporaryDirectory() {
+    std::error_code error;
+    std::filesystem::remove_all(path_, error);
+  }
+
+  const std::filesystem::path& path() const { return path_; }
+
+private:
+  std::filesystem::path path_;
+};
+
+std::optional<std::filesystem::path> applyPgoPass(
+    const std::filesystem::path& llvmIrPath,
+    const NativeBackendOptions& backendOptions,
+    const hitsimple::support::LlvmOptSelection* llvmOpt) {
+  if (backendOptions.pgoMode == PgoMode::None) {
+    return llvmIrPath;
+  }
+  if (llvmOpt == nullptr || !llvmOpt->path) {
+    std::cerr << "hsc: LLVM opt is required for PGO IR transformation\n";
+    return std::nullopt;
+  }
+
+  auto transformedPath = llvmIrPath;
+  transformedPath.replace_extension(".pgo.ll");
+  std::vector<std::string> arguments;
+  if (backendOptions.pgoMode == PgoMode::Instrument) {
+    arguments.push_back("-passes=pgo-instr-gen");
+  } else {
+    arguments.push_back("-passes=pgo-instr-use");
+    arguments.push_back(
+        "-pgo-test-profile-file=" +
+        hitsimple::support::pathToUtf8(backendOptions.profilePath));
+  }
+  arguments.insert(arguments.end(),
+                   {"-S", hitsimple::support::pathToUtf8(llvmIrPath), "-o",
+                    hitsimple::support::pathToUtf8(transformedPath)});
+  const auto process = hitsimple::support::runProcess(*llvmOpt->path, arguments);
+  if (!process.launched) {
+    std::cerr << "hsc: cannot start LLVM opt '"
+              << hitsimple::support::pathToUtf8(*llvmOpt->path)
+              << "': " << process.error << '\n';
+    return std::nullopt;
+  }
+  if (process.exitCode != 0) {
+    std::cerr << "hsc: LLVM opt failed while applying PGO (exit code "
+              << process.exitCode << ")\n";
+    return std::nullopt;
+  }
+  return transformedPath;
+}
+
+bool emitObjectWithClang(
+    std::string_view llvmIr, const std::filesystem::path& llvmIrPath,
+    const std::filesystem::path& objectPath,
+    const hitsimple::support::ClangSelection& clang,
+    const NativeBackendOptions& backendOptions,
+    const hitsimple::support::LlvmOptSelection* llvmOpt) {
+  const auto llvmIrPathText = hitsimple::support::pathToUtf8(llvmIrPath);
+  if (!writeFile(llvmIrPathText, std::string(llvmIr))) {
+    std::cerr << "hsc: cannot write temporary LLVM IR '" << llvmIrPathText
+              << "'\n";
+    return false;
+  }
+
+  const auto codegenInput = applyPgoPass(llvmIrPath, backendOptions, llvmOpt);
+  if (!codegenInput) {
+    return false;
+  }
+  std::vector<std::string> arguments{
+      "-x", "ir", hitsimple::support::pathToUtf8(*codegenInput), "-c", "-o",
+      hitsimple::support::pathToUtf8(objectPath)};
+  appendClangCodegenArguments(arguments, backendOptions);
+  const auto process = hitsimple::support::runProcess(*clang.path, arguments);
+  if (!process.launched) {
+    std::cerr << "hsc: cannot start Clang '"
+              << hitsimple::support::pathToUtf8(*clang.path)
+              << "': " << process.error << '\n';
+    return false;
+  }
+  if (process.exitCode != 0) {
+    std::cerr << "hsc: Clang failed while compiling LLVM IR to object (exit code "
+              << process.exitCode << ")\n";
+    return false;
+  }
+  return true;
+}
+
 struct CompiledObjectTranslationUnit {
   std::size_t mainDefinitionCount = 0;
   std::vector<hitsimple::compat::LinkageMetadata> compatibilityLinkage;
@@ -1001,10 +1174,14 @@ struct CompiledObjectTranslationUnit {
 
 std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     const std::string& inputPath, const std::filesystem::path& outputPath,
+    const std::filesystem::path& llvmIrPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
     bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     bool includeSourceModules,
+    const hitsimple::support::ClangSelection& clang,
+    const NativeBackendOptions& backendOptions,
+    const hitsimple::support::LlvmOptSelection* llvmOpt,
     hitsimple::support::CompilationMetrics& metrics) {
   const auto metricsIndex = metrics.translationUnits().size();
   auto& unitMetrics = metrics.addTranslationUnit(inputPath);
@@ -1073,27 +1250,14 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     llvmIr = std::move(*merged);
   }
   auto& completedUnitMetrics = metrics.translationUnits().at(metricsIndex);
-  const auto objectResult = hitsimple::codegen::emitObjectFile(
-      llvmIr, outputPath, codegenOptions);
-  if (!objectResult.diagnostics.empty()) {
-    for (const auto& diagnostic : objectResult.diagnostics) {
-      std::cerr << "hsc: " << diagnostic << '\n';
-    }
+  completedUnitMetrics.llvmIrBytes = llvmIr.size();
+  if (!emitObjectWithClang(llvmIr, llvmIrPath, outputPath, clang,
+                           backendOptions, llvmOpt)) {
     metrics.fail(completedUnitMetrics.llvmEmission, emissionStarted);
     metrics.fail("llvm_emission");
     return std::nullopt;
   }
   metrics.complete(completedUnitMetrics.llvmEmission, emissionStarted);
-  std::error_code sizeError;
-  completedUnitMetrics.llvmIrBytes = static_cast<std::size_t>(
-      std::filesystem::file_size(outputPath, sizeError));
-  if (sizeError) {
-    std::cerr << "hsc: cannot inspect object output '"
-              << hitsimple::support::pathToUtf8(outputPath) << "': "
-              << sizeError.message() << '\n';
-    metrics.fail("llvm_emission");
-    return std::nullopt;
-  }
   return CompiledObjectTranslationUnit{mainCount,
                                        std::move(parsed->compatibilityLinkage),
                                        sourceModules};
@@ -1110,10 +1274,17 @@ int compileObject(const std::vector<std::string>& inputPaths,
                   hitsimple::codegen::CodegenOptions codegenOptions,
                   bool cCompatibilityMode,
                   hitsimple::stdlib::BuiltinProviderSelection providerSelection,
+                  const hitsimple::support::ClangSelection& clang,
+                  const NativeBackendOptions& backendOptions,
                   hitsimple::support::CompilationMetrics& metrics) {
   if (inputPaths.size() != 1U) {
     std::cerr << "hsc: --crate-type=object supports exactly one input file\n";
     metrics.fail("cli");
+    return EXIT_FAILURE;
+  }
+  if (!clang.path) {
+    std::cerr << "hsc: " << clang.error << '\n';
+    metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
   const auto objectPath = outputPath.value_or(defaultObjectOutputPath(
@@ -1122,10 +1293,25 @@ int compileObject(const std::vector<std::string>& inputPaths,
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
+  const auto temporaryPath = std::filesystem::temp_directory_path() /
+      ("hitsimple-object-" +
+       std::to_string(hitsimple::support::currentProcessId()));
+  std::error_code directoryError;
+  std::filesystem::remove_all(temporaryPath, directoryError);
+  directoryError.clear();
+  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
+    std::cerr << "hsc: cannot create object temporary directory '"
+              << hitsimple::support::pathToUtf8(temporaryPath) << "': "
+              << directoryError.message() << '\n';
+    metrics.fail("cli");
+    return EXIT_FAILURE;
+  }
+  TemporaryDirectory temporaryDirectory(temporaryPath);
   const auto writeStarted = metrics.now();
   if (!compileObjectTranslationUnit(
           inputPaths.front(), hitsimple::support::pathFromUtf8(objectPath),
-          codegenOptions, cCompatibilityMode, providerSelection, true, metrics)) {
+          temporaryPath / "unit.ll", codegenOptions, cCompatibilityMode,
+          providerSelection, true, clang, backendOptions, nullptr, metrics)) {
     return EXIT_FAILURE;
   }
   metrics.complete(metrics.llvmIrWrite(), writeStarted);
@@ -1133,31 +1319,23 @@ int compileObject(const std::vector<std::string>& inputPaths,
   return EXIT_SUCCESS;
 }
 
-class TemporaryDirectory final {
-public:
-  explicit TemporaryDirectory(std::filesystem::path path) : path_(std::move(path)) {}
-
-  ~TemporaryDirectory() {
-    std::error_code error;
-    std::filesystem::remove_all(path_, error);
-  }
-
-  const std::filesystem::path& path() const { return path_; }
-
-private:
-  std::filesystem::path path_;
-};
-
 int compileStaticLibrary(
     const std::vector<std::string>& inputPaths,
     const std::optional<std::string>& outputPath,
     hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     const hitsimple::support::LlvmArSelection& llvmAr,
+    const hitsimple::support::ClangSelection& clang,
+    const NativeBackendOptions& backendOptions,
     hitsimple::support::CompilationMetrics& metrics) {
   if (!llvmAr.path) {
     std::cerr << "hsc: " << llvmAr.error << '\n';
     metrics.fail("cli");
+    return EXIT_FAILURE;
+  }
+  if (!clang.path) {
+    std::cerr << "hsc: " << clang.error << '\n';
+    metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
   const auto archivePath = outputPath.value_or("libhitsimple.a");
@@ -1189,8 +1367,10 @@ int compileStaticLibrary(
     const auto objectPath = temporaryPath / ("unit-" +
         std::to_string(index) + ".o");
     auto compiled = compileObjectTranslationUnit(
-        inputPaths[index], objectPath, codegenOptions, cCompatibilityMode,
-        providerSelection, false, metrics);
+        inputPaths[index], objectPath,
+        temporaryPath / ("unit-" + std::to_string(index) + ".ll"),
+        codegenOptions, cCompatibilityMode, providerSelection, false, clang,
+        backendOptions, nullptr, metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
@@ -1208,12 +1388,11 @@ int compileStaticLibrary(
   for (std::size_t index = 0; index < sourceModules->size(); ++index) {
     const auto objectPath = temporaryPath /
         ("stdlib-" + std::to_string(index) + ".o");
-    const auto result = hitsimple::codegen::emitObjectFile(
-        (*sourceModules)[index].llvmIr, objectPath, codegenOptions);
-    if (!result.diagnostics.empty()) {
-      for (const auto& diagnostic : result.diagnostics) {
-        std::cerr << "hsc: " << diagnostic << '\n';
-      }
+    if (!emitObjectWithClang(
+            (*sourceModules)[index].llvmIr,
+            temporaryPath / ("stdlib-" + std::to_string(index) + ".ll"),
+            objectPath, clang, backendOptions, nullptr)) {
+      metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
     objectPaths.push_back(objectPath);
@@ -1352,6 +1531,8 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                       bool cCompatibilityMode,
                       hitsimple::stdlib::BuiltinProviderSelection providerSelection,
                       const hitsimple::support::ClangSelection& clang,
+                      const NativeBackendOptions& backendOptions,
+                      const hitsimple::support::LlvmOptSelection* llvmOpt,
                       hitsimple::support::CompilationMetrics& metrics) {
   if (!clang.path) {
     std::cerr << "hsc: " << clang.error << '\n';
@@ -1431,8 +1612,10 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
       return EXIT_FAILURE;
     }
   }
-  std::vector<std::filesystem::path> tempPaths;
-  tempPaths.reserve(units.size());
+  std::vector<std::filesystem::path> temporaryPaths;
+  temporaryPaths.reserve(units.size() * 2U);
+  std::vector<std::filesystem::path> clangInputPaths;
+  clangInputPaths.reserve(units.size());
   const auto tempDirectory = std::filesystem::temp_directory_path();
   const auto tempPrefix =
       "hitsimple-" +
@@ -1444,19 +1627,32 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     if (!writeFile(tempPathText, units[index].llvmIr)) {
       std::cerr << "hsc: cannot write temporary file '" << tempPathText
                 << "'\n";
-      for (const auto& path : tempPaths) {
+      for (const auto& path : temporaryPaths) {
         std::filesystem::remove(path);
       }
       metrics.fail(metrics.llvmIrWrite(), writeStarted);
       metrics.fail("llvm_ir_write");
       return EXIT_FAILURE;
     }
-    tempPaths.push_back(tempPath);
+    temporaryPaths.push_back(tempPath);
+    const auto codegenInput = applyPgoPass(tempPath, backendOptions, llvmOpt);
+    if (!codegenInput) {
+      for (const auto& path : temporaryPaths) {
+        std::filesystem::remove(path);
+      }
+      metrics.fail(metrics.llvmIrWrite(), writeStarted);
+      metrics.fail("llvm_ir_write");
+      return EXIT_FAILURE;
+    }
+    if (*codegenInput != tempPath) {
+      temporaryPaths.push_back(*codegenInput);
+    }
+    clangInputPaths.push_back(*codegenInput);
   }
   metrics.complete(metrics.llvmIrWrite(), writeStarted);
 
   std::vector<std::string> arguments{"-x", "ir"};
-  for (const auto& tempPath : tempPaths) {
+  for (const auto& tempPath : clangInputPaths) {
     arguments.push_back(hitsimple::support::pathToUtf8(tempPath));
   }
   if (const auto runtimeSource =
@@ -1470,6 +1666,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                                        hitsimple::support::pathToUtf8(
                                            hitsimple::support::runtimeLibraryPath())});
   }
+  appendClangCodegenArguments(arguments, backendOptions);
 #ifdef _WIN32
   arguments.push_back("--target=x86_64-w64-windows-gnu");
   arguments.push_back("-static-libgcc");
@@ -1490,7 +1687,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
   const auto linkStarted = metrics.now();
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);
-  for (const auto& tempPath : tempPaths) {
+  for (const auto& tempPath : temporaryPaths) {
     std::filesystem::remove(tempPath);
   }
   if (!process.launched) {
@@ -1535,6 +1732,8 @@ int compileMixedExecutable(
     const std::optional<std::filesystem::path>& clangOverride,
     const std::optional<std::filesystem::path>& clangxxOverride,
     const ExternalBuildInputs& externalInputs,
+    const NativeBackendOptions& backendOptions,
+    const hitsimple::support::LlvmOptSelection* llvmOpt,
     hitsimple::support::CompilationMetrics& metrics) {
   const bool linkOnlyExternalInputs = externalInputs.cSources.empty() &&
       externalInputs.cxxSources.empty() &&
@@ -1556,10 +1755,7 @@ int compileMixedExecutable(
   const bool useCxxLinker = externalInputs.linkerLanguage
       ? *externalInputs.linkerLanguage == LinkerLanguage::Cxx
       : !externalInputs.cxxSources.empty();
-  const bool needsCCompiler = !externalInputs.cSources.empty() ||
-      !useCxxLinker ||
-      hitsimple::support::pathEnvironmentVariable("HITSIMPLE_RUNTIME_SOURCE")
-          .has_value();
+  const bool needsCCompiler = true;
   const bool needsCxxCompiler = !externalInputs.cxxSources.empty() ||
       useCxxLinker;
   const auto clang = hitsimple::support::resolveClang(clangOverride);
@@ -1601,8 +1797,10 @@ int compileMixedExecutable(
     const auto objectPath = temporaryPath /
         ("hitsimple-" + std::to_string(index) + ".o");
     auto compiled = compileObjectTranslationUnit(
-        inputPaths[index], objectPath, codegenOptions, cCompatibilityMode,
-        providerSelection, false, metrics);
+        inputPaths[index], objectPath,
+        temporaryPath / ("hitsimple-" + std::to_string(index) + ".ll"),
+        codegenOptions, cCompatibilityMode, providerSelection, false, clang,
+        backendOptions, llvmOpt, metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
@@ -1660,12 +1858,11 @@ int compileMixedExecutable(
   for (std::size_t index = 0; index < sourceModules->size(); ++index) {
     const auto objectPath = temporaryPath /
         ("hitsimple-stdlib-" + std::to_string(index) + ".o");
-    const auto result = hitsimple::codegen::emitObjectFile(
-        (*sourceModules)[index].llvmIr, objectPath, codegenOptions);
-    if (!result.diagnostics.empty()) {
-      for (const auto& diagnostic : result.diagnostics) {
-        std::cerr << "hsc: " << diagnostic << '\n';
-      }
+    if (!emitObjectWithClang(
+            (*sourceModules)[index].llvmIr,
+            temporaryPath / ("hitsimple-stdlib-" + std::to_string(index) +
+                             ".ll"),
+            objectPath, clang, backendOptions, llvmOpt)) {
       metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
@@ -1696,6 +1893,7 @@ int compileMixedExecutable(
         (std::string(label) + "-" + std::to_string(index) + ".o");
     std::vector<std::string> arguments{"-c", source, "-o",
                                         hitsimple::support::pathToUtf8(objectPath)};
+    appendClangCodegenArguments(arguments, backendOptions);
     if (codegenOptions.emitDebugInfo) {
       arguments.push_back("-g");
     }
@@ -1779,6 +1977,7 @@ int compileMixedExecutable(
     linkArguments.push_back(hitsimple::support::pathToUtf8(
         hitsimple::support::runtimeLibraryPath()));
   }
+  appendClangLinkArguments(linkArguments, backendOptions);
 #ifdef _WIN32
   linkArguments.push_back("--target=x86_64-w64-windows-gnu");
   linkArguments.push_back("-static-libgcc");
@@ -1858,6 +2057,7 @@ int hscMain(const std::vector<std::string>& arguments) {
   hitsimple::support::CompilationMetrics metrics;
   hitsimple::codegen::CodegenOptions codegenOptions;
   codegenOptions.targetTriple = targetTriple();
+  NativeBackendOptions backendOptions;
   std::vector<std::string> inputPaths;
   std::optional<std::string> outputPath;
   std::optional<std::string> timingJsonPath;
@@ -1967,9 +2167,83 @@ int hscMain(const std::vector<std::string>& arguments) {
       return finish(EXIT_FAILURE);
     }
 
+    if (arg == "-O0") {
+      backendOptions.optimization = OptimizationLevel::O0;
+      continue;
+    }
+
+    if (arg == "-O1") {
+      backendOptions.optimization = OptimizationLevel::O1;
+      continue;
+    }
+
+    if (arg == "-O2") {
+      backendOptions.optimization = OptimizationLevel::O2;
+      continue;
+    }
+
+    if (arg == "-O3") {
+      backendOptions.optimization = OptimizationLevel::O3;
+      continue;
+    }
+
+    if (arg == "-Os") {
+      backendOptions.optimization = OptimizationLevel::Os;
+      continue;
+    }
+
     if (arg == "-g") {
       codegenOptions.emitDebugInfo = true;
       continue;
+    }
+
+    if (arg.starts_with("--pgo-instrument=")) {
+      const auto path =
+          arg.substr(std::string_view("--pgo-instrument=").size());
+      if (path.empty()) {
+        std::cerr << "hsc: --pgo-instrument requires a raw profile path\n";
+        return finish(EXIT_FAILURE);
+      }
+      if (backendOptions.pgoMode != PgoMode::None) {
+        if (backendOptions.pgoMode == PgoMode::Instrument) {
+          std::cerr << "hsc: --pgo-instrument may only be specified once\n";
+        } else {
+          std::cerr << "hsc: --pgo-instrument and --pgo-use are mutually exclusive\n";
+        }
+        return finish(EXIT_FAILURE);
+      }
+      backendOptions.pgoMode = PgoMode::Instrument;
+      backendOptions.profilePath = hitsimple::support::pathFromUtf8(path);
+      continue;
+    }
+
+    if (arg == "--pgo-instrument") {
+      std::cerr << "hsc: --pgo-instrument requires --pgo-instrument=<profraw>\n";
+      return finish(EXIT_FAILURE);
+    }
+
+    if (arg.starts_with("--pgo-use=")) {
+      const auto path = arg.substr(std::string_view("--pgo-use=").size());
+      if (path.empty()) {
+        std::cerr << "hsc: --pgo-use requires a merged profile path\n";
+        return finish(EXIT_FAILURE);
+      }
+      if (backendOptions.pgoMode != PgoMode::None) {
+        if (backendOptions.pgoMode == PgoMode::Use) {
+          std::cerr << "hsc: --pgo-use may only be specified once\n";
+        } else {
+          std::cerr << "hsc: --pgo-instrument and --pgo-use are mutually exclusive\n";
+        }
+        return finish(EXIT_FAILURE);
+      }
+      backendOptions.pgoMode = PgoMode::Use;
+      backendOptions.profilePath = hitsimple::support::pathFromUtf8(path);
+      continue;
+    }
+
+    if (arg == "--pgo-use") {
+      std::cerr << "hsc: --pgo-use requires --pgo-use=<profdata>\n";
+      return finish(EXIT_FAILURE);
     }
 
     if (arg == "--timing") {
@@ -2249,6 +2523,45 @@ int hscMain(const std::vector<std::string>& arguments) {
     return finish(EXIT_FAILURE);
   }
 
+  if (backendOptions.pgoMode != PgoMode::None &&
+      crateType != CrateType::Bin) {
+    std::cerr << "hsc: PGO options are only supported for --crate-type=bin\n";
+    return finish(EXIT_FAILURE);
+  }
+  if (backendOptions.pgoMode != PgoMode::None && !actions.empty()) {
+    if (shouldEmitLlvm) {
+      std::cerr << "hsc: PGO options are not supported with --emit-llvm\n";
+    } else {
+      std::cerr << "hsc: PGO options are only supported for executable builds\n";
+    }
+    return finish(EXIT_FAILURE);
+  }
+  if (backendOptions.pgoMode == PgoMode::Use) {
+    std::error_code profileError;
+    if (!std::filesystem::exists(backendOptions.profilePath, profileError)) {
+      std::cerr << "hsc: PGO profile data does not exist '"
+                << hitsimple::support::pathToUtf8(backendOptions.profilePath)
+                << "'\n";
+      return finish(EXIT_FAILURE);
+    }
+    if (!std::filesystem::is_regular_file(backendOptions.profilePath,
+                                          profileError)) {
+      std::cerr << "hsc: PGO profile data is not a regular file '"
+                << hitsimple::support::pathToUtf8(backendOptions.profilePath)
+                << "'\n";
+      return finish(EXIT_FAILURE);
+    }
+  }
+  std::optional<hitsimple::support::LlvmOptSelection> llvmOpt;
+  if (backendOptions.pgoMode != PgoMode::None) {
+    const auto pgoClang = hitsimple::support::resolveClang(clangOverride);
+    llvmOpt = hitsimple::support::resolveLlvmOpt(pgoClang.path);
+    if (!llvmOpt->path) {
+      std::cerr << "hsc: " << llvmOpt->error << '\n';
+      return finish(EXIT_FAILURE);
+    }
+  }
+
   const bool hasCargoBuildOptions = cargoManifest.has_value() ||
       cargoPackage.has_value() || cargoProfile.has_value() ||
       cargoFeatures.has_value() || cargoNoDefaultFeatures;
@@ -2419,13 +2732,17 @@ int hscMain(const std::vector<std::string>& arguments) {
 
   if (crateType == CrateType::Object) {
     return finish(compileObject(inputPaths, outputPath, codegenOptions,
-                                cCompatibilityMode, providerSelection, metrics));
+                                cCompatibilityMode, providerSelection,
+                                hitsimple::support::resolveClang(clangOverride),
+                                backendOptions, metrics));
   }
   if (crateType == CrateType::StaticLib) {
     return finish(compileStaticLibrary(
         inputPaths, outputPath, codegenOptions, cCompatibilityMode,
         providerSelection,
-        hitsimple::support::resolveLlvmAr(), metrics));
+        hitsimple::support::resolveLlvmAr(),
+        hitsimple::support::resolveClang(clangOverride), backendOptions,
+        metrics));
   }
 
   if (cargoManifest) {
@@ -2457,13 +2774,15 @@ int hscMain(const std::vector<std::string>& arguments) {
     return finish(compileMixedExecutable(
         inputPaths, outputPath, codegenOptions, cCompatibilityMode,
         providerSelection,
-        clangOverride, clangxxOverride, externalInputs, metrics));
+        clangOverride, clangxxOverride, externalInputs, backendOptions,
+        llvmOpt ? &*llvmOpt : nullptr, metrics));
   }
 
   return finish(compileExecutable(
       inputPaths, outputPath, codegenOptions, cCompatibilityMode,
       providerSelection,
-      hitsimple::support::resolveClang(clangOverride), metrics));
+      hitsimple::support::resolveClang(clangOverride), backendOptions,
+      llvmOpt ? &*llvmOpt : nullptr, metrics));
 }
 
 #ifdef _WIN32
