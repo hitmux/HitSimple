@@ -143,14 +143,11 @@ void appendClangCodegenArguments(
 
 void appendHitSimpleIrCodegenArguments(
     std::vector<std::string>& arguments,
-    const NativeBackendOptions& backendOptions, std::string_view targetTriple) {
+    const NativeBackendOptions& backendOptions) {
 #if defined(__APPLE__)
-  // The host Clang driver otherwise normalizes LLVM's Darwin triple to its
-  // default macOS deployment target and warns while replacing the module
-  // triple. Keep the IR and backend target identical.
-  arguments.push_back("--target=" + std::string(targetTriple));
-#else
-  (void)targetTriple;
+  // Clang normalizes LLVM's native Darwin host triple to its macOS deployment
+  // triple for the same ABI. Suppress only that expected driver diagnostic.
+  arguments.emplace_back("-Wno-override-module");
 #endif
   // The embedded New Pass Manager already applied the requested optimization
   // pipeline. Keep Clang in backend-only mode so it cannot silently select a
@@ -1329,7 +1326,7 @@ bool emitObjectWithClang(
     std::string_view llvmIr, const std::filesystem::path& llvmIrPath,
     const std::filesystem::path& objectPath,
     const hitsimple::support::ClangSelection& clang,
-    const NativeBackendOptions& backendOptions, std::string_view targetTriple) {
+    const NativeBackendOptions& backendOptions) {
   if (!validateBackendClangCompatibility(clang) ||
       !writeOptimizedLlvmIr(llvmIr, llvmIrPath, backendOptions)) {
     return false;
@@ -1337,7 +1334,7 @@ bool emitObjectWithClang(
   std::vector<std::string> arguments{
       "-x", "ir", hitsimple::support::pathToUtf8(llvmIrPath), "-c", "-o",
       hitsimple::support::pathToUtf8(objectPath)};
-  appendHitSimpleIrCodegenArguments(arguments, backendOptions, targetTriple);
+  appendHitSimpleIrCodegenArguments(arguments, backendOptions);
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);
   if (!process.launched) {
     std::cerr << "hsc: cannot start Clang '"
@@ -1434,7 +1431,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   auto& completedUnitMetrics = metrics.translationUnits().at(metricsIndex);
   completedUnitMetrics.llvmIrBytes = llvmIr.size();
   if (!emitObjectWithClang(llvmIr, llvmIrPath, outputPath, clang,
-                           backendOptions, codegenOptions.targetTriple)) {
+                           backendOptions)) {
     metrics.fail(completedUnitMetrics.llvmEmission, emissionStarted);
     metrics.fail("llvm_emission");
     return std::nullopt;
@@ -1573,7 +1570,7 @@ int compileStaticLibrary(
     if (!emitObjectWithClang(
             (*sourceModules)[index].llvmIr,
             temporaryPath / ("stdlib-" + std::to_string(index) + ".ll"),
-            objectPath, clang, backendOptions, codegenOptions.targetTriple)) {
+            objectPath, clang, backendOptions)) {
       metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
@@ -1832,8 +1829,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                                        hitsimple::support::pathToUtf8(
                                            hitsimple::support::runtimeLibraryPath())});
   }
-  appendHitSimpleIrCodegenArguments(arguments, backendOptions,
-                                    codegenOptions.targetTriple);
+  appendHitSimpleIrCodegenArguments(arguments, backendOptions);
 #ifdef _WIN32
   arguments.push_back("-static-libgcc");
   arguments.push_back("-static-libstdc++");
@@ -2027,7 +2023,7 @@ int compileMixedExecutable(
             (*sourceModules)[index].llvmIr,
             temporaryPath / ("hitsimple-stdlib-" + std::to_string(index) +
                              ".ll"),
-            objectPath, clang, backendOptions, codegenOptions.targetTriple)) {
+            objectPath, clang, backendOptions)) {
       metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
