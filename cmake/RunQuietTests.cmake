@@ -83,7 +83,26 @@ if(NOT failures EQUAL 0)
     "${junit}")
   foreach(failed_header IN LISTS failed_headers)
     string(REGEX MATCH [[name="([^"]*)"]] matched_name "${failed_header}")
-    print_line("[FAIL] ${CMAKE_MATCH_1}")
+    set(failed_test_name "${CMAKE_MATCH_1}")
+    print_line("[FAIL] ${failed_test_name}")
+
+    # JUnit records the failure state but some CTest versions omit the
+    # assertion text when --quiet is active. Re-run just the failed test to
+    # make its diagnostic available in CI logs.
+    execute_process(
+      COMMAND "${ctest_command}"
+        --test-dir "${build_dir}"
+        --output-on-failure
+        --tests-regex "^${failed_test_name}$"
+      OUTPUT_VARIABLE failed_test_stdout
+      ERROR_VARIABLE failed_test_stderr
+    )
+    if(NOT failed_test_stdout STREQUAL "")
+      print_line("${failed_test_stdout}")
+    endif()
+    if(NOT failed_test_stderr STREQUAL "")
+      print_line("${failed_test_stderr}")
+    endif()
   endforeach()
 
   string(REGEX MATCHALL
