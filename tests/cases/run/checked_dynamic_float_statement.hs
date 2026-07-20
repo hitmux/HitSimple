@@ -1,7 +1,7 @@
 $include <stdio.hsh>
 
 func main() {
-    new raw[8]
+    new raw as f64
     raw %f= 1.5
     print(raw as f64)
     new format[5] as cstr = "%8f\n"

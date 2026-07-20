@@ -98,6 +98,61 @@ HS_TEST(LLVMCodegen_EmitsMinimalProgramIr) {
   HS_EXPECT_TRUE(result.llvmIr.find("ret i32 0") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_PreservesPointerDerivedAddressesAndScalarLocals) {
+  auto result = emitSource("func main() {\n"
+                           "    new values[64]\n"
+                           "    new index as u64 = 4\n"
+                           "    new pointer as addr = &values[index]\n"
+                           "    [1]*pointer = 42\n"
+                           "    return [1]*pointer - 42\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("alloca i64") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("alloca ptr") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr i8") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_PreservesImmediateAddressRebindingAsPointerArithmetic) {
+  auto result = emitSource("func main() {\n"
+                           "    new values[16]\n"
+                           "    new base as addr = &values[0]\n"
+                           "    new offset as u64 = 8\n"
+                           "    new derived as addr = base? + offset?\n"
+                           "    new restored as addr = derived? - offset?\n"
+                           "    [8]*restored = 42\n"
+                           "    return [8]*restored - 42\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr i8") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_KeepsAllocationAndReallocationAsPointersUntilObserved) {
+  auto result = emitSource("func main() {\n"
+                           "    new original as addr = alloc(8)\n"
+                           "    new resized as addr = realloc(original, 16)\n"
+                           "    free(resized)\n"
+                           "    return 0\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @malloc") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @realloc") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_UsesNativeDebugFormatForTargetTriple) {
   const std::vector<std::pair<std::string, hitsimple::codegen::DebugInfoFormat>>
       targets = {
@@ -392,7 +447,7 @@ HS_TEST(LLVMCodegen_EmitsTypedBinaryIntegerOps) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("add i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("add i8") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find(", 2") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
 }
@@ -429,7 +484,7 @@ HS_TEST(LLVMCodegen_EmitsPrintfStringPointersAsVarargPointers) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr i64") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr i64") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsFileFormattedIoBuiltins) {
@@ -490,11 +545,12 @@ HS_TEST(LLVMCodegen_ReinterpretsTemporaryTemplateViewWithoutConversion) {
 
 HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> arguments;
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::IntegerLiteral>("0", sizeof(void *)));
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::StringLiteral>("\"%f\""));
-  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
+  arguments.push_back(std::make_unique<hitsimple::hir::IntegerLiteral>(
+      "0", hitsimple::hir::viewSemanticsForTemplate("addr", sizeof(void *))));
+  arguments.push_back(std::make_unique<hitsimple::hir::StringLiteral>(
+      "\"%f\"", hitsimple::hir::viewSemanticsForTemplate("cstr", 3)));
+  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>(
+      "1.5", hitsimple::hir::viewSemanticsForTemplate("f64", 8)));
 
   std::vector<std::unique_ptr<hitsimple::hir::Stmt>> statements;
   statements.push_back(std::make_unique<hitsimple::hir::Call>(
@@ -504,7 +560,8 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
           hitsimple::hir::FormatArgKind::String}));
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> returnValues;
   returnValues.push_back(
-      std::make_unique<hitsimple::hir::IntegerLiteral>("0", 4));
+      std::make_unique<hitsimple::hir::IntegerLiteral>(
+          "0", hitsimple::hir::viewSemanticsForTemplate("i32", 4)));
   statements.push_back(
       std::make_unique<hitsimple::hir::Return>(std::move(returnValues)));
 
@@ -527,16 +584,18 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
 
 HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForPrintfCallExpr) {
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> arguments;
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::StringLiteral>("\"%f\""));
-  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
+  arguments.push_back(std::make_unique<hitsimple::hir::StringLiteral>(
+      "\"%f\"", hitsimple::hir::viewSemanticsForTemplate("cstr", 3)));
+  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>(
+      "1.5", hitsimple::hir::viewSemanticsForTemplate("f64", 8)));
 
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> returnValues;
   returnValues.push_back(std::make_unique<hitsimple::hir::CallExpr>(
-      "printf", std::move(arguments), 4, false,
+      "printf", std::move(arguments), false,
       hitsimple::stdlib::BuiltinId::Printf,
       std::vector<hitsimple::hir::FormatArgKind>{
-          hitsimple::hir::FormatArgKind::String}));
+          hitsimple::hir::FormatArgKind::String},
+      0, "i32", hitsimple::hir::viewSemanticsForTemplate("i32", 4)));
   std::vector<std::unique_ptr<hitsimple::hir::Stmt>> statements;
   statements.push_back(
       std::make_unique<hitsimple::hir::Return>(std::move(returnValues)));
@@ -581,8 +640,7 @@ HS_TEST(LLVMCodegen_EmitsCompoundAssignmentAsLoadOpStore) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("load i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("sext i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("add i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("add i8") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
 }
 
@@ -732,7 +790,7 @@ HS_TEST(LLVMCodegen_EmitsStageEIntegerExpressions) {
                            "    x = 2\n"
                            "    x = (x + 2) * (x - 1) << 1\n"
                            "    x = x ** 3\n"
-                           "    x = x? >= 8 ? ~x : -'a'\n"
+                           "    x = x? >= 8 ? ~x : -('a' %4d+ 0)\n"
                            "    x = true && !false || x == 0\n"
                            "    return x\n"
                            "}\n");
@@ -935,7 +993,7 @@ HS_TEST(LLVMCodegen_EmitsStageFStringAndBoolStores) {
   HS_EXPECT_TRUE(result.llvmIr.find("store i8 101") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8 108") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8 0") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("icmp ne i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("icmp ne") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("zext i1") != std::string::npos);
 }
 
@@ -1046,9 +1104,9 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
                            "    new len = strlen(\"AB\")\n"
                            "    new cmp[4] = memcmp(ptr, ptr, 2)\n"
                            "    new off = strchr(\"AB\", 'B')\n"
-                           "    new swapped[2] = byte_swap(0x1234)\n"
-                           "    new lower[1] = 'a'\n"
-                           "    new up[1] = to_upper(lower)\n"
+                           "    new swapped[2] as bytes = byte_swap(0x1234 as bytes)\n"
+                           "    new lower[1] as u8 = 'a'\n"
+                           "    new up[1] as u8 = to_upper(lower)\n"
                            "    free(ptr)\n"
                            "    return len\n"
                            "}\n");
@@ -1062,7 +1120,7 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call ptr @strchr") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_strchr_offset") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("llvm.bswap") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_reverse_bytes") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@toupper") == std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("ctype.to_upper") != std::string::npos);
 }
@@ -1260,11 +1318,11 @@ HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
 HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
   auto result =
       emitSource("func main() {\n"
-                 "    new source[3] = 0x030201\n"
+                 "    new source[3] as bytes = 'ABC'\n"
                  "    new requested[8] = 3\n"
-                 "    new resized[3] = resize_bytes(source, requested)\n"
-                 "    new swapped[3] = byte_swap(source)\n"
-                 "    return resized + swapped\n"
+                 "    new resized[3] as bytes = resize_bytes(source, requested)\n"
+                 "    new swapped[3] as bytes = byte_swap(source)\n"
+                 "    return 0\n"
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -1281,7 +1339,7 @@ HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
                            "    new compared = memcmp(destination, source, 4)\n"
                            "    new textLength = strlen(\"ok\")\n"
                            "    free(heap)\n"
-                           "    return copied + compared + textLength\n"
+                           "    return compared\n"
                            "}\n",
                            optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
@@ -1564,7 +1622,7 @@ HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors) {
   auto staticPointerStore =
       emitSource("func main() {\n"
                  "    new a[4]\n"
-                 "    [1]*(&a + 4) = 1\n"
+                 "    [1]*((&a)? + 4) = 1\n"
                  "    return 0\n"
                  "}\n",
                  optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
@@ -1576,7 +1634,7 @@ HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors) {
   auto staticPointerLoad =
       emitSource("func main() {\n"
                  "    new a[4]\n"
-                 "    return [1]*(&a + 4)\n"
+                 "    return [1]*((&a)? + 4)\n"
                  "}\n",
                  optionsFor(hitsimple::codegen::SafetyMode::Checked));
   HS_EXPECT_TRUE(!staticPointerLoad.diagnostics.empty());
@@ -2262,4 +2320,89 @@ HS_TEST(LLVMCodegen_EmitsAddressOfStaticAndGlobalMemory) {
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint (ptr @local to i64)") !=
                  std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesSourceSemanticsForIntegerWidening) {
+  auto result = emitSource("func widen(value as u32) -> u64 {\n"
+                           "    return value\n"
+                           "}\n"
+                           "func main() {\n"
+                           "    new source as u32 = 16\n"
+                           "    new stored as u64 = source\n"
+                           "    new returned as u64 = widen(source)\n"
+                           "    new address as addr = alloc(source)\n"
+                           "    free(address)\n"
+                           "    return stored + returned\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("zext i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("sext i32") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @malloc(i64") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_LowersBooleanTestsForCompleteStaticAndDynamicViews) {
+  auto result = emitSource("func main() {\n"
+                           "    new wide as u64 = 4294967296\n"
+                           "    new fixed[3] as bytes\n"
+                           "    fixed[2] = 1\n"
+                           "    new length as u64 = 3\n"
+                           "    if (wide) { }\n"
+                           "    if (fixed) { }\n"
+                           "    if (resize_bytes(fixed, length)) { }\n"
+                           "    return 0\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %wide") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("cond.byte.nonzero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_view_any_nonzero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("trunc i64 to i32") ==
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesOnlyProvenAlignmentForPackedViews) {
+  auto result = emitSource("template Packed {\n"
+                           "    marker[1] as u8\n"
+                           "    value[8] as u64\n"
+                           "}\n"
+                           "func main() {\n"
+                           "    new packed as Packed\n"
+                           "    packed.value = 1\n"
+                           "    new copied as u64 = packed.value\n"
+                           "    return copied\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("store i64 1, ptr %packed.addr, align 1") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %packed.addr") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %packed.addr1, align 1") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedArithmeticGuardsAvoidPoison) {
+  auto result = emitSource("func arithmetic(divisor as i32, count as i32, "
+                           "exponent as i32) -> i32 {\n"
+                           "    return 1 / divisor + (1 << count) + (2 ** exponent)\n"
+                           "}\n"
+                           "func main() {\n"
+                           "    return arithmetic(1, 0, 0)\n"
+                           "}\n",
+                           optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_division_by_zero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_negative_shift") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_negative_exponent") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("div.special") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("phi i32") != std::string::npos);
 }

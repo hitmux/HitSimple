@@ -32,7 +32,7 @@ HS_TEST(Process_RunProcessUsesArgvAndUnicodeRedirectPath) {
                 std::istreambuf_iterator<char>());
   }
   std::filesystem::remove(output);
-  HS_EXPECT_TRUE(text.find("0 tests, 0 failures") != std::string::npos);
+  HS_EXPECT_TRUE(text.find("0/0 PASS") != std::string::npos);
 }
 
 HS_TEST(Path_Utf8RoundTripsUnicodeAndSpaces) {

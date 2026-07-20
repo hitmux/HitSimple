@@ -3,7 +3,7 @@ func main() {
     try {
         throw source
     } catch (error as addr) {
-        return error - 7
+        return error? - 7
     }
     return 1
 }

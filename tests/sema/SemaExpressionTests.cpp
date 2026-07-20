@@ -41,7 +41,7 @@ HS_TEST(Sema_LowersStageEIntegerExpressions) {
                               "    new x[4]\n"
                               "    x = (1 + 2 * 3) << 1\n"
                               "    x = x ** 3\n"
-                              "    x = x? >= 8 ? ~x : -'a'\n"
+                              "    x = x? >= 8 ? ~x : -('a' %4d+ 0)\n"
                               "    x = true && !false || x == 0\n"
                               "    return x\n"
                               "}\n");
@@ -50,16 +50,16 @@ HS_TEST(Sema_LowersStageEIntegerExpressions) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=+ bytes=4") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=* bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("IntegerLiteral value=14 bytes=1") !=
+                 std::string::npos);
   HS_EXPECT_TRUE(dump.find("BinaryExpr op=** bytes=4") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=<< bytes=4") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("UnsignedExpr bytes=4") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("BinaryExpr op=>= bytes=1") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("TernaryExpr bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("UnaryExpr op=! bytes=1") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("UnaryExpr op=~ bytes=4") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("UnaryExpr op=- bytes=4") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("UnaryExpr op=! bytes=1") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BooleanTestExpr") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("BinaryExpr op=&& bytes=1") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("BinaryExpr op=|| bytes=1") != std::string::npos);
 }
@@ -115,17 +115,17 @@ HS_TEST(Sema_ProviderSelectionAllowsUncaughtThrowWithoutDelivery) {
   HS_EXPECT_EQ(modules.front(), std::string("Ctype"));
 }
 
-HS_TEST(Sema_RejectsTypedIntegerConstantOverflow) {
+HS_TEST(Sema_FoldsTypedIntegerConstantModuloWidth) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[1]\n"
                               "    x = 120 %1d+ 10\n"
                               "    return x\n"
                               "}\n");
 
-  HS_EXPECT_TRUE(result.unit == nullptr);
-  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(result.diagnostics[0].find("constant expression overflows "
-                                            "1-byte integer") !=
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("IntegerLiteral value=130 bytes=1") !=
                  std::string::npos);
 }
 
@@ -307,8 +307,8 @@ HS_TEST(Sema_LowersStandardLibraryCoreCalls) {
                               "    memset(ptr, 0, 8)\n"
                               "    new len = length(ptr)\n"
                               "    new text_len = strlen(\"abc\")\n"
-                              "    new swapped[2] = byte_swap(0x1234)\n"
-                              "    new raw[1] = resize_bytes(swapped, 1)\n"
+                              "    new swapped[2] as bytes = byte_swap(0x1234 as bytes)\n"
+                              "    new raw[1] as bytes = resize_bytes(swapped, 1) as bytes\n"
                               "    new upper[1] = to_upper('a')\n"
                               "    free(ptr)\n"
                               "    return len\n"
@@ -325,7 +325,7 @@ HS_TEST(Sema_LowersStandardLibraryCoreCalls) {
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=strlen bytes=8") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("CallExpr callee=byte_swap bytes=2") !=
+  HS_EXPECT_TRUE(dump.find("DynamicByteViewExpr op=byte_swap") !=
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=resize_bytes bytes=1") !=
                  std::string::npos);
@@ -348,10 +348,10 @@ HS_TEST(Sema_AllowsDiscardingPutResult) {
 HS_TEST(Sema_LowersDynamicResizeBytesForAnExplicitlySizedTarget) {
   auto result =
       analyzeSource("func main() {\n"
-                    "    new source[3] = 0x030201\n"
+                    "    new source[3] as bytes = 'ABC'\n"
                     "    new requested[8] = 3\n"
-                    "    new result[3] = resize_bytes(source, requested)\n"
-                    "    return result\n"
+                    "    new result[3] as bytes = resize_bytes(source, requested)\n"
+                    "    return 0\n"
                     "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
@@ -363,13 +363,13 @@ HS_TEST(Sema_LowersDynamicResizeBytesForAnExplicitlySizedTarget) {
 }
 
 HS_TEST(Sema_AllowsLiteralResizeBytesInFixedReturn) {
-  auto result = analyzeSource("func trim(source[4]) -> [3] {\n"
-                              "    return resize_bytes(source, 3)\n"
+  auto result = analyzeSource("func trim(source[4] as bytes) -> [3] as bytes {\n"
+                              "    return resize_bytes(source, 3) as bytes\n"
                               "}\n"
                               "func main() {\n"
-                              "    new source[4] = 0x04030201\n"
-                              "    new result[3] = trim(source)\n"
-                              "    return result\n"
+                              "    new source[4] as bytes = 'ABCD'\n"
+                              "    new result[3] as bytes = trim(source)\n"
+                              "    return 0\n"
                               "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
@@ -378,16 +378,17 @@ HS_TEST(Sema_AllowsLiteralResizeBytesInFixedReturn) {
 
 HS_TEST(Sema_AllowsByteSwapForAnArbitraryFixedLengthView) {
   auto result = analyzeSource("func main() {\n"
-                              "    new source[3] = 0x030201\n"
-                              "    new result[3] = byte_swap(source)\n"
-                              "    return result\n"
+                              "    new source[3] as bytes = 'ABC'\n"
+                              "    new result[3] as bytes = byte_swap(source)\n"
+                              "    return 0\n"
                               "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find("ByteSwapExpr bytes=3") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("DynamicByteViewExpr op=byte_swap") !=
+                 std::string::npos);
 }
 
 HS_TEST(Sema_LowersFormattedAndRawOutputAsValueExpressions) {
@@ -396,8 +397,8 @@ HS_TEST(Sema_LowersFormattedAndRawOutputAsValueExpressions) {
                               "    new formatted = printf(\"%d\", 42)\n"
                               "    new filled = memset(bytes, 0, 3)\n"
                               "    new raw = print(bytes as none)\n"
-                              "    new written = put(bytes)\n"
-                              "    return formatted + filled + raw + written\n"
+                              "    new written = put('!')\n"
+                              "    return formatted + raw + written\n"
                               "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
@@ -724,7 +725,7 @@ HS_TEST(Sema_LowersUserTemplateOperatorThroughInternalViewAbi) {
                               "func main() {\n"
                               "    new lhs as Vec2\n"
                               "    new rhs as Vec2\n"
-                              "    new out[16] = lhs + rhs\n"
+                              "    new out as Vec2 = lhs + rhs\n"
                               "    return 0\n"
                               "}\n");
 
@@ -1099,7 +1100,7 @@ HS_TEST(Sema_DecodesEscapedCharAndStringLiteralBytes) {
   auto result = analyzeSource("func main() {\n"
                               "    new text %s= \"\\x41\\101\\u00E9\"\n"
                               "    new ch = '\\x41'\n"
-                              "    new wide = '\\u00E9'\n"
+                              "    new wide[2] as bytes = '\\u00E9'\n"
                               "    return ch\n"
                               "}\n");
 
@@ -1111,11 +1112,11 @@ HS_TEST(Sema_DecodesEscapedCharAndStringLiteralBytes) {
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("LocalMemory name=ch binding=ch bytes=1") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("IntegerLiteral value=65 bytes=1") !=
+  HS_EXPECT_TRUE(dump.find("CharacterLiteral bytes=1 rawByteCount=1") !=
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("LocalMemory name=wide binding=wide bytes=2") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("IntegerLiteral value=43459 bytes=2") !=
+  HS_EXPECT_TRUE(dump.find("CharacterLiteral bytes=2 rawByteCount=2") !=
                  std::string::npos);
 }
 
@@ -1182,18 +1183,17 @@ HS_TEST(Sema_RejectsMultiAssignmentCountMismatch) {
                  std::string::npos);
 }
 
-HS_TEST(Sema_RejectsNonIntegerBoolAssignmentSource) {
+HS_TEST(Sema_NormalizesArbitraryViewForBoolAssignment) {
   auto result = analyzeSource("func main() {\n"
                               "    new flag[1]\n"
                               "    flag %b= \"true\"\n"
                               "    return 0\n"
                               "}\n");
 
-  HS_EXPECT_TRUE(result.unit == nullptr);
-  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(result.diagnostics[0].find("right operand of '%b=' is not an "
-                                            "integer expression") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::dumpToString(*result.unit).find(
+                     "BooleanTestExpr") != std::string::npos);
 }
 
 HS_TEST(Sema_LowersAddressRebindingAndDereference) {
@@ -1233,6 +1233,57 @@ HS_TEST(Sema_LowersAddressOfIndexedMemoryForLibraryCalls) {
   HS_EXPECT_TRUE(dump.find("BinaryExpr op=+ bytes=8") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("AddressOf name=buffer binding=buffer targetBytes=4 "
                            "storage=local bytes=8") != std::string::npos);
+}
+
+HS_TEST(Sema_RecordsAddressFactsForOffsetsAndDynamicAllocations) {
+  auto result = analyzeSource(
+      "func main() {\n"
+      "    new buffer[32]\n"
+      "    new offset as u64 = 4\n"
+      "    new derived as addr = &buffer[offset]\n"
+      "    new allocation as addr = alloc(32)\n"
+      "    new resized as addr = realloc(allocation, 64)\n"
+      "    free(resized)\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("origin=local-object base=true") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("candidate=address-offset origin=pointer-derived "
+                           "base=false") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=alloc") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("origin=dynamic-allocation base=true") !=
+                 std::string::npos);
+}
+
+HS_TEST(Sema_RebindsImmediatePointerArithmeticAsAddressOffset) {
+  auto result = analyzeSource(
+      "func main() {\n"
+      "    new buffer[16]\n"
+      "    new base as addr = &buffer[0]\n"
+      "    new offset as u64 = 8\n"
+      "    new derived as addr = base? + offset?\n"
+      "    new restored as addr = derived? - offset?\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("IntegerStore target=derived binding=derived bytes=8 "
+                           "storage=local conversion=identity") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=+ bytes=8 candidate=address-offset "
+                           "origin=pointer-derived base=false") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=- bytes=8 candidate=address-offset "
+                           "origin=pointer-derived base=false") !=
+                 std::string::npos);
 }
 
 HS_TEST(Sema_LowersConcreteMinOverloadsAndResultTemplates) {
@@ -1383,9 +1434,9 @@ HS_TEST(Sema_LowersSignedAndBitwiseExpressions) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=<< bytes=4") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=| bytes=4") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("UnaryExpr op=~ bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("IntegerLiteral value=10 bytes=1") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("UnaryExpr op=~ bytes=1") != std::string::npos);
 }
 
 HS_TEST(Sema_LowersComparisonExpressionsToOneByteResults) {

@@ -1,3 +1,5 @@
+$include <stdlib.hsh>
+
 template Counter {
     value[4] as i32
 }
@@ -17,7 +19,7 @@ impl Counter {
 
     func add(self as Counter, amount as i16) -> as Counter {
         new result as Counter
-        result.value %d= self.value + amount
+        result.value %d= self.value + to_i32(amount)
         return result
     }
 }

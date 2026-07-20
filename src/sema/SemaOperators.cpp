@@ -9,27 +9,6 @@
 namespace hitsimple::sema {
 namespace {
 
-bool isUnsignedIntegerTemplate(std::string_view name) {
-  return name == "u8" || name == "u16" || name == "u32" || name == "u64";
-}
-
-std::optional<bool> integerOperationIsUnsigned(std::string_view op) {
-  if (!op.starts_with('%')) {
-    return std::nullopt;
-  }
-  const auto marker = op.find_last_of("duf");
-  if (marker == std::string_view::npos || marker + 1U >= op.size()) {
-    return std::nullopt;
-  }
-  if (op[marker] == 'u') {
-    return true;
-  }
-  if (op[marker] == 'd') {
-    return false;
-  }
-  return std::nullopt;
-}
-
 } // namespace
 
 std::size_t parseByteLength(std::string_view text) {
@@ -219,49 +198,14 @@ std::string compoundBinaryOperator(std::string_view assignmentOp) {
   return binaryOp;
 }
 
-namespace {
-
-bool isFloatCallExpression(const hir::Expr &expression) {
-  const auto *call = dynamic_cast<const hir::CallExpr *>(&expression);
-  return call != nullptr && call->isFloating;
-}
-
-bool isFloatTemplateView(const hir::Expr &expression) {
-  const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression);
-  if (view == nullptr) {
-    return false;
-  }
-  return view->templateName == "f16" || view->templateName == "f32" ||
-         view->templateName == "f64" || view->templateName == "f128";
-}
-
-} // namespace
-
 bool isIntegerExpression(const hir::Expr &expression) {
-  if (isFloatCallExpression(expression) || isFloatTemplateView(expression)) {
-    return false;
-  }
-  return dynamic_cast<const hir::IntegerLiteral *>(&expression) != nullptr ||
-         dynamic_cast<const hir::VariableRef *>(&expression) != nullptr ||
-         dynamic_cast<const hir::BinaryExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::UnaryExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::TernaryExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::IntegerCastExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::UserTemplateOpCallExpr *>(&expression) !=
-             nullptr ||
-         dynamic_cast<const hir::UserTemplateFormatCallExpr *>(&expression) !=
-             nullptr ||
-         dynamic_cast<const hir::AddressOfExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::DerefExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::AssignmentExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::CallExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) !=
-             nullptr ||
-         dynamic_cast<const hir::ByteSwapExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::FloatCompareExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::ToIntExpr *>(&expression) != nullptr;
+  // This legacy helper is kept for index/address call sites.  Ordinary
+  // operator and assignment resolution use the stricter View-category checks
+  // at their own boundary.  An addr remains integer-addressable for explicit
+  // dereference and address rebinding, but bytes/cstr/user/raw Views never do.
+  return hir::isIntegerNumeric(expression.result) ||
+         expression.result.category == hir::ViewCategory::Boolean ||
+         hir::isAddressValue(expression.result);
 }
 
 bool hasRuntimeDynamicView(const hir::Expr &expression) {
@@ -278,152 +222,31 @@ bool hasRuntimeDynamicView(const hir::Expr &expression) {
 }
 
 bool isUnsignedExpression(const hir::Expr &expression) {
-  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-    return isUnsignedIntegerTemplate(variable->templateName);
-  }
-  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
-    return isUnsignedIntegerTemplate(call->templateName);
-  }
-  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return isUnsignedIntegerTemplate(view->templateName);
-  }
-  if (const auto *cast = dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
-    return !cast->isSigned;
-  }
-  if (dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr) {
-    return true;
-  }
-  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    return integerOperationIsUnsigned(binary->op).value_or(
-        isUnsignedExpression(*binary->left) ||
-        isUnsignedExpression(*binary->right));
-  }
-  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
-    return isUnsignedExpression(*unary->operand);
-  }
-  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression)) {
-    return isUnsignedExpression(*ternary->thenExpr) ||
-           isUnsignedExpression(*ternary->elseExpr);
-  }
-  return false;
+  return expression.result.category == hir::ViewCategory::UnsignedInteger ||
+         expression.result.integerInterpretation ==
+             hir::IntegerInterpretation::Unsigned;
 }
 
 bool isFloatExpression(const hir::Expr &expression) {
-  return dynamic_cast<const hir::FloatLiteral *>(&expression) != nullptr ||
-         dynamic_cast<const hir::VariableRef *>(&expression) != nullptr ||
-         dynamic_cast<const hir::FloatBinaryExpr *>(&expression) != nullptr ||
-         dynamic_cast<const hir::ToFloatExpr *>(&expression) != nullptr ||
-         isFloatTemplateView(expression) ||
-         isFloatCallExpression(expression);
+  return hir::isFloatingNumeric(expression.result);
 }
 
 std::optional<std::size_t>
 integerExpressionByteLength(const hir::Expr &expression) {
-  if (const auto *integer =
-          dynamic_cast<const hir::IntegerLiteral *>(&expression)) {
-    return integer->byteLength;
+  if (!isIntegerExpression(expression) ||
+      expression.result.lengthKind != hir::ViewLengthKind::Static) {
+    return std::nullopt;
   }
-  if (const auto *variable =
-          dynamic_cast<const hir::VariableRef *>(&expression)) {
-    return variable->byteLength;
-  }
-  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    return binary->byteLength;
-  }
-  if (dynamic_cast<const hir::FloatCompareExpr *>(&expression) != nullptr) {
-    return 1;
-  }
-  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
-    return unary->byteLength;
-  }
-  if (const auto *ternary =
-          dynamic_cast<const hir::TernaryExpr *>(&expression)) {
-    return ternary->byteLength;
-  }
-  if (const auto *unsignedExpr =
-          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
-    return unsignedExpr->byteLength;
-  }
-  if (const auto *cast =
-          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
-    return cast->byteLength;
-  }
-  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return view->byteLength;
-  }
-  if (const auto *call =
-          dynamic_cast<const hir::UserTemplateOpCallExpr *>(&expression)) {
-    return call->byteLength;
-  }
-  if (const auto *call =
-          dynamic_cast<const hir::UserTemplateFormatCallExpr *>(&expression)) {
-    return call->byteLength;
-  }
-  if (const auto *address =
-          dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
-    return address->byteLength;
-  }
-  if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
-    return deref->byteLength;
-  }
-  if (const auto *conversion =
-          dynamic_cast<const hir::ToIntExpr *>(&expression)) {
-    return conversion->byteLength;
-  }
-  if (const auto *assignment =
-          dynamic_cast<const hir::AssignmentExpr *>(&expression)) {
-    return assignment->byteLength;
-  }
-  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
-    return call->byteLength;
-  }
-  if (const auto *view =
-          dynamic_cast<const hir::DynamicByteViewExpr *>(&expression)) {
-    if (view->operation == hir::DynamicByteViewOperation::ResizeBytes &&
-        view->runtimeLength != nullptr) {
-      const auto *length = dynamic_cast<const hir::IntegerLiteral *>(
-          view->runtimeLength.get());
-      if (length != nullptr) {
-        const auto parsed = literal::parseUnsignedIntegerLiteral(length->value);
-        if (parsed && *parsed <= std::numeric_limits<std::size_t>::max()) {
-          return static_cast<std::size_t>(*parsed);
-        }
-      }
-    }
-  }
-  if (const auto *swap = dynamic_cast<const hir::ByteSwapExpr *>(&expression)) {
-    return swap->byteLength;
-  }
-  return std::nullopt;
+  return expression.result.staticByteLength;
 }
 
 std::optional<std::size_t>
 floatExpressionByteLength(const hir::Expr &expression) {
-  if (const auto *floating =
-          dynamic_cast<const hir::FloatLiteral *>(&expression)) {
-    return floating->byteLength;
+  if (!isFloatExpression(expression) ||
+      expression.result.lengthKind != hir::ViewLengthKind::Static) {
+    return std::nullopt;
   }
-  if (const auto *variable =
-          dynamic_cast<const hir::VariableRef *>(&expression)) {
-    return variable->byteLength;
-  }
-  if (const auto *binary =
-          dynamic_cast<const hir::FloatBinaryExpr *>(&expression)) {
-    return binary->byteLength;
-  }
-  if (const auto *conversion =
-          dynamic_cast<const hir::ToFloatExpr *>(&expression)) {
-    return conversion->byteLength;
-  }
-  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return isFloatTemplateView(expression)
-               ? std::optional<std::size_t>{view->byteLength}
-               : std::nullopt;
-  }
-  if (isFloatCallExpression(expression)) {
-    return dynamic_cast<const hir::CallExpr *>(&expression)->byteLength;
-  }
-  return std::nullopt;
+  return expression.result.staticByteLength;
 }
 
 bool integerFits(const ast::IntegerLiteral &integer, std::size_t byteLength) {
@@ -462,10 +285,6 @@ std::size_t inferIntegerLiteralByteLength(const ast::IntegerLiteral &integer) {
   }
   if (value <= 0x7fffffffU) {
     return 4;
-  }
-  if (value > static_cast<std::uint64_t>(
-                  std::numeric_limits<std::int64_t>::max())) {
-    return 0;
   }
   return 8;
 }

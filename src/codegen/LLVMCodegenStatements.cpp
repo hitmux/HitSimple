@@ -104,6 +104,11 @@ void LlvmEmitter::emit(const hir::Stmt &statement) {
     return;
   }
 
+  if (const auto *store = dynamic_cast<const hir::ViewCopyStore *>(&statement)) {
+    emit(*store);
+    return;
+  }
+
   if (const auto *store = dynamic_cast<const hir::StringStore *>(&statement)) {
     emit(*store);
     return;
@@ -211,8 +216,32 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
     return;
   }
 
-  auto *storageType =
+  llvm::Type *storageType =
       llvm::ArrayType::get(builder_.getInt8Ty(), local.byteLength);
+  bool isPointerStorage = false;
+  if (local.storage == hir::MemoryStorage::Local) {
+    if (local.templateName == "i8" || local.templateName == "u8" ||
+        local.templateName == "bool") {
+      storageType = builder_.getInt8Ty();
+    } else if (local.templateName == "i16" || local.templateName == "u16") {
+      storageType = builder_.getInt16Ty();
+    } else if (local.templateName == "i32" || local.templateName == "u32") {
+      storageType = builder_.getInt32Ty();
+    } else if (local.templateName == "i64" || local.templateName == "u64") {
+      storageType = builder_.getInt64Ty();
+    } else if (local.templateName == "f16" || local.templateName == "f32" ||
+               local.templateName == "f64" || local.templateName == "f128") {
+      storageType = floatTypeForByteLength(local.byteLength);
+    } else if (local.templateName == "addr" &&
+               local.byteLength == sizeof(void *)) {
+      storageType = builder_.getPtrTy();
+      isPointerStorage = true;
+    }
+  }
+  if (storageType == nullptr) {
+    addDiagnostic("unsupported local storage for '" + local.name + "'");
+    return;
+  }
   if (local.storage == hir::MemoryStorage::StaticLocal) {
     auto *initializer = llvm::ConstantAggregateZero::get(storageType);
     auto *storage = new llvm::GlobalVariable(*module_, storageType, false,
@@ -220,7 +249,8 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
                                              initializer, local.bindingName);
     storage->setAlignment(llvm::Align(alignof(std::max_align_t)));
     locals_.emplace(local.bindingName,
-                    Local{storage, storageType, local.byteLength, std::nullopt});
+                    Local{storage, storageType, local.byteLength, std::nullopt,
+                          alignof(std::max_align_t)});
     registerStaticObject(storage, local.byteLength);
     declareDebugVariable(local.name, local.range, local.byteLength, storage);
     return;
@@ -229,7 +259,8 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
   auto *storage = createFunctionEntryAlloca(storageType, local.bindingName);
   storage->setAlignment(llvm::Align(alignof(std::max_align_t)));
   locals_.emplace(local.bindingName,
-                  Local{storage, storageType, local.byteLength, std::nullopt});
+                  Local{storage, storageType, local.byteLength, std::nullopt,
+                        alignof(std::max_align_t), isPointerStorage});
   registerLocalObject(storage, local.byteLength);
   declareDebugVariable(local.name, local.range, local.byteLength, storage);
 }
@@ -248,14 +279,40 @@ void LlvmEmitter::emit(const hir::IntegerStore &store) {
     return;
   }
 
-  auto *value = emitIntegerValue(*store.value, store.targetByteLength);
+  if (target->isPointerStorage ||
+      (target->abiType &&
+       target->abiType->kind == hir::AbiValueKind::Pointer)) {
+    auto *pointer = emitPointerValue(*store.value, store.target + ".pointer");
+    if (pointer == nullptr) {
+      return;
+    }
+    auto *written = builder_.CreateStore(
+        pointer, bytePointer(target->storageType, target->storage, store.offset,
+                             store.target + ".addr"));
+    written->setAlignment(alignmentAt(target->alignment, store.offset));
+    return;
+  }
+
+  const bool sourceUnsigned =
+      store.conversionPlan
+          ? store.conversionPlan->source.integerInterpretation ==
+                    hir::IntegerInterpretation::Unsigned ||
+                store.conversionPlan->source.category ==
+                    hir::ViewCategory::UnsignedInteger
+          : (store.value->result.integerInterpretation ==
+                     hir::IntegerInterpretation::Unsigned ||
+             store.value->result.category ==
+                 hir::ViewCategory::UnsignedInteger);
+  auto *value = emitIntegerValue(*store.value, store.targetByteLength,
+                                 sourceUnsigned);
   if (!value) {
     return;
   }
 
-  builder_.CreateStore(value,
-                       bytePointer(target->storageType, target->storage,
-                                   store.offset, store.target + ".addr"));
+  auto *written = builder_.CreateStore(
+      value, bytePointer(target->storageType, target->storage, store.offset,
+                         store.target + ".addr"));
+  written->setAlignment(alignmentAt(target->alignment, store.offset));
 }
 
 void LlvmEmitter::emit(const hir::FloatStore &store) {
@@ -277,9 +334,42 @@ void LlvmEmitter::emit(const hir::FloatStore &store) {
     return;
   }
 
-  builder_.CreateStore(value,
-                       bytePointer(target->storageType, target->storage,
-                                   store.offset, store.target + ".addr"));
+  auto *written = builder_.CreateStore(
+      value, bytePointer(target->storageType, target->storage, store.offset,
+                         store.target + ".addr"));
+  written->setAlignment(alignmentAt(target->alignment, store.offset));
+}
+
+void LlvmEmitter::emit(const hir::ViewCopyStore &store) {
+  const Local *target = nullptr;
+  if (const auto local = locals_.find(store.bindingName); local != locals_.end()) {
+    target = &local->second;
+  } else if (const auto global = globals_.find(store.bindingName);
+             global != globals_.end()) {
+    target = &global->second;
+  }
+  if (target == nullptr) {
+    addDiagnostic("unknown local '" + store.target + "'");
+    return;
+  }
+
+  const auto source = emitViewValue(*store.value);
+  if (source.data == nullptr || source.length == nullptr) {
+    return;
+  }
+  if (source.staticLength && *source.staticLength != store.targetByteLength) {
+    addDiagnostic("byte-copy source length does not match target length");
+    return;
+  }
+  if (!source.staticLength && hasRuntimeSafetyChecks()) {
+    (void)emitCheckedRuntimeCall(
+        declareCheckViewLength(),
+        {source.length, builder_.getInt64(store.targetByteLength)});
+  }
+  builder_.CreateMemCpy(
+      bytePointer(target->storageType, target->storage, store.offset,
+                  store.target + ".addr"),
+      llvm::Align(1), source.data, llvm::Align(1), store.targetByteLength);
 }
 
 void LlvmEmitter::emit(const hir::StringStore &store) {
@@ -307,12 +397,10 @@ void LlvmEmitter::emit(const hir::StringStore &store) {
     if (index < copiedBytes) {
       byte = static_cast<unsigned char>(decoded[index]);
     }
-    auto *offset =
-        builder_.getInt32(static_cast<std::uint32_t>(store.offset + index));
-    auto *pointer =
-        builder_.CreateInBoundsGEP(target->storageType, target->storage,
-                                   {builder_.getInt32(0), offset}, "str.addr");
-    builder_.CreateStore(constantByte(context_, byte), pointer);
+    auto *pointer = bytePointer(target->storageType, target->storage,
+                                store.offset + index, "str.addr");
+    auto *written = builder_.CreateStore(constantByte(context_, byte), pointer);
+    written->setAlignment(llvm::Align(1));
   }
 }
 
@@ -344,33 +432,32 @@ void LlvmEmitter::emit(const hir::StringCopyStore &store) {
 
   auto *activeStorage = builder_.CreateAlloca(builder_.getInt1Ty(), nullptr,
                                               "str.copy.active");
-  builder_.CreateStore(builder_.getTrue(), activeStorage);
+  activeStorage->setAlignment(llvm::Align(1));
+  auto *activeInitial = builder_.CreateStore(builder_.getTrue(), activeStorage);
+  activeInitial->setAlignment(llvm::Align(1));
   for (std::size_t index = 0; index < store.targetByteLength; ++index) {
     llvm::Value *byte = constantByte(context_, 0);
     auto *active = builder_.CreateLoad(builder_.getInt1Ty(), activeStorage,
                                        "str.copying");
+    active->setAlignment(llvm::Align(1));
     if (index + 1 < store.targetByteLength && index < store.sourceByteLength) {
-      auto *sourceOffset =
-          builder_.getInt32(static_cast<std::uint32_t>(
-              store.sourceOffset + index));
-      auto *sourcePointer = builder_.CreateInBoundsGEP(
-          source->storageType, source->storage,
-          {builder_.getInt32(0), sourceOffset}, "str.src");
+      auto *sourcePointer = bytePointer(source->storageType, source->storage,
+                                        store.sourceOffset + index, "str.src");
       auto *sourceByte =
           builder_.CreateLoad(builder_.getInt8Ty(), sourcePointer, "str.byte");
+      sourceByte->setAlignment(llvm::Align(1));
       byte = builder_.CreateSelect(active, sourceByte, constantByte(context_, 0),
                                    "str.copy.byte");
       auto *nonZero = builder_.CreateICmpNE(sourceByte, constantByte(context_, 0),
                                             "str.nonzero");
-      builder_.CreateStore(builder_.CreateAnd(active, nonZero), activeStorage);
+      auto *activeStore =
+          builder_.CreateStore(builder_.CreateAnd(active, nonZero), activeStorage);
+      activeStore->setAlignment(llvm::Align(1));
     }
-    auto *targetOffset =
-        builder_.getInt32(static_cast<std::uint32_t>(
-            store.targetOffset + index));
-    auto *targetPointer = builder_.CreateInBoundsGEP(
-        target->storageType, target->storage,
-        {builder_.getInt32(0), targetOffset}, "str.dst");
-    builder_.CreateStore(byte, targetPointer);
+    auto *targetPointer = bytePointer(target->storageType, target->storage,
+                                      store.targetOffset + index, "str.dst");
+    auto *written = builder_.CreateStore(byte, targetPointer);
+    written->setAlignment(llvm::Align(1));
   }
 }
 
@@ -388,28 +475,24 @@ void LlvmEmitter::emit(const hir::BoolStore &store) {
     return;
   }
 
-  auto *value = emitIntegerValue(*store.value, 4);
-  if (!value) {
+  auto *nonZero = emitConditionValue(*store.value);
+  if (!nonZero) {
     return;
   }
-  auto *nonZero = builder_.CreateICmpNE(
-      value, llvm::ConstantInt::get(value->getType(), 0), "bool.nonzero");
   auto *normalized = builder_.CreateZExt(nonZero, builder_.getInt8Ty());
 
   for (std::size_t index = 0; index < store.targetByteLength; ++index) {
-    auto *offset =
-        builder_.getInt32(static_cast<std::uint32_t>(store.offset + index));
-    auto *pointer =
-        builder_.CreateInBoundsGEP(target->storageType, target->storage,
-                                   {builder_.getInt32(0), offset}, "bool.addr");
-    builder_.CreateStore(index == 0 ? normalized : constantByte(context_, 0),
-                         pointer);
+    auto *pointer = bytePointer(target->storageType, target->storage,
+                                store.offset + index, "bool.addr");
+    auto *written = builder_.CreateStore(
+        index == 0 ? normalized : constantByte(context_, 0), pointer);
+    written->setAlignment(llvm::Align(1));
   }
 }
 
 void LlvmEmitter::emit(const hir::PointerStore &store) {
-  auto *addressValue = emitIntegerValue(*store.address, sizeof(void *));
-  if (!addressValue) {
+  auto *pointer = emitPointerValue(*store.address, "deref.store.addr");
+  if (!pointer) {
     return;
   }
   auto *targetType = integerTypeForByteLength(store.targetByteLength);
@@ -420,15 +503,14 @@ void LlvmEmitter::emit(const hir::PointerStore &store) {
   if (!value) {
     return;
   }
-  auto *pointer = builder_.CreateIntToPtr(addressValue, builder_.getPtrTy(),
-                                          "deref.store.addr");
   if (hasRuntimeSafetyChecks() &&
       !hasKnownStaticAddressRange(*store.address, store.targetByteLength)) {
     (void)emitCheckedRuntimeCall(
         declareCheckStore(),
         {pointer, builder_.getInt64(store.targetByteLength)});
   }
-  builder_.CreateStore(value, pointer);
+  auto *written = builder_.CreateStore(value, pointer);
+  written->setAlignment(llvm::Align(1));
 }
 
 llvm::Value *LlvmEmitter::emitFormatOutput(
@@ -502,13 +584,15 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
         return nullptr;
       }
       auto *storage = builder_.CreateAlloca(type, nullptr, "format.float");
+      storage->setAlignment(llvm::Align(1));
       auto *store = builder_.CreateStore(value, storage);
       store->setAlignment(llvm::Align(1));
       if (hasRuntimeSafetyChecks()) {
         (void)emitCheckedRuntimeCall(
             declareRegisterLocalObject(), {storage, builder_.getInt64(byteLength)});
       }
-      view = ViewValue{storage, builder_.getInt64(byteLength), byteLength};
+      view = ViewValue{storage, builder_.getInt64(byteLength), byteLength,
+                       std::size_t{1}};
     } else {
       view = emitViewValue(argument);
     }
@@ -519,12 +603,16 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
         llvm::ArrayType::get(descriptorType, argumentCount), descriptorStorage,
         {builder_.getInt32(0), builder_.getInt32(static_cast<unsigned>(index))},
         "format.argument");
-    builder_.CreateStore(view.data,
-                         builder_.CreateStructGEP(descriptorType, entry, 0));
-    builder_.CreateStore(view.length,
-                         builder_.CreateStructGEP(descriptorType, entry, 1));
-    builder_.CreateStore(builder_.getInt32(static_cast<unsigned>(kind)),
-                         builder_.CreateStructGEP(descriptorType, entry, 2));
+    auto *dataStore = builder_.CreateStore(
+        view.data, builder_.CreateStructGEP(descriptorType, entry, 0));
+    dataStore->setAlignment(llvm::Align(1));
+    auto *lengthStore = builder_.CreateStore(
+        view.length, builder_.CreateStructGEP(descriptorType, entry, 1));
+    lengthStore->setAlignment(llvm::Align(1));
+    auto *kindStore = builder_.CreateStore(
+        builder_.getInt32(static_cast<unsigned>(kind)),
+        builder_.CreateStructGEP(descriptorType, entry, 2));
+    kindStore->setAlignment(llvm::Align(1));
   }
   auto callee = declareCFunction("hs_format_output", i32Ty,
                                  {ptrTy, ptrTy, ptrTy, i64Ty, i32Ty});
@@ -581,7 +669,8 @@ ViewValue LlvmEmitter::emitUserTemplateFormatCall(
 
   auto *sinkStorage = createFunctionEntryAlloca(ptrTy, "format.sink");
   sinkStorage->setAlignment(llvm::Align(alignof(void *)));
-  builder_.CreateStore(sinkValue, sinkStorage);
+  auto *sinkStore = builder_.CreateStore(sinkValue, sinkStorage);
+  sinkStore->setAlignment(llvm::Align(alignof(void *)));
   if (hasRuntimeSafetyChecks()) {
     (void)emitCheckedRuntimeCall(
         declareRegisterLocalObject(),
@@ -592,7 +681,8 @@ ViewValue LlvmEmitter::emitUserTemplateFormatCall(
                       {firstBytePointer(resultType, result), source.data,
                        sinkStorage});
   return ViewValue{firstBytePointer(resultType, result),
-                   builder_.getInt64(resultByteLength), resultByteLength};
+                   builder_.getInt64(resultByteLength), resultByteLength,
+                   std::size_t{1}};
 }
 
 void LlvmEmitter::emit(const hir::Call &call) {
@@ -601,12 +691,10 @@ void LlvmEmitter::emit(const hir::Call &call) {
   auto *i64Ty = builder_.getInt64Ty();
 
   if (call.builtin == stdlib::BuiltinId::Free) {
-    auto *address = emitIntegerValue(*call.arguments[0], sizeof(void *));
-    if (!address) {
+    auto *pointer = emitPointerValue(*call.arguments[0], "free.ptr");
+    if (!pointer) {
       return;
     }
-    auto *pointer = builder_.CreateIntToPtr(address, builder_.getPtrTy(),
-                                            "free.ptr");
     (void)emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedFree() : declareFree(),
         {pointer});
@@ -674,11 +762,12 @@ void LlvmEmitter::emit(const hir::Call &call) {
   }
 
   if (call.builtin == stdlib::BuiltinId::Assert) {
-    auto *condition = emitIntegerValue(*call.arguments[0], 4);
+    auto *boolean = emitConditionValue(*call.arguments[0]);
     auto *code = emitIntegerValue(*call.arguments[1], 4);
-    if (!condition || !code) {
+    if (!boolean || !code) {
       return;
     }
+    auto *condition = builder_.CreateZExt(boolean, i32Ty, "assert.condition");
     auto callee =
         declareCFunction("hs_assert", builder_.getVoidTy(), {i32Ty, i32Ty});
     (void)emitCheckedRuntimeCall(callee, {condition, code});
@@ -789,8 +878,9 @@ void LlvmEmitter::emit(const hir::MultiReturnCallStore &call) {
     }
     auto *value = builder_.CreateExtractValue(
         result, {static_cast<unsigned>(targetInfo.returnIndex)}, "ret.item");
-    builder_.CreateStore(value,
-                         firstBytePointer(target->storageType, target->storage));
+    auto *written = builder_.CreateStore(
+        value, firstBytePointer(target->storageType, target->storage));
+    written->setAlignment(alignmentAt(target->alignment));
   }
 }
 
@@ -879,9 +969,13 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
     } else if (target.templateName == "cstr") {
       kindValue = 3;
     }
-    builder_.CreateStore(pointer, data);
-    builder_.CreateStore(builder_.getInt64(target.byteLength), capacity);
-    builder_.CreateStore(builder_.getInt32(kindValue), kind);
+    auto *dataStore = builder_.CreateStore(pointer, data);
+    dataStore->setAlignment(llvm::Align(1));
+    auto *capacityStore =
+        builder_.CreateStore(builder_.getInt64(target.byteLength), capacity);
+    capacityStore->setAlignment(llvm::Align(1));
+    auto *kindStore = builder_.CreateStore(builder_.getInt32(kindValue), kind);
+    kindStore->setAlignment(llvm::Align(1));
   }
 
   auto callee = declareCFunction("hs_scan_input", i32Ty,
@@ -895,7 +989,8 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
     if (pointer == nullptr) {
       return;
     }
-    builder_.CreateStore(count, pointer);
+    auto *countStore = builder_.CreateStore(count, pointer);
+    countStore->setAlignment(llvm::Align(1));
   }
 }
 

@@ -4,6 +4,8 @@
 .claude/
 AGENTS.md
 .hceignore
+Plan.md
+Issue.md
 
 # CMake and build output
 build/

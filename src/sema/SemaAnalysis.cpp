@@ -1,5 +1,6 @@
 #include "SemaAnalyzer.h"
 
+#include <iterator>
 #include <utility>
 
 namespace hitsimple::sema {
@@ -176,6 +177,10 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
       std::move(globals_), std::move(structLayouts), std::move(viewTemplates),
       std::move(implOps), std::move(externFunctions), std::move(functions),
       std::move(globalInit));
+  auto viewDiagnostics = hir::verifyViewSemantics(*result_.unit);
+  result_.diagnostics.insert(result_.diagnostics.end(),
+                             std::make_move_iterator(viewDiagnostics.begin()),
+                             std::make_move_iterator(viewDiagnostics.end()));
   return std::move(result_);
 }
 

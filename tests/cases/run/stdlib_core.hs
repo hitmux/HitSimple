@@ -13,9 +13,9 @@ func main() {
     new match = strchr(text, 'B')
     new text_base as addr = &text
     new expected_match as addr = text_base? + 1
-    new swapped[2] = byte_swap(0x1234)
-    new raw[1] = resize_bytes(swapped, 1)
-    new upper[1] = to_upper('a')
+    new swapped[2] as bytes = byte_swap(0x1234 as bytes)
+    new raw[1] as bytes = resize_bytes(swapped, 1)
+    new upper[1] as u8 = to_upper('a')
     free(ptr)
     new ok[1] = len == 2 && cmp == 0 && match == expected_match && upper == 'A'
     if (ok) {

@@ -110,7 +110,7 @@ HS_TEST(Sema_RejectsIntegerThatDoesNotFitTarget) {
 HS_TEST(Sema_RejectsIntegerLiteralAboveSignedEightByteRange) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[8]\n"
-                              "    x = 9223372036854775808\n"
+                              "    x = 18446744073709551616\n"
                               "    return 0\n"
                               "}\n");
 
@@ -749,7 +749,8 @@ HS_TEST(Sema_LowersMemberTemplateOverrideForOperatorLookup) {
                               "    new pair as Pair\n"
                               "    set pair.left as Vec2\n"
                               "    set pair.right as Vec2\n"
-                              "    return pair.left + pair.right\n"
+                              "    new result as Vec2 = pair.left + pair.right\n"
+                              "    return 0\n"
                               "}\n");
 
   HS_EXPECT_TRUE(result.unit != nullptr);
@@ -1065,7 +1066,7 @@ HS_TEST(Sema_RejectsHandleAssignmentAndOrdinaryOperators) {
                                   "}\n");
   HS_EXPECT_TRUE(arithmetic.unit == nullptr);
   HS_EXPECT_EQ(arithmetic.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(arithmetic.diagnostics[0].find("only support == and !=") !=
+  HS_EXPECT_TRUE(arithmetic.diagnostics[0].find("only supports same-template") !=
                  std::string::npos);
 
   auto dereference = analyzeSource("func main() {\n"
@@ -1158,7 +1159,7 @@ HS_TEST(Sema_RestoresParentRangeAfterNestedExpressionAnalysis) {
 
   HS_EXPECT_TRUE(result.unit == nullptr);
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(result.diagnostics[0].find("left operand of '+'") !=
+  HS_EXPECT_TRUE(result.diagnostics[0].find("cstr only supports") !=
                  std::string::npos);
   HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
   HS_EXPECT_EQ(result.diagnostics[0].range->begin.line, 2U);

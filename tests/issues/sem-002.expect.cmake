@@ -1,0 +1,8 @@
+set(CASE_ACTION "run")
+set(CASE_FLAGS "")
+set(EXPECT_COMPILE_EXIT "0")
+set(EXPECT_COMPILE_STDOUT_REGEX "^$")
+set(EXPECT_COMPILE_STDERR_REGEX "^$")
+set(EXPECT_RUN_EXIT "0")
+set(EXPECT_RUN_STDOUT_REGEX "^true\nfixed\ndynamic\n$")
+set(EXPECT_RUN_STDERR_REGEX "^$")

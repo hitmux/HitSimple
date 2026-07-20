@@ -5,18 +5,11 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
-#include <cstdint>
-#include <limits>
 #include <unordered_set>
 #include <utility>
 
 namespace hitsimple::sema {
 namespace {
-
-bool isLoweredFloatByteLength(std::size_t byteLength) {
-  return byteLength == 2 || byteLength == 4 || byteLength == 8 ||
-         byteLength == 16;
-}
 
 bool isFloatTemplate(std::string_view name) {
   return name.size() >= 2 && name.front() == 'f' &&
@@ -25,11 +18,6 @@ bool isFloatTemplate(std::string_view name) {
 
 bool isUnsignedTemplate(std::string_view name) {
   return name.size() >= 2 && name.front() == 'u' &&
-         parseByteLength(name.substr(1)) != 0;
-}
-
-bool isSignedTemplate(std::string_view name) {
-  return name.size() >= 2 && name.front() == 'i' &&
          parseByteLength(name.substr(1)) != 0;
 }
 
@@ -43,34 +31,6 @@ bool isReservedIdentifier(std::string_view name) {
     });
   }
   return false;
-}
-
-bool isI64MinLiteral(const ast::Expr &expr) {
-  const auto *unary = dynamic_cast<const ast::UnaryExpr *>(&expr);
-  if (unary == nullptr || unary->op != "-") {
-    return false;
-  }
-  const auto *integer =
-      dynamic_cast<const ast::IntegerLiteral *>(unary->operand.get());
-  return integer != nullptr && integer->value == "9223372036854775808";
-}
-
-std::unique_ptr<hir::Expr> lowerI64MinLiteral() {
-  return std::make_unique<hir::UnaryExpr>(
-      "-", std::make_unique<hir::IntegerLiteral>("9223372036854775808", 8), 8);
-}
-
-bool unsignedIntegerFits(const ast::IntegerLiteral &integer,
-                         std::size_t byteLength) {
-  const auto parsed = literal::parseUnsignedIntegerLiteral(integer.value);
-  if (!parsed || byteLength == 0 || byteLength > 8) {
-    return false;
-  }
-  if (byteLength == 8) {
-    return true;
-  }
-  const auto max = (std::uint64_t{1} << (byteLength * 8U)) - 1U;
-  return *parsed <= max;
 }
 
 } // namespace
@@ -346,169 +306,25 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
       symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
       symbol.templateName));
 
+  // A declaration initializer is an ordinary assignment to freshly-created
+  // storage.  Keep it on the same matcher as assignment statements so the
+  // standard matrix, conversion plan, and user-template rules cannot drift.
   if (item.initializer) {
-    const bool initializerIsHandle = isHandleExpression(*item.initializer);
-    if (symbol.templateName == "handle") {
-      if (item.assignmentOp != "=") {
-        addDiagnostic("handle target '" + item.name +
-                      "' only supports default assignment");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      if (!initializerIsHandle) {
-        addDiagnostic("handle target '" + item.name +
-                      "' can only be assigned from a handle value");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      auto value = analyze(*item.initializer);
-      if (value) {
-        statements.push_back(std::make_unique<hir::IntegerStore>(
-            symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
-            std::move(value)));
-      }
-      if (statements.size() == 1U) {
-        return std::move(statements.front());
-      }
+    const MemoryReference target{symbol.name, symbol.bindingName,
+                                 symbol.byteLength, symbol.storage, 0,
+                                 symbol.templateName};
+    ast::IdentifierExpr targetExpression(symbol.name);
+    auto store = lowerAssignmentTarget(
+        targetExpression, item.assignmentOp, isUnsignedTemplate(symbol.templateName),
+        *item.initializer, nullptr, &target, "initializer", "target");
+    if (!store) {
       return std::make_unique<hir::StatementList>(std::move(statements));
     }
-    if (initializerIsHandle) {
-      addDiagnostic("handle value may only be assigned to a handle target");
-      return std::make_unique<hir::StatementList>(std::move(statements));
+    statements.push_back(std::move(store));
+    if (statements.size() == 1U) {
+      return std::move(statements.front());
     }
-    if (item.assignmentOp == "&=") {
-      if (symbol.byteLength != pointerByteLength()) {
-        addDiagnostic("address rebinding target '" + item.name +
-                      "' must be pointer-sized");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      auto address = analyze(*item.initializer);
-      if (!address) {
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      if (!isIntegerExpression(*address) ||
-          integerExpressionByteLength(*address).value_or(0) !=
-              pointerByteLength()) {
-        addDiagnostic("right operand of '&=' is not a pointer-sized expression");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      statements.push_back(std::make_unique<hir::IntegerStore>(
-          symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
-          std::move(address)));
-      if (statements.size() == 1U) {
-        return std::move(statements.front());
-      }
-      return std::make_unique<hir::StatementList>(std::move(statements));
-    }
-
-    if (item.assignmentOp == "%s=" ||
-        (item.assignmentOp == "=" && symbol.templateName == "cstr")) {
-      auto stringStore = analyzeStringInitializer(item, symbol);
-      if (stringStore) {
-        statements.push_back(std::move(stringStore));
-      }
-      if (statements.size() == 1U) {
-        return std::move(statements.front());
-      }
-      return std::make_unique<hir::StatementList>(std::move(statements));
-    }
-
-    if (item.assignmentOp == "%b=") {
-      auto boolStore = analyzeBoolInitializer(item, symbol);
-      if (boolStore) {
-        statements.push_back(std::move(boolStore));
-      }
-      if (statements.size() == 1U) {
-        return std::move(statements.front());
-      }
-      return std::make_unique<hir::StatementList>(std::move(statements));
-    }
-
-    if (const auto floatLength = floatAssignmentByteLength(item.assignmentOp);
-        floatLength || (item.assignmentOp == "=" &&
-                        (isFloatTemplate(symbol.templateName) ||
-                         dynamic_cast<const ast::FloatLiteral *>(
-                             item.initializer.get()) != nullptr))) {
-      const auto targetLength =
-          !floatLength || *floatLength == 0 ? symbol.byteLength : *floatLength;
-      if (!isLoweredFloatByteLength(targetLength)) {
-        addDiagnostic("float byte length " + std::to_string(targetLength) +
-                      " is not supported yet for '" + item.name + "'");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      if (targetLength != symbol.byteLength) {
-        addDiagnostic("float initializer byte length does not match target '" +
-                      item.name + "'");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      auto value = analyzeFloatOperand(*item.initializer, symbol.byteLength);
-      if (value) {
-        statements.push_back(std::make_unique<hir::FloatStore>(
-            symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
-            std::move(value)));
-      }
-      if (statements.size() == 1U) {
-        return std::move(statements.front());
-      }
-      return std::make_unique<hir::StatementList>(std::move(statements));
-    }
-
-    if (item.assignmentOp != "=" &&
-        !integerAssignmentOperator(item.assignmentOp)) {
-      addDiagnostic("unsupported declaration initializer operator '" +
-                    item.assignmentOp + "'");
-      return std::make_unique<hir::StatementList>(std::move(statements));
-    }
-    if (const auto *integer =
-            dynamic_cast<const ast::IntegerLiteral *>(item.initializer.get())) {
-      const bool fits = isUnsignedTemplate(symbol.templateName)
-                            ? unsignedIntegerFits(*integer, symbol.byteLength)
-                            : integerFits(*integer, symbol.byteLength);
-      if (!fits) {
-        addDiagnostic("integer literal '" + integer->value +
-                      "' does not fit in target '" + item.name + "'");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      if (isUnsignedTemplate(symbol.templateName) &&
-          symbol.byteLength == 8) {
-        statements.push_back(std::make_unique<hir::IntegerStore>(
-            symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
-            std::make_unique<hir::IntegerLiteral>(integer->value,
-                                                  symbol.byteLength)));
-        if (statements.size() == 1U) {
-          return std::move(statements.front());
-        }
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-    }
-    if (isSignedTemplate(symbol.templateName) && symbol.byteLength == 8 &&
-        isI64MinLiteral(*item.initializer)) {
-      statements.push_back(std::make_unique<hir::IntegerStore>(
-          symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
-          lowerI64MinLiteral()));
-      if (statements.size() == 1U) {
-        return std::move(statements.front());
-      }
-      return std::make_unique<hir::StatementList>(std::move(statements));
-    }
-    if (const auto *character =
-            dynamic_cast<const ast::CharLiteral *>(item.initializer.get())) {
-      const auto decoded = literal::decodeCharLiteral(character->value);
-      if (!decoded) {
-        addDiagnostic("invalid character literal '" + character->value +
-                      "': " + *decoded.error);
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-      if (decoded.bytes.size() > symbol.byteLength) {
-        addDiagnostic("character literal byte length does not fit target '" +
-                      item.name + "'");
-        return std::make_unique<hir::StatementList>(std::move(statements));
-      }
-    }
-    auto value = analyze(*item.initializer);
-    if (value) {
-      statements.push_back(std::make_unique<hir::IntegerStore>(
-          symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
-          std::move(value)));
-    }
+    return std::make_unique<hir::StatementList>(std::move(statements));
   }
 
   if (statements.size() == 1U) {
@@ -598,30 +414,37 @@ Analyzer::analyzeIncrementStatement(const ast::UnaryExpr &expression) {
     addDiagnostic("unsupported expression statement");
     return nullptr;
   }
-  const auto reference = resolveAddressableReference(*expression.operand);
-  if (reference) {
-    const auto &templateName = reference->templateName;
-    if (isFloatTemplate(templateName) || templateName == "bool" ||
-        templateName == "addr" || templateName == "handle" ||
-        templateName == "cstr" || templateName == "bytes" ||
-        templates_.contains(templateName)) {
-      addDiagnostic("increment target must use an integer View");
-      return nullptr;
-    }
-  } else if (!result_.diagnostics.empty()) {
+  auto target = analyze(*expression.operand);
+  if (!target) {
     return nullptr;
   }
+  if (!target->result.isAddressable || !target->result.isMutableLValue) {
+    addDiagnostic("increment target must be a writable lvalue");
+    return nullptr;
+  }
+  if (!hir::isIntegerNumeric(target->result)) {
+    addDiagnostic("increment target must use an integer View");
+    return nullptr;
+  }
+  const auto byteLength = target->result.staticByteLength;
+  const bool unsignedTarget =
+      target->result.category == hir::ViewCategory::UnsignedInteger ||
+      target->result.integerInterpretation == hir::IntegerInterpretation::Unsigned;
+  const auto typedOperator = "%" + std::to_string(byteLength) +
+                             (unsignedTarget ? "u" : "d") +
+                             (expression.op == "post++" ? "+=" : "-=");
 
   ast::IntegerLiteral one("1");
   return lowerAssignmentTarget(
-      *expression.operand, expression.op == "post++" ? "%d+=" : "%d-=",
-      false, one, std::make_unique<hir::IntegerLiteral>("1", 1));
+      *expression.operand, typedOperator, unsignedTarget, one,
+      std::make_unique<hir::IntegerLiteral>("1", signedIntegerResult(1)));
 }
 
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
   std::vector<std::unique_ptr<hir::Expr>> values;
   std::vector<std::size_t> byteLengths;
-  std::vector<bool> handleValues;
+  std::vector<std::string> inferredTemplateNames;
+  std::vector<hir::ConversionPlan> conversionPlans;
   if (currentFunction_ != nullptr && currentFunction_->returnsKnown &&
       currentFunction_->returnByteLengths.size() != statement.values.size()) {
     addDiagnostic("return value count does not match function signature");
@@ -670,6 +493,10 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
         currentFunction_ != nullptr &&
         index < currentFunction_->returnTemplateNames.size() &&
         isFloatTemplate(currentFunction_->returnTemplateNames[index]);
+    const bool expectsUserTemplate =
+        currentFunction_ != nullptr &&
+        index < currentFunction_->returnTemplateNames.size() &&
+        templates_.contains(currentFunction_->returnTemplateNames[index]);
     const auto expectedLength =
         currentFunction_ != nullptr && currentFunction_->returnsKnown
             ? currentFunction_->returnByteLengths[index]
@@ -684,53 +511,95 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
                     "signature");
       return nullptr;
     }
-    if (!expectsFloat && !isIntegerExpression(*lowered)) {
+    const auto byteLength = lowered->result.lengthKind ==
+                                    hir::ViewLengthKind::Static
+                                ? lowered->result.staticByteLength
+                                : std::size_t{0};
+    const bool expectsExactView =
+        currentFunction_ != nullptr && currentFunction_->returnsKnown &&
+        (returnTemplate == "bytes" || returnTemplate == "cstr" ||
+         returnTemplate == "handle");
+    if (expectsExactView &&
+        (lowered->result.templateName != returnTemplate ||
+         byteLength != expectedLength)) {
+      addDiagnostic("return value does not exactly match function View "
+                    "signature");
+      return nullptr;
+    }
+    if (currentFunction_ != nullptr && currentFunction_->returnsKnown &&
+        !expectsFloat && !expectsUserTemplate && !expectsExactView &&
+        !isIntegerExpression(*lowered)) {
       addDiagnostic("return value is not an integer expression");
       return nullptr;
     }
-    const auto byteLength = expectsFloat
-                                ? floatExpressionByteLength(*lowered).value_or(0)
-                                : integerExpressionByteLength(*lowered).value_or(4);
+    if (expectsUserTemplate &&
+        (lowered->result.templateName != returnTemplate ||
+         byteLength != expectedLength)) {
+      addDiagnostic("return value does not match user template signature");
+      return nullptr;
+    }
     if (currentFunction_ != nullptr && currentFunction_->returnsKnown &&
         currentFunction_->returnsExplicit) {
       const auto expected = currentFunction_->returnByteLengths[index];
-      if (byteLength > expected && expected < 8) {
+      if (!currentFunction_->isCAbi && byteLength > expected && expected < 8) {
         addDiagnostic("return value byte length does not fit function "
                       "signature");
         return nullptr;
+      }
+      const auto source = lowered->result;
+      const auto destination = fixedResult(std::string(returnTemplate), expected);
+      const auto conversion = expectsFloat
+                                  ? hir::ConversionKind::Floating
+                                  : expectsUserTemplate
+                                        ? hir::ConversionKind::UserTemplateAssignment
+                                        : expectsExactView
+                                              ? hir::ConversionKind::Identity
+                                        : source.staticByteLength == expected
+                                              ? hir::ConversionKind::Identity
+                                              : hir::ConversionKind::IntegerWidth;
+      conversionPlans.push_back(
+          hir::ConversionPlan{conversion, source, destination});
+      if (!expectsFloat && !expectsUserTemplate && !expectsExactView &&
+          source.staticByteLength != expected) {
+        const bool destinationSigned =
+            returnTemplate.empty() || returnTemplate == "none" ||
+            returnTemplate.starts_with('i');
+        lowered = std::make_unique<hir::IntegerCastExpr>(
+            std::move(lowered), destinationSigned,
+            destinationSigned ? signedIntegerResult(expected)
+                              : unsignedIntegerResult(expected));
       }
       byteLengths.push_back(expected);
     } else {
       byteLengths.push_back(byteLength);
     }
     values.push_back(std::move(lowered));
-    handleValues.push_back(valueIsHandle);
+    inferredTemplateNames.push_back(values.back()->result.templateName);
   }
   if (currentFunction_ != nullptr && !currentFunction_->returnsKnown) {
-    currentFunction_->returnTemplateNames.clear();
-    currentFunction_->returnTemplateNames.reserve(handleValues.size());
-    for (const bool valueIsHandle : handleValues) {
-      currentFunction_->returnTemplateNames.push_back(
-          valueIsHandle ? "handle" : "");
+    currentFunction_->returnTemplateNames = std::move(inferredTemplateNames);
+    currentFunction_->returnHasExplicitUserTemplate.clear();
+    currentFunction_->returnHasExplicitUserTemplate.reserve(
+        currentFunction_->returnTemplateNames.size());
+    for (const auto &templateName : currentFunction_->returnTemplateNames) {
+      currentFunction_->returnHasExplicitUserTemplate.push_back(
+          templates_.contains(templateName));
     }
   }
   if (!registerReturnLengths(byteLengths)) {
     return nullptr;
   }
-  return std::make_unique<hir::Return>(std::move(values));
+  return std::make_unique<hir::Return>(std::move(values),
+                                       std::move(conversionPlans));
 }
 
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::IfStmt &statement) {
-  if (isHandleExpression(*statement.condition)) {
-    addDiagnostic("handle values cannot be used as conditions");
-    return nullptr;
-  }
   auto condition = analyze(*statement.condition);
   if (!condition) {
     return nullptr;
   }
-  if (!isIntegerExpression(*condition)) {
-    addDiagnostic("if condition is not an integer expression");
+  if (!hir::isBooleanTestable(condition->result)) {
+    addDiagnostic("if condition cannot form a View");
     return nullptr;
   }
 
@@ -740,21 +609,19 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::IfStmt &statement) {
     elseBlock = analyze(*statement.elseBlock);
   }
 
-  return std::make_unique<hir::If>(std::move(condition), std::move(thenBlock),
-                                   std::move(elseBlock));
+  return std::make_unique<hir::If>(
+      std::make_unique<hir::BooleanTestExpr>(std::move(condition),
+                                             booleanResult()),
+      std::move(thenBlock), std::move(elseBlock));
 }
 
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::WhileStmt &statement) {
-  if (isHandleExpression(*statement.condition)) {
-    addDiagnostic("handle values cannot be used as conditions");
-    return nullptr;
-  }
   auto condition = analyze(*statement.condition);
   if (!condition) {
     return nullptr;
   }
-  if (!isIntegerExpression(*condition)) {
-    addDiagnostic("while condition is not an integer expression");
+  if (!hir::isBooleanTestable(condition->result)) {
+    addDiagnostic("while condition cannot form a View");
     return nullptr;
   }
 
@@ -762,7 +629,10 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::WhileStmt &statement) {
   auto body = analyze(*statement.body);
   --loopDepth_;
 
-  return std::make_unique<hir::While>(std::move(condition), std::move(body));
+  return std::make_unique<hir::While>(
+      std::make_unique<hir::BooleanTestExpr>(std::move(condition),
+                                             booleanResult()),
+      std::move(body));
 }
 
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ForStmt &statement) {
@@ -776,24 +646,20 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ForStmt &statement) {
 
   std::unique_ptr<hir::Expr> condition;
   if (statement.condition) {
-    if (isHandleExpression(*statement.condition)) {
-      addDiagnostic("handle values cannot be used as conditions");
-      --blockDepth_;
-      endScope();
-      return nullptr;
-    }
     condition = analyze(*statement.condition);
     if (!condition) {
       --blockDepth_;
       endScope();
       return nullptr;
     }
-    if (!isIntegerExpression(*condition)) {
-      addDiagnostic("for condition is not an integer expression");
+    if (!hir::isBooleanTestable(condition->result)) {
+      addDiagnostic("for condition cannot form a View");
       --blockDepth_;
       endScope();
       return nullptr;
     }
+    condition = std::make_unique<hir::BooleanTestExpr>(
+        std::move(condition), booleanResult());
   }
 
   std::vector<std::unique_ptr<hir::Stmt>> post;

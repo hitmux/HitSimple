@@ -98,7 +98,7 @@ jobs:
 
       - name: Run x86_64 regression suite
         if: matrix.architecture == 'x86_64'
-        run: ctest --test-dir build-release --output-on-failure --parallel 4
+        run: cmake -DBUILD_DIR=build-release -P cmake/RunQuietTests.cmake
 
       - name: Run aarch64 front-end and executable regression
         if: matrix.architecture == 'aarch64'
@@ -141,7 +141,7 @@ jobs:
             exit 1
           fi
           grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr
-          ctest --test-dir build-release --output-on-failure -R '^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy)$'
+          cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy)$' -P cmake/RunQuietTests.cmake
 
       - name: Verify native preprocessor macro
         shell: bash
@@ -392,7 +392,7 @@ jobs:
           grep -Fx 'f128.backend: boost.cpp_bin_float.113-bit-software-binary128' target-info.txt
           grep -Fx 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider' target-info.txt
           grep -Fx 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode' target-info.txt
-          ctest --test-dir build-macos --output-on-failure --parallel 4
+          cmake -DBUILD_DIR=build-macos -P cmake/RunQuietTests.cmake
           for mode in --unchecked --static-checked --checked; do
             output="$RUNNER_TEMP/hello-${mode#--}"
             ./build-macos/hsc "$mode" examples/hello.hs -o "$output"
@@ -804,7 +804,7 @@ jobs:
       - name: Run portable Windows CTest cases
         shell: pwsh
         run: |
-          ctest --test-dir build-windows --output-on-failure -R '^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm)$'
+          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm)$' -P cmake/RunQuietTests.cmake
 
       - name: Assemble full and slim packages
         shell: pwsh

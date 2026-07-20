@@ -13,6 +13,7 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/Support/Alignment.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -35,6 +36,13 @@ struct Local {
   llvm::Type *storageType = nullptr;
   std::size_t byteLength = 0;
   std::optional<hir::AbiType> abiType;
+  // This records a fact about the storage address, not the preferred
+  // alignment of the value currently being accessed through it.
+  std::size_t alignment = 1;
+  // Core addr locals retain native pointer storage.  This is intentionally
+  // separate from abiType: it records a lowering representation, not a C ABI
+  // promise.
+  bool isPointerStorage = false;
 };
 
 struct LoopTargets {
@@ -59,6 +67,9 @@ struct ViewValue {
   llvm::Value *data = nullptr;
   llvm::Value *length = nullptr;
   std::optional<std::size_t> staticLength;
+  // A generic View is byte-addressed.  A larger value is present only when
+  // the storage origin proves it for this exact View address.
+  std::size_t alignment = 1;
 };
 
 class LlvmEmitter {
@@ -134,6 +145,7 @@ private:
   void emit(const hir::LocalMemory &local);
   void emit(const hir::IntegerStore &store);
   void emit(const hir::FloatStore &store);
+  void emit(const hir::ViewCopyStore &store);
   void emit(const hir::StringStore &store);
   void emit(const hir::StringCopyStore &store);
   void emit(const hir::BoolStore &store);
@@ -168,6 +180,8 @@ private:
   bool targetsRegisteredInternalObject(const hir::Expr &expression) const;
   bool hasKnownStaticAddressRange(const hir::Expr &expression,
                                   std::size_t byteLength) const;
+  llvm::Align alignmentAt(std::size_t baseAlignment,
+                          std::size_t offset = 0) const;
 
   llvm::Value *emitConditionValue(const hir::Expr &expression);
   llvm::Value *emitIntegerValue(const hir::Expr &expression,
@@ -280,6 +294,10 @@ private:
   llvm::FunctionCallee declareCheckLoad();
   llvm::FunctionCallee declareCheckStore();
   llvm::FunctionCallee declareCheckViewLength();
+  llvm::FunctionCallee declareViewAnyNonZero();
+  llvm::FunctionCallee declareCheckedDivisionByZero();
+  llvm::FunctionCallee declareCheckedNegativeShift();
+  llvm::FunctionCallee declareCheckedNegativeExponent();
   llvm::FunctionCallee declareReverseBytes();
   llvm::FunctionCallee declareRegisterLocalObject();
   llvm::FunctionCallee declareRegisterStaticObject();

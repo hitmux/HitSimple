@@ -1074,6 +1074,10 @@ bool Analyzer::collectImplOps(const ast::TranslationUnit &unit,
             templates_.contains(item.templateName));
         if (!item.templateName.empty()) {
           returnTemplateNames.push_back(item.templateName);
+        } else if (op.op == "format") {
+          // `op format` is a fixed i32 protocol result, not an instance of
+          // the owning user template.
+          returnTemplateNames.emplace_back("i32");
         } else if (op.op == "==" || op.op == "!=" || op.op == "<" ||
                    op.op == "<=" || op.op == ">" || op.op == ">=") {
           returnTemplateNames.emplace_back("bool");
@@ -1489,9 +1493,12 @@ Analyzer::lowerIndexAddress(const ast::IndexExpr &expr) {
   }
   auto base = std::make_unique<hir::AddressOfExpr>(
       reference->name, reference->bindingName, reference->byteLength,
-      reference->storage, reference->offset, pointerByteLength());
+      reference->storage, reference->offset,
+      fixedResult("addr", pointerByteLength()));
   return std::make_unique<hir::BinaryExpr>(
-      std::move(base), "+", std::move(index), pointerByteLength());
+      std::move(base), "+", std::move(index),
+      fixedResult("addr", pointerByteLength()),
+      hir::StandardOperationKind::AddressOffset);
 }
 
 std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
@@ -1543,10 +1550,13 @@ std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
 
   auto base = std::make_unique<hir::AddressOfExpr>(
       reference->name, reference->bindingName, reference->byteLength,
-      reference->storage, reference->offset, pointerByteLength());
+      reference->storage, reference->offset,
+      fixedResult("addr", pointerByteLength()));
   SliceLowering lowered;
   lowered.address = std::make_unique<hir::BinaryExpr>(
-      std::move(base), "+", std::move(start), pointerByteLength());
+      std::move(base), "+", std::move(start),
+      fixedResult("addr", pointerByteLength()),
+      hir::StandardOperationKind::AddressOffset);
   lowered.byteLength = byteLength;
   return lowered;
 }
@@ -1557,6 +1567,26 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
     return inferByteLength(*asExpr->operand);
   }
   if (const auto *binary = dynamic_cast<const ast::BinaryExpr *>(&expression)) {
+    if (const auto floatLength = floatByteLengthForOperator(binary->op)) {
+      if (*floatLength != 0U) {
+        return *floatLength;
+      }
+      const auto leftLength = inferByteLength(*binary->left);
+      const auto rightLength = inferByteLength(*binary->right);
+      if (leftLength && rightLength) {
+        return std::max(*leftLength, *rightLength);
+      }
+    }
+    if (const auto integerLength = integerByteLengthForOperator(binary->op)) {
+      if (*integerLength != 0U) {
+        return *integerLength;
+      }
+      const auto leftLength = inferByteLength(*binary->left);
+      const auto rightLength = inferByteLength(*binary->right);
+      if (leftLength && rightLength) {
+        return std::max(*leftLength, *rightLength);
+      }
+    }
     const auto leftTemplate = operatorTemplateName(*binary->left);
     const auto rightTemplate = operatorTemplateName(*binary->right);
     if (leftTemplate && rightTemplate) {

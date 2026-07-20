@@ -14,7 +14,7 @@ cmake --build build --parallel
 Run the complete test suite with:
 
 ```bash
-ctest --test-dir build --output-on-failure
+cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
 Useful focused checks are:
@@ -73,7 +73,7 @@ Run the relevant focused tests first, then run the full suite when the environme
 
 ```bash
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
 If a required check cannot run, state the command, failure, and unverified scope clearly.

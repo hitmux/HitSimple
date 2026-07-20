@@ -68,6 +68,29 @@ std::optional<std::int64_t> constantSignedInteger(const hir::Expr &expression) {
     }
   }
 
+  if (const auto *cast =
+          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    const auto value = constantSignedInteger(*cast->operand);
+    if (!value || cast->byteLength == 0 || cast->byteLength > 8) {
+      return std::nullopt;
+    }
+    if (cast->byteLength == 8) {
+      return cast->isSigned ? value : (*value >= 0 ? value : std::nullopt);
+    }
+    const auto bits = cast->byteLength * 8U;
+    const auto mask = (std::uint64_t{1} << bits) - 1U;
+    const auto truncated = static_cast<std::uint64_t>(*value) & mask;
+    if (!cast->isSigned) {
+      return static_cast<std::int64_t>(truncated);
+    }
+    const auto signBit = std::uint64_t{1} << (bits - 1U);
+    return static_cast<std::int64_t>((truncated ^ signBit) - signBit);
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return constantSignedInteger(*view->operand);
+  }
+
   return std::nullopt;
 }
 
@@ -85,6 +108,28 @@ constantUnsignedInteger(const hir::Expr &expression) {
   if (const auto *unsignedExpr =
           dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
     return constantUnsignedInteger(*unsignedExpr->operand);
+  }
+  if (const auto *cast =
+          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    if (cast->byteLength == 0 || cast->byteLength > 8) {
+      return std::nullopt;
+    }
+    auto value = constantUnsignedInteger(*cast->operand);
+    if (!value) {
+      const auto signedValue = constantSignedInteger(*cast->operand);
+      if (!signedValue) {
+        return std::nullopt;
+      }
+      value = static_cast<std::uint64_t>(*signedValue);
+    }
+    if (cast->byteLength == 8) {
+      return value;
+    }
+    return *value & ((std::uint64_t{1} << (cast->byteLength * 8U)) - 1U);
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return constantUnsignedInteger(*view->operand);
   }
   return std::nullopt;
 }
@@ -384,6 +429,18 @@ void LlvmEmitter::declareDebugVariable(
 
 std::optional<LlvmEmitter::StaticAddressRange>
 LlvmEmitter::staticAddressRange(const hir::Expr &expression) const {
+  if (const auto *unsignedExpr =
+          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
+    return staticAddressRange(*unsignedExpr->operand);
+  }
+  if (const auto *cast =
+          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    return staticAddressRange(*cast->operand);
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return staticAddressRange(*view->operand);
+  }
   if (const auto *address =
           dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
     const auto offset = static_cast<std::int64_t>(address->offset);
@@ -516,11 +573,13 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   if (const auto *store = dynamic_cast<const hir::FloatStore *>(&statement)) {
     validateSafety(*store->value);
     staticIntegerValues_[store->bindingName] = std::nullopt;
+    staticUnsignedIntegerValues_[store->bindingName] = std::nullopt;
     return;
   }
   if (const auto *store = dynamic_cast<const hir::BoolStore *>(&statement)) {
     validateSafety(*store->value);
     staticIntegerValues_[store->bindingName] = std::nullopt;
+    staticUnsignedIntegerValues_[store->bindingName] = std::nullopt;
     return;
   }
   if (const auto *store = dynamic_cast<const hir::PointerStore *>(&statement)) {

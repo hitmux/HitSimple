@@ -4,14 +4,20 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <algorithm>
 
 namespace hitsimple::codegen {
+
+llvm::Align LlvmEmitter::alignmentAt(std::size_t baseAlignment,
+                                     std::size_t offset) const {
+  return llvm::commonAlignment(
+      llvm::Align(std::max<std::size_t>(baseAlignment, 1U)), offset);
+}
 
 llvm::Value *LlvmEmitter::firstBytePointer(llvm::Type *storageType,
                                            llvm::Value *storage) {
   if (!storageType->isArrayTy()) {
-    return builder_.CreateInBoundsGEP(builder_.getInt8Ty(), storage,
-                                      builder_.getInt32(0), "addr");
+    return storage;
   }
   auto *zero = builder_.getInt32(0);
   return builder_.CreateInBoundsGEP(storageType, storage, {zero, zero}, "addr");
@@ -22,6 +28,9 @@ llvm::Value *LlvmEmitter::bytePointer(llvm::Type *storageType,
                                       std::size_t offset,
                                       std::string_view name) {
   if (!storageType->isArrayTy()) {
+    if (offset == 0U) {
+      return storage;
+    }
     return builder_.CreateInBoundsGEP(
         builder_.getInt8Ty(), storage,
         builder_.getInt64(static_cast<std::uint64_t>(offset)),
@@ -280,6 +289,28 @@ llvm::FunctionCallee LlvmEmitter::declareCheckViewLength() {
       builder_.getVoidTy(), {builder_.getInt64Ty(), builder_.getInt64Ty()},
       false);
   return module_->getOrInsertFunction("hs_check_view_length", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareViewAnyNonZero() {
+  auto *type = llvm::FunctionType::get(
+      builder_.getInt32Ty(), {builder_.getPtrTy(), builder_.getInt64Ty()},
+      false);
+  return module_->getOrInsertFunction("hs_view_any_nonzero", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareCheckedDivisionByZero() {
+  auto *type = llvm::FunctionType::get(builder_.getVoidTy(), {}, false);
+  return module_->getOrInsertFunction("hs_checked_division_by_zero", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareCheckedNegativeShift() {
+  auto *type = llvm::FunctionType::get(builder_.getVoidTy(), {}, false);
+  return module_->getOrInsertFunction("hs_checked_negative_shift", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareCheckedNegativeExponent() {
+  auto *type = llvm::FunctionType::get(builder_.getVoidTy(), {}, false);
+  return module_->getOrInsertFunction("hs_checked_negative_exponent", type);
 }
 
 llvm::FunctionCallee LlvmEmitter::declareReverseBytes() {

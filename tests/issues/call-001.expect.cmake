@@ -1,0 +1,5 @@
+set(CASE_ACTION "compile")
+set(CASE_FLAGS "")
+set(EXPECT_COMPILE_EXIT "1")
+set(EXPECT_COMPILE_STDOUT_REGEX "^$")
+set(EXPECT_COMPILE_STDERR_REGEX "must exactly match parameter template and byte length")

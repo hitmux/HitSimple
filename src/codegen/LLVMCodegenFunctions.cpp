@@ -226,7 +226,9 @@ void LlvmEmitter::emit(const hir::GlobalMemory &global) {
     }
     globals_.emplace(global.bindingName,
                      Local{storage, storageType, global.byteLength,
-                           global.abiType});
+                           global.abiType,
+                           global.abiType ? global.abiType->alignment
+                                          : std::size_t{1}});
     return;
   }
 
@@ -244,7 +246,9 @@ void LlvmEmitter::emit(const hir::GlobalMemory &global) {
                                               requestedAlignment)));
   globals_.emplace(global.bindingName,
                    Local{storage, storageType, global.byteLength,
-                         global.abiType});
+                         global.abiType,
+                         std::max(alignof(std::max_align_t),
+                                  requestedAlignment)});
   internalGlobals_.push_back(
       RuntimeObject{storage, storageType, global.byteLength});
 }
@@ -504,7 +508,9 @@ void LlvmEmitter::emit(const hir::Function &function) {
       }
       locals_.emplace(parameter.bindingName,
                       Local{storage, storageType, parameter.byteLength,
-                            std::nullopt});
+                            std::nullopt, function.viewParametersAreCopies
+                                              ? std::size_t{1}
+                                              : std::size_t{1}});
       declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                            storage, static_cast<unsigned>(
                                &parameter - function.parameters.data() + 1U));
@@ -582,7 +588,8 @@ void LlvmEmitter::emit(const hir::Function &function) {
     if (memoryPlan && memoryPlan->indirectParameters[index]) {
       locals_.emplace(parameter.bindingName,
                       Local{&*argument++, storageType, parameter.byteLength,
-                            abiType});
+                            abiType, abiType ? abiType->alignment
+                                             : std::size_t{1}});
       declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                            locals_.at(parameter.bindingName).storage,
                            static_cast<unsigned>(index + 1U));
@@ -594,7 +601,9 @@ void LlvmEmitter::emit(const hir::Function &function) {
     storage->setAlignment(llvm::Align(std::max(alignof(std::max_align_t),
                                                requestedAlignment)));
     locals_.emplace(parameter.bindingName,
-                    Local{storage, storageType, parameter.byteLength, abiType});
+                    Local{storage, storageType, parameter.byteLength, abiType,
+                          std::max(alignof(std::max_align_t),
+                                   requestedAlignment)});
     registerLocalObject(storage, parameter.byteLength);
     declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                          storage, static_cast<unsigned>(index + 1U));

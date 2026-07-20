@@ -116,6 +116,9 @@ private:
     if (auto* binary = dynamic_cast<hir::BinaryExpr*>(&expression)) {
       visit(*binary->left);
       visit(*binary->right);
+    } else if (auto* booleanTest =
+                   dynamic_cast<hir::BooleanTestExpr*>(&expression)) {
+      visit(*booleanTest->operand);
     } else if (auto* unary = dynamic_cast<hir::UnaryExpr*>(&expression)) {
       visit(*unary->operand);
     } else if (auto* ternary = dynamic_cast<hir::TernaryExpr*>(&expression)) {

@@ -3,6 +3,8 @@
 #include "hitsimple/literal/Literal.h"
 
 #include <cctype>
+#include <cstdint>
+#include <limits>
 #include <utility>
 
 namespace hitsimple::sema {
@@ -35,6 +37,34 @@ bool isFloatTemplate(std::string_view name) {
 
 bool isPointerTemplate(std::string_view name) {
   return name == "addr" || name == "handle";
+}
+
+bool isStandardIntegerTemplate(std::string_view name) {
+  return name == "i8" || name == "i16" || name == "i32" ||
+         name == "i64" || name == "u8" || name == "u16" ||
+         name == "u32" || name == "u64";
+}
+
+bool isUnsignedIntegerTemplate(std::string_view name) {
+  return name == "u8" || name == "u16" || name == "u32" || name == "u64";
+}
+
+bool integerLiteralFits(const hir::IntegerLiteral &literal,
+                        std::size_t byteLength, bool isUnsigned) {
+  const auto value = literal::parseUnsignedIntegerLiteral(literal.value);
+  if (!value || byteLength == 0 || byteLength > 8) {
+    return false;
+  }
+  if (byteLength == 8) {
+    return isUnsigned ||
+           *value <= static_cast<std::uint64_t>(
+                         std::numeric_limits<std::int64_t>::max());
+  }
+  const auto bits = byteLength * 8U;
+  const auto maximum = isUnsigned
+                           ? (std::uint64_t{1} << bits) - 1U
+                           : (std::uint64_t{1} << (bits - 1U)) - 1U;
+  return *value <= maximum;
 }
 
 std::optional<std::string> printfFormatForTemplate(std::string_view name) {
@@ -564,8 +594,9 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
     if (!file) {
       return std::nullopt;
     }
-    if (!isIntegerExpression(*file) ||
-        integerExpressionByteLength(*file).value_or(0) != pointerByteLength()) {
+    if (file->result.category != hir::ViewCategory::Handle ||
+        file->result.lengthKind != hir::ViewLengthKind::Static ||
+        file->result.staticByteLength != pointerByteLength()) {
       addDiagnostic("fscanf file handle must be pointer-sized");
       return std::nullopt;
     }
@@ -578,11 +609,13 @@ Analyzer::lowerInputLeftContext(const ast::AssignmentExpr &assign,
   if (resultSymbol != nullptr) {
     lowered.byteLength = resultSymbol->byteLength;
     lowered.result = std::make_unique<hir::VariableRef>(
-        resultSymbol->name, resultSymbol->bindingName, resultSymbol->byteLength,
-        resultSymbol->storage, resultSymbol->templateName);
+        resultSymbol->name, resultSymbol->bindingName, resultSymbol->storage,
+        fixedResult(resultSymbol->templateName, resultSymbol->byteLength, true,
+                    true));
   } else {
     lowered.byteLength = 4;
-    lowered.result = std::make_unique<hir::IntegerLiteral>("0", 4);
+    lowered.result = std::make_unique<hir::IntegerLiteral>("0",
+                                                            signedIntegerResult(4));
   }
   return lowered;
 }
@@ -641,7 +674,8 @@ Analyzer::lowerStandardTemplatePrintCall(const ast::Expr &value,
     return std::nullopt;
   }
   result.callee = "print";
-  result.arguments.push_back(std::make_unique<hir::StringLiteral>(*format));
+  result.arguments.push_back(std::make_unique<hir::StringLiteral>(
+      *format, fixedResult("cstr", inferStringLiteralByteLength(*format))));
   result.arguments.push_back(std::move(lowered));
   result.formatArgumentKinds = {
       hir::FormatArgKind::String,
@@ -741,13 +775,83 @@ Analyzer::analyzeCallArguments(const ast::CallExpr &call,
       }
       return arguments;
     }
+    if (signature.builtin == stdlib::BuiltinId::Assert && index == 0U) {
+      if (!hir::isBooleanTestable(lowered->result)) {
+        addDiagnostic("assert condition cannot form a View");
+        return arguments;
+      }
+      arguments.push_back(std::make_unique<hir::BooleanTestExpr>(
+          std::move(lowered), booleanResult()));
+      continue;
+    }
     if (signature.builtin == stdlib::BuiltinId::None &&
         hasRuntimeDynamicView(*lowered)) {
       addDiagnostic(
           "dynamic View cannot be passed to fixed function parameter");
       return arguments;
     }
+    const bool isOrdinaryUserFunction =
+        signature.builtin == stdlib::BuiltinId::None && !signature.isExtern &&
+        !signature.isCAbi && !cCompatibilityMode_;
+    if (isOrdinaryUserFunction) {
+      const bool integerLiteral =
+          dynamic_cast<const hir::IntegerLiteral *>(lowered.get()) != nullptr;
+      const bool characterLiteral =
+          dynamic_cast<const hir::CharacterLiteral *>(lowered.get()) != nullptr &&
+          lowered->result.integerInterpretation !=
+              hir::IntegerInterpretation::RawOnly;
+      const bool standardIntegerParameter = isStandardIntegerTemplate(templateName);
+      const bool literalMatchesInteger =
+          standardIntegerParameter && (integerLiteral || characterLiteral);
+      const bool untemplatedIntegerParameter = templateName.empty() ||
+                                               templateName == "none";
+      const bool acceptsUntemplatedInteger =
+          untemplatedIntegerParameter &&
+          (integerLiteral || characterLiteral ||
+           hir::isIntegerNumeric(lowered->result) ||
+           lowered->result.category == hir::ViewCategory::Boolean ||
+           lowered->result.category == hir::ViewCategory::Address);
+      if ((!literalMatchesInteger && !acceptsUntemplatedInteger &&
+           lowered->result.templateName != templateName) ||
+          lowered->result.lengthKind != hir::ViewLengthKind::Static ||
+          (!literalMatchesInteger && !acceptsUntemplatedInteger &&
+           lowered->result.staticByteLength != expectedLength)) {
+        addDiagnostic("function call '" + call.callee + "' argument " +
+                      std::to_string(index + 1U) +
+                      " must exactly match parameter template and byte length");
+        return arguments;
+      }
+      if (integerLiteral) {
+        const auto *literal = static_cast<const hir::IntegerLiteral *>(lowered.get());
+        if (!untemplatedIntegerParameter &&
+            !integerLiteralFits(*literal, expectedLength,
+                                isUnsignedIntegerTemplate(templateName))) {
+          addDiagnostic("function call '" + call.callee + "' argument " +
+                        std::to_string(index + 1U) +
+                        " integer literal does not fit parameter template");
+          return arguments;
+        }
+      }
+      if ((literalMatchesInteger || acceptsUntemplatedInteger) &&
+          lowered->result.staticByteLength != expectedLength) {
+        const bool destinationSigned =
+            !isUnsignedIntegerTemplate(templateName);
+        lowered = std::make_unique<hir::IntegerCastExpr>(
+            std::move(lowered), destinationSigned,
+            fixedResult(std::string(templateName), expectedLength));
+      }
+      arguments.push_back(std::move(lowered));
+      continue;
+    }
+    const bool exactNonIntegerView =
+        lowered->result.lengthKind == hir::ViewLengthKind::Static &&
+        lowered->result.staticByteLength == expectedLength &&
+        lowered->result.templateName == templateName;
     if (!isIntegerExpression(*lowered)) {
+      if (exactNonIntegerView) {
+        arguments.push_back(std::move(lowered));
+        continue;
+      }
       if (acceptsAnyView) {
         arguments.push_back(std::move(lowered));
         continue;

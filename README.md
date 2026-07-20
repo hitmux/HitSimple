@@ -213,7 +213,7 @@ Haskell also uses `.hs`. When both language extensions are installed, explicitly
 
 ```bash
 ./build/hsc_unit_tests
-ctest --test-dir build --output-on-failure --parallel 4
+cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
 VS Code Extension Host tests install `ms-vscode.cpptools` into an isolated extension directory. Headless Linux environments also require `xvfb-run` and GDB; macOS uses cpptools' bundled signed `lldb-mi`. Each supported native target verifies a HitSimple breakpoint, `helper` and `main` stack frames, and the `value` local:

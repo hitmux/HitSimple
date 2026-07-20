@@ -315,6 +315,22 @@ void hs_check_view_length(uint64_t actual, uint64_t expected) {
   }
 }
 
+int32_t hs_view_any_nonzero(const void *data, uint64_t length) {
+  const unsigned char *bytes = (const unsigned char *)data;
+  for (uint64_t index = 0; index < length; ++index) {
+    if (bytes[index] != 0U) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+void hs_checked_division_by_zero(void) { hs_fail("integer division by zero"); }
+
+void hs_checked_negative_shift(void) { hs_fail("negative shift count"); }
+
+void hs_checked_negative_exponent(void) { hs_fail("negative exponent"); }
+
 void hs_reverse_bytes(void *dst, const void *src, uint64_t size) {
   if (size == 0) {
     return;
