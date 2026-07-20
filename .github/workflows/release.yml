@@ -24,6 +24,24 @@ permissions:
   contents: read
 
 jobs:
+  traceability:
+    name: PR traceability
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Require a single plan boundary and acceptance record
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: |
+          body_file="$RUNNER_TEMP/pr-body.md"
+          printf '%s\n' "$PR_BODY" > "$body_file"
+          grep -Eq '^Plan: PR [0-9]+$' "$body_file"
+          grep -Eq '^Issues: [A-Z][A-Z0-9]*-[0-9]+(, [A-Z][A-Z0-9]*-[0-9]+)*$' "$body_file"
+          grep -Eq '^Focused tests: .+$' "$body_file"
+          grep -Eq '^Acceptance: .+$' "$body_file"
+
   linux:
     name: Linux ${{ matrix.architecture }}
     if: github.event_name == 'push' || inputs.scope != 'windows'

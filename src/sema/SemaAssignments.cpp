@@ -420,7 +420,8 @@ Analyzer::preservePointerDerivedAddress(std::unique_ptr<hir::Expr> expression) {
 
   const std::string offsetOp = binary->op;
   auto byteOffset = std::move(binary->right);
-  if (offsetOp == "-") {
+  if (offsetOp == "-" &&
+      binary->operationKind != hir::StandardOperationKind::AddressOffset) {
     byteOffset = std::make_unique<hir::UnaryExpr>(
         "-", std::move(byteOffset), signedIntegerResult(pointerByteLength()));
   }
@@ -860,12 +861,21 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
     auto store = std::make_unique<hir::IntegerStore>(
         targetRef.name, targetRef.bindingName, targetRef.byteLength,
         targetRef.storage, targetRef.offset, std::move(fixed->value));
+    const auto destination =
+        fixedResult(targetRef.templateName, targetRef.byteLength);
     store->conversionPlan = hir::ConversionPlan{
-        store->value->result.staticByteLength == targetRef.byteLength
+        store->value->result.category == destination.category &&
+                store->value->result.integerInterpretation ==
+                    destination.integerInterpretation &&
+                store->value->result.staticByteLength == targetRef.byteLength &&
+                store->value->result.templateName == targetRef.templateName
             ? hir::ConversionKind::Identity
             : hir::ConversionKind::IntegerWidth,
         store->value->result,
-        fixedResult(targetRef.templateName, targetRef.byteLength)};
+        destination};
+    if (targetRef.templateName == "addr") {
+      recordAddressFacts(targetRef.bindingName, *store->value);
+    }
     return store;
   }
 

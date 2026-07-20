@@ -25,19 +25,66 @@ find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
 unset(CLANG_EXECUTABLE CACHE)
 unset(CLANGXX_EXECUTABLE CACHE)
+unset(LLVM_AR_EXECUTABLE CACHE)
+unset(LLVM_NM_EXECUTABLE CACHE)
 unset(LLVM_PROFDATA_EXECUTABLE CACHE)
+unset(LLVM_DWARFDUMP_EXECUTABLE CACHE)
+if(NOT IS_DIRECTORY "${LLVM_TOOLS_BINARY_DIR}")
+  message(FATAL_ERROR
+    "LLVM package did not provide a usable tool directory: ${LLVM_TOOLS_BINARY_DIR}")
+endif()
 find_program(CLANG_EXECUTABLE
-  NAMES clang-${LLVM_VERSION_MAJOR} clang clang++ REQUIRED)
+  NAMES clang
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
 find_program(CLANGXX_EXECUTABLE
-  NAMES clang++-${LLVM_VERSION_MAJOR} clang++ REQUIRED)
-find_program(LLVM_AR_EXECUTABLE NAMES llvm-ar-18 llvm-ar REQUIRED)
-find_program(LLVM_NM_EXECUTABLE NAMES llvm-nm-18 llvm-nm REQUIRED)
+  NAMES clang++
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_AR_EXECUTABLE
+  NAMES llvm-ar
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_NM_EXECUTABLE
+  NAMES llvm-nm
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
 find_program(LLVM_PROFDATA_EXECUTABLE
-  NAMES llvm-profdata-${LLVM_VERSION_MAJOR} llvm-profdata REQUIRED)
+  NAMES llvm-profdata
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
-  NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
+  NAMES llvm-dwarfdump
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
 )
 find_program(GDB_EXECUTABLE gdb)
+
+get_filename_component(HITSIMPLE_LLVM_TOOLS_DIRECTORY
+  "${LLVM_TOOLS_BINARY_DIR}" REALPATH)
+foreach(HITSIMPLE_LLVM_TOOL IN ITEMS
+    CLANG_EXECUTABLE
+    CLANGXX_EXECUTABLE
+    LLVM_AR_EXECUTABLE
+    LLVM_NM_EXECUTABLE
+    LLVM_PROFDATA_EXECUTABLE
+    LLVM_DWARFDUMP_EXECUTABLE)
+  if(NOT ${HITSIMPLE_LLVM_TOOL})
+    continue()
+  endif()
+  get_filename_component(HITSIMPLE_LLVM_TOOL_DIRECTORY
+    "${${HITSIMPLE_LLVM_TOOL}}" DIRECTORY REALPATH)
+  if(NOT HITSIMPLE_LLVM_TOOL_DIRECTORY STREQUAL HITSIMPLE_LLVM_TOOLS_DIRECTORY)
+    message(FATAL_ERROR
+      "${HITSIMPLE_LLVM_TOOL} must come from ${HITSIMPLE_LLVM_TOOLS_DIRECTORY}, "
+      "but resolved to ${${HITSIMPLE_LLVM_TOOL}}")
+  endif()
+endforeach()
 
 # LLVM packages may append host SDK paths. Propagate only actual LLVM headers.
 set(HITSIMPLE_LLVM_INCLUDE_DIRS)
@@ -426,6 +473,7 @@ if(BUILD_TESTING)
     tests/test_main.cpp
     tests/diagnostic/SourceLocationTests.cpp
     tests/codegen/LLVMCodegenTests.cpp
+    tests/codegen/OptimizationPipelineTests.cpp
     tests/compat/CCompatTests.cpp
     tests/hir/HIRTests.cpp
     tests/lexer/LexerTests.cpp
@@ -448,6 +496,10 @@ if(BUILD_TESTING)
       ${PROJECT_SOURCE_DIR}/include
       ${PROJECT_SOURCE_DIR}/tests
       ${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+  target_include_directories(hsc_unit_tests
+    SYSTEM PRIVATE
+      ${HITSIMPLE_LLVM_INCLUDE_DIRS}
   )
 
   if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
@@ -926,6 +978,42 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_static_checked_calloc_overflow_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_calloc_overflow.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: calloc size overflow' stderr"
   )
+  add_hsc_shell_test(hsc_static_checked_null_view_deref_condition_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_null_view_deref_copy_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_oob_view_deref_condition_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_oob_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_oob_view_deref_copy_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_oob_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_free_interior_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_free_interior.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: free requires a dynamic-object base address' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_free_static_storage_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_free_static_storage.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: free requires a dynamic-object base address' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_double_free_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_double_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: double free' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_use_after_free_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: use after free dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_realloc_static_storage_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_realloc_static_storage.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: realloc requires a dynamic-object base address' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_use_after_realloc_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_realloc.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: use after free dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_null_view_deref_condition_diagnostic
+    "! $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_null_view_deref_copy_diagnostic
+    "! $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
   add_hsc_shell_test(hsc_static_checked_memcpy_overlap_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_memcpy_overlap.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: overlapping memcpy ranges' stderr"
   )
@@ -949,6 +1037,26 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_checked_calloc_overflow_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_calloc_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: calloc size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_view_deref_condition_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_view_deref_condition.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_view_deref_copy_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_view_deref_copy.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
+  )
+  set_tests_properties(
+    hsc_static_checked_null_view_deref_condition_diagnostic
+    hsc_static_checked_null_view_deref_copy_diagnostic
+    hsc_static_checked_oob_view_deref_condition_diagnostic
+    hsc_static_checked_oob_view_deref_copy_diagnostic
+    hsc_static_checked_free_interior_diagnostic
+    hsc_static_checked_double_free_diagnostic
+    hsc_static_checked_use_after_free_diagnostic
+    hsc_static_checked_realloc_static_storage_diagnostic
+    hsc_static_checked_use_after_realloc_diagnostic
+    hsc_checked_view_deref_condition_runtime_error
+    hsc_checked_view_deref_copy_runtime_error
+    PROPERTIES LABELS "phase5;safe-001"
   )
   add_hsc_shell_test(hsc_checked_fread_overflow_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: fread size overflow' stderr"
@@ -1833,12 +1941,17 @@ target_link_libraries(hsc_unit_tests
     add_hsc_shell_test(hsc_opt_001_vectorization
       "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/benchmark_memory.hs -o opt.ll && ${CLANG_EXECUTABLE} -O2 -Rpass=loop-vectorize -Rpass-analysis=loop-vectorize -c opt.ll -o opt.o 2>opt.remarks && grep -Ec 'vectorized loop' opt.remarks | grep -Eq '^[2-9]|^[1-9][0-9]+$' && ! grep -Fq 'unsafe dependent memory operations' opt.remarks"
     )
+    add_hsc_shell_test(hsc_opt_001_embedded_pipeline
+      "$<TARGET_FILE:hsc> -O2 --optimization-remarks=opt.embedded.remarks ${PROJECT_SOURCE_DIR}/tests/issues/opt-001.hs -o opt-program && grep -Fq 'HitSimple canonicalization completed; invoking the LLVM default optimization pipeline' opt.embedded.remarks"
+    )
     set_tests_properties(hsc_ir_001_alignment_sanitizer
                          hsc_ir_001_aarch64_codegen
                          PROPERTIES LABELS "phase3;ir-001")
     set_tests_properties(hsc_ir_002_o0_o2
                          PROPERTIES LABELS "phase3;ir-002")
     set_tests_properties(hsc_opt_001_vectorization
+                         PROPERTIES LABELS "phase4;opt-001")
+    set_tests_properties(hsc_opt_001_embedded_pipeline
                          PROPERTIES LABELS "phase4;opt-001")
   endif()
 

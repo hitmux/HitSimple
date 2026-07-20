@@ -370,6 +370,14 @@ private:
                                      stdlib::BuiltinId builtin);
   bool rejectUnavailableStandardBuiltin(const ast::CallExpr &call);
   bool registerReturnLengths(const std::vector<std::size_t> &byteLengths);
+  std::optional<hir::AddressFacts>
+  addressFactsFor(const hir::Expr &expression) const;
+  void recordAddressFacts(std::string_view bindingName,
+                          const hir::Expr &expression);
+  void clearAddressFacts(std::string_view bindingName);
+  void mergeAddressFacts(
+      const std::unordered_map<std::string, std::optional<hir::AddressFacts>> &left,
+      const std::unordered_map<std::string, std::optional<hir::AddressFacts>> &right);
   std::optional<diagnostic::SourceRange>
   currentScopeDeclarationRange(std::string_view name) const;
   void addDiagnostic(
@@ -397,6 +405,8 @@ private:
   std::unordered_map<std::string, std::string> userTemplateBindings_;
   std::unordered_map<std::string, std::optional<std::string>>
       memberTemplateOverrides_;
+  std::unordered_map<std::string, std::optional<hir::AddressFacts>>
+      addressFacts_;
   std::vector<hir::GlobalMemory> globals_;
   FunctionSignature *currentFunction_ = nullptr;
   std::vector<hir::Parameter> currentParameters_;

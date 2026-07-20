@@ -36,6 +36,16 @@ std::string resultSemantics(const Expr &expression) {
          " addressable=" + (result.isAddressable ? "true" : "false");
 }
 
+std::string addressFactsText(const std::optional<AddressFacts> &facts) {
+  if (!facts) {
+    return {};
+  }
+  return " origin=" + std::string(toString(facts->origin)) +
+         " base=" + (facts->isBaseAddress ? "true" : "false") +
+         " extent=" +
+         (facts->knownExtent ? std::to_string(*facts->knownExtent) : "unknown");
+}
+
 class HirDumper {
 public:
   explicit HirDumper(std::ostream &out) : out_(out) {}
@@ -513,6 +523,7 @@ private:
            " bytes=" + std::to_string(variable->byteLength) +
            " storage=" + std::string(toString(variable->storage)) +
            (variable->offset == 0 ? "" : " offset=" + std::to_string(variable->offset)) +
+           addressFactsText(variable->addressFacts) +
            resultSemantics(*variable));
       return;
     }
@@ -524,8 +535,7 @@ private:
            " storage=" + std::string(toString(address->storage)) +
            (address->offset == 0 ? "" : " offset=" + std::to_string(address->offset)) +
            " bytes=" + std::to_string(address->byteLength) +
-           " origin=" + std::string(toString(address->facts.origin)) +
-           " base=" + (address->facts.isBaseAddress ? "true" : "false") +
+           addressFactsText(address->facts) +
            resultSemantics(*address));
       return;
     }
@@ -552,11 +562,8 @@ private:
       line("BinaryExpr op=" + binary->op +
            " bytes=" + std::to_string(binary->byteLength) +
            " candidate=" + std::string(toString(binary->operationKind)) +
-           (binary->addressFacts
-                ? " origin=" + std::string(toString(binary->addressFacts->origin)) +
-                      " base=" +
-                      (binary->addressFacts->isBaseAddress ? "true" : "false")
-                : "") +
+           addressFactsText(binary->addressFacts) +
+           " operation=" + std::string(toString(binary->operation)) +
            resultSemantics(*binary));
       ++indent_;
       dump(*binary->left);
@@ -700,11 +707,7 @@ private:
            " returnRule=" + std::string(stdlib::toString(call->returnMode)) +
            " overload=" + std::to_string(call->overloadIndex) +
            (call->templateName.empty() ? "" : " template=" + call->templateName) +
-           (call->addressFacts
-                ? " origin=" + std::string(toString(call->addressFacts->origin)) +
-                      " base=" +
-                      (call->addressFacts->isBaseAddress ? "true" : "false")
-                : "") +
+           addressFactsText(call->addressFacts) +
            (call->formatArgumentKinds.empty()
                 ? ""
                 : " formatArgs=" + formatArgumentKinds(call->formatArgumentKinds)) +

@@ -57,3 +57,14 @@ HS_TEST(Toolchain_UsesExplicitCxxExecutableBeforeDiscovery) {
   HS_EXPECT_TRUE(selection.path.has_value());
   HS_EXPECT_EQ(selection.source, std::string("--clangxx"));
 }
+
+HS_TEST(Toolchain_PreferredArchiveToolMatchesEmbeddedLlvmMajor) {
+#ifdef HITSIMPLE_LLVM_MAJOR_VERSION
+  HS_EXPECT_EQ(hitsimple::support::preferredLlvmArExecutableName(),
+               std::string("llvm-ar-") +
+                   std::to_string(HITSIMPLE_LLVM_MAJOR_VERSION));
+#else
+  HS_EXPECT_EQ(hitsimple::support::preferredLlvmArExecutableName(),
+               std::string("llvm-ar"));
+#endif
+}

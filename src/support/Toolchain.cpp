@@ -75,6 +75,14 @@ ClangSelection resolveClangxx(
           "HITSIMPLE_CLANGXX, or install a Clang++ version matching embedded LLVM"};
 }
 
+std::string preferredLlvmArExecutableName() {
+#ifdef HITSIMPLE_LLVM_MAJOR_VERSION
+  return "llvm-ar-" + std::to_string(HITSIMPLE_LLVM_MAJOR_VERSION);
+#else
+  return "llvm-ar";
+#endif
+}
+
 LlvmArSelection resolveLlvmAr() {
   if (const auto environment = pathEnvironmentVariable("HITSIMPLE_LLVM_AR")) {
     if (const auto resolved = findExecutable(*environment)) {
@@ -84,14 +92,21 @@ LlvmArSelection resolveLlvmAr() {
             "configured llvm-ar executable was not found: " +
                 pathToUtf8(*environment)};
   }
-  if (const auto resolved = findExecutable("llvm-ar-18")) {
-    return {*resolved, "PATH llvm-ar-18", {}};
+  const auto bundled = bundledLlvmArPath();
+  if (const auto resolved = findExecutable(bundled)) {
+    return {*resolved, "bundled", {}};
+  }
+  const auto preferredName = preferredLlvmArExecutableName();
+  if (const auto resolved = findExecutable(preferredName)) {
+    return {*resolved, "PATH " + preferredName, {}};
   }
   if (const auto resolved = findExecutable("llvm-ar")) {
     return {*resolved, "PATH llvm-ar", {}};
   }
   return {std::nullopt, "not found",
-          "no llvm-ar tool found; set HITSIMPLE_LLVM_AR or install llvm-ar"};
+          "no llvm-ar tool found matching embedded LLVM; set HITSIMPLE_LLVM_AR "
+          "or install " +
+              preferredName};
 }
 
 } // namespace hitsimple::support

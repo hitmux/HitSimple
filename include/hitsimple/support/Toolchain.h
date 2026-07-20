@@ -24,6 +24,7 @@ ClangSelection resolveClang(
 ClangSelection resolveClangxx(
     const std::optional<std::filesystem::path>& commandLineOverride);
 
+std::string preferredLlvmArExecutableName();
 LlvmArSelection resolveLlvmAr();
 
 } // namespace hitsimple::support

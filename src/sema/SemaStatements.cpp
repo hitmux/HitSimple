@@ -548,13 +548,19 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
       }
       const auto source = lowered->result;
       const auto destination = fixedResult(std::string(returnTemplate), expected);
+      const bool sameViewSemantics =
+          source.category == destination.category &&
+          source.integerInterpretation == destination.integerInterpretation &&
+          source.lengthKind == destination.lengthKind &&
+          source.staticByteLength == destination.staticByteLength &&
+          source.templateName == destination.templateName;
       const auto conversion = expectsFloat
                                   ? hir::ConversionKind::Floating
                                   : expectsUserTemplate
                                         ? hir::ConversionKind::UserTemplateAssignment
                                         : expectsExactView
                                               ? hir::ConversionKind::Identity
-                                        : source.staticByteLength == expected
+                                        : sameViewSemantics
                                               ? hir::ConversionKind::Identity
                                               : hir::ConversionKind::IntegerWidth;
       conversionPlans.push_back(
@@ -603,11 +609,16 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::IfStmt &statement) {
     return nullptr;
   }
 
+  const auto entryFacts = addressFacts_;
   auto thenBlock = analyze(*statement.thenBlock);
+  const auto thenFacts = addressFacts_;
+  addressFacts_ = entryFacts;
   std::unique_ptr<hir::Block> elseBlock;
   if (statement.elseBlock) {
     elseBlock = analyze(*statement.elseBlock);
   }
+  const auto elseFacts = addressFacts_;
+  mergeAddressFacts(thenFacts, elseFacts);
 
   return std::make_unique<hir::If>(
       std::make_unique<hir::BooleanTestExpr>(std::move(condition),
@@ -625,9 +636,11 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::WhileStmt &statement) {
     return nullptr;
   }
 
+  const auto entryFacts = addressFacts_;
   ++loopDepth_;
   auto body = analyze(*statement.body);
   --loopDepth_;
+  mergeAddressFacts(entryFacts, addressFacts_);
 
   return std::make_unique<hir::While>(
       std::make_unique<hir::BooleanTestExpr>(std::move(condition),
@@ -662,6 +675,11 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ForStmt &statement) {
         std::move(condition), booleanResult());
   }
 
+  const auto entryFacts = addressFacts_;
+  ++loopDepth_;
+  auto body = analyze(*statement.body);
+  --loopDepth_;
+
   std::vector<std::unique_ptr<hir::Stmt>> post;
   for (const auto &expr : statement.post) {
     auto lowered = analyzeExpressionStatementExpr(*expr);
@@ -669,10 +687,7 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ForStmt &statement) {
       post.push_back(std::move(lowered));
     }
   }
-
-  ++loopDepth_;
-  auto body = analyze(*statement.body);
-  --loopDepth_;
+  mergeAddressFacts(entryFacts, addressFacts_);
 
   --blockDepth_;
   endScope();

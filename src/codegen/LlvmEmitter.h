@@ -118,6 +118,40 @@ private:
     std::int64_t lowerBound = 0;
     std::int64_t offset = 0;
     std::uint64_t upperBound = 0;
+
+    bool operator==(const StaticAddressRange &) const = default;
+  };
+
+  enum class StaticAddressOrigin {
+    Null,
+    DynamicObject,
+    NonDynamicObject,
+  };
+
+  enum class StaticDynamicObjectState {
+    Live,
+    Freed,
+    Unknown,
+  };
+
+  struct StaticAddressFact {
+    StaticAddressOrigin origin = StaticAddressOrigin::Null;
+    std::size_t dynamicObjectId = 0;
+    bool isBaseAddress = false;
+    std::optional<StaticAddressRange> range;
+
+    bool operator==(const StaticAddressFact &) const = default;
+  };
+
+  struct StaticSafetyState {
+    std::unordered_map<std::string, std::optional<std::int64_t>>
+        integerValues;
+    std::unordered_map<std::string, std::optional<std::uint64_t>>
+        unsignedIntegerValues;
+    std::unordered_map<std::string, std::optional<StaticAddressFact>>
+        addressFacts;
+    std::unordered_map<std::size_t, StaticDynamicObjectState>
+        dynamicObjectStates;
   };
 
   struct CAbiMemoryPlan {
@@ -171,6 +205,25 @@ private:
   void validateSafety(const hir::Block &block);
   void validateSafety(const hir::Stmt &statement);
   void validateSafety(const hir::Expr &expression);
+  void resetStaticSafetyState();
+  StaticSafetyState staticSafetyState() const;
+  void restoreStaticSafetyState(const StaticSafetyState &state);
+  void mergeStaticSafetyStates(const StaticSafetyState &left,
+                               const StaticSafetyState &right);
+  std::optional<std::int64_t>
+  staticSignedInteger(const hir::Expr &expression) const;
+  std::optional<std::uint64_t>
+  staticUnsignedInteger(const hir::Expr &expression) const;
+  std::optional<bool> staticBooleanValue(const hir::Expr &expression) const;
+  std::optional<StaticAddressFact>
+  staticAddressFact(const hir::Expr &expression) const;
+  void validateStaticDynamicBase(const hir::Expr &expression,
+                                 std::string_view operation);
+  bool releaseStaticDynamicObject(const hir::Expr &expression);
+  void recordStaticAddressAssignment(std::string_view bindingName,
+                                     const hir::Expr &value);
+  void validateStaticAddressAccess(const hir::Expr &expression,
+                                   std::string_view operation);
   std::optional<StaticAddressRange>
   staticAddressRange(const hir::Expr &expression) const;
   std::optional<StaticAddressRange>
@@ -228,7 +281,8 @@ private:
   llvm::Value *emitCallValue(const hir::CallExpr &call);
   llvm::Value *emitValueForType(const hir::Expr &expression,
                                 llvm::Type *type,
-                                std::string_view name);
+                                std::string_view name,
+                                const hir::ConversionPlan *plan = nullptr);
   llvm::IntegerType *integerTypeForByteLength(std::size_t byteLength);
   llvm::Type *floatTypeForByteLength(std::size_t byteLength);
   llvm::Type *abiTypeFor(const hir::AbiType &type);
@@ -347,6 +401,11 @@ private:
       staticIntegerValues_;
   std::unordered_map<std::string, std::optional<std::uint64_t>>
       staticUnsignedIntegerValues_;
+  std::unordered_map<std::string, std::optional<StaticAddressFact>>
+      staticAddressFacts_;
+  std::unordered_map<std::size_t, StaticDynamicObjectState>
+      staticDynamicObjectStates_;
+  std::size_t nextStaticDynamicObjectId_ = 0;
   std::vector<LoopTargets> loopTargets_;
   std::vector<CatchTarget> catchTargets_;
   std::unordered_map<std::string, llvm::BasicBlock *> labelBlocks_;

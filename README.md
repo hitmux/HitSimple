@@ -135,7 +135,7 @@ The slim package requires a compatible llvm-mingw/Clang 18 installation. Toolcha
 1. `--clang <path>`.
 2. `HITSIMPLE_CLANG`.
 3. `toolchain/bin/clang++.exe` in the full package.
-4. `clang-18`.
+4. `clang-<embedded LLVM major version>`.
 5. `clang` and `clang++` on PATH.
 
 When `-o` is omitted, Windows generates `a.exe` by default. User programs link the GCC/C++ runtime statically and should depend only on Windows system DLLs.

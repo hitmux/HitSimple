@@ -1,5 +1,7 @@
 #include "hitsimple/hir/HIR.h"
 
+#include "hitsimple/literal/Literal.h"
+
 #include <algorithm>
 #include <functional>
 #include <limits>
@@ -10,6 +12,87 @@ namespace hitsimple::hir {
 
 namespace {
 thread_local std::optional<diagnostic::SourceRange> activeRange;
+
+std::optional<std::size_t> staticAllocationExtent(const Expr &expression) {
+  if (const auto *literal = dynamic_cast<const IntegerLiteral *>(&expression)) {
+    const auto value = literal::parseUnsignedIntegerLiteral(literal->value);
+    if (value && *value <= std::numeric_limits<std::size_t>::max()) {
+      return static_cast<std::size_t>(*value);
+    }
+    return std::nullopt;
+  }
+  if (const auto *unsignedValue =
+          dynamic_cast<const UnsignedExpr *>(&expression)) {
+    return staticAllocationExtent(*unsignedValue->operand);
+  }
+  if (const auto *cast = dynamic_cast<const IntegerCastExpr *>(&expression)) {
+    return staticAllocationExtent(*cast->operand);
+  }
+  if (const auto *view = dynamic_cast<const TemplateViewExpr *>(&expression)) {
+    return staticAllocationExtent(*view->operand);
+  }
+  return std::nullopt;
+}
+
+std::optional<AddressFacts> addressFactsFor(const Expr &expression) {
+  if (const auto *address = dynamic_cast<const AddressOfExpr *>(&expression)) {
+    return address->facts;
+  }
+  if (const auto *variable = dynamic_cast<const VariableRef *>(&expression)) {
+    return variable->addressFacts;
+  }
+  if (const auto *binary = dynamic_cast<const BinaryExpr *>(&expression)) {
+    return binary->addressFacts;
+  }
+  if (const auto *call = dynamic_cast<const CallExpr *>(&expression)) {
+    return call->addressFacts;
+  }
+  if (const auto *unsignedValue =
+          dynamic_cast<const UnsignedExpr *>(&expression)) {
+    return addressFactsFor(*unsignedValue->operand);
+  }
+  if (const auto *cast = dynamic_cast<const IntegerCastExpr *>(&expression)) {
+    return addressFactsFor(*cast->operand);
+  }
+  if (const auto *view = dynamic_cast<const TemplateViewExpr *>(&expression)) {
+    return addressFactsFor(*view->operand);
+  }
+  return std::nullopt;
+}
+
+std::string_view binaryOperatorSuffix(std::string_view op) {
+  if (!op.starts_with('%')) {
+    return op;
+  }
+  const auto marker = op.find_last_of("duf");
+  return marker == std::string_view::npos || marker + 1U >= op.size()
+             ? op
+             : op.substr(marker + 1U);
+}
+
+BinaryOperator binaryOperatorFor(std::string_view op) {
+  op = binaryOperatorSuffix(op);
+  if (op == "+") return BinaryOperator::Add;
+  if (op == "-") return BinaryOperator::Subtract;
+  if (op == "*") return BinaryOperator::Multiply;
+  if (op == "/") return BinaryOperator::Divide;
+  if (op == "%") return BinaryOperator::Modulo;
+  if (op == "**") return BinaryOperator::Power;
+  if (op == "<<") return BinaryOperator::ShiftLeft;
+  if (op == ">>") return BinaryOperator::ShiftRight;
+  if (op == "&") return BinaryOperator::BitAnd;
+  if (op == "|") return BinaryOperator::BitOr;
+  if (op == "^") return BinaryOperator::BitXor;
+  if (op == "==") return BinaryOperator::Equal;
+  if (op == "!=") return BinaryOperator::NotEqual;
+  if (op == "<") return BinaryOperator::Less;
+  if (op == "<=") return BinaryOperator::LessEqual;
+  if (op == ">") return BinaryOperator::Greater;
+  if (op == ">=") return BinaryOperator::GreaterEqual;
+  if (op == "&&") return BinaryOperator::LogicalAnd;
+  if (op == "||") return BinaryOperator::LogicalOr;
+  return BinaryOperator::Unknown;
+}
 } // namespace
 
 void setActiveSourceRange(std::optional<diagnostic::SourceRange> range) {
@@ -195,6 +278,32 @@ std::string_view toString(StandardOperationKind kind) {
   return "unknown";
 }
 
+std::string_view toString(BinaryOperator op) {
+  switch (op) {
+  case BinaryOperator::Unknown: return "unknown";
+  case BinaryOperator::Add: return "+";
+  case BinaryOperator::Subtract: return "-";
+  case BinaryOperator::Multiply: return "*";
+  case BinaryOperator::Divide: return "/";
+  case BinaryOperator::Modulo: return "%";
+  case BinaryOperator::Power: return "**";
+  case BinaryOperator::ShiftLeft: return "<<";
+  case BinaryOperator::ShiftRight: return ">>";
+  case BinaryOperator::BitAnd: return "&";
+  case BinaryOperator::BitOr: return "|";
+  case BinaryOperator::BitXor: return "^";
+  case BinaryOperator::Equal: return "==";
+  case BinaryOperator::NotEqual: return "!=";
+  case BinaryOperator::Less: return "<";
+  case BinaryOperator::LessEqual: return "<=";
+  case BinaryOperator::Greater: return ">";
+  case BinaryOperator::GreaterEqual: return ">=";
+  case BinaryOperator::LogicalAnd: return "&&";
+  case BinaryOperator::LogicalOr: return "||";
+  }
+  return "unknown";
+}
+
 std::string_view toString(AddressOrigin origin) {
   switch (origin) {
   case AddressOrigin::LocalObject:
@@ -359,10 +468,23 @@ BinaryExpr::BinaryExpr(std::unique_ptr<Expr> left, std::string op,
                        StandardOperationKind operationKind)
     : Expr(std::move(result)), left(std::move(left)), op(std::move(op)),
       right(std::move(right)), byteLength(this->result.staticByteLength),
-      operationKind(operationKind) {
+      operationKind(operationKind), operation(binaryOperatorFor(this->op)) {
+  if (this->op.starts_with('%')) {
+    const auto marker = this->op.find_last_of("duf");
+    if (marker != std::string::npos) {
+      typedIntegerInterpretation = this->op[marker] == 'u'
+                                       ? IntegerInterpretation::Unsigned
+                                       : (this->op[marker] == 'd'
+                                              ? IntegerInterpretation::Signed
+                                              : IntegerInterpretation::None);
+    }
+  }
   if (this->operationKind == StandardOperationKind::AddressOffset) {
-    addressFacts = AddressFacts{AddressOrigin::PointerDerived, std::nullopt,
-                                std::nullopt, false};
+    const auto baseFacts = addressFactsFor(*this->left);
+    addressFacts = AddressFacts{
+        AddressOrigin::PointerDerived,
+        baseFacts ? baseFacts->knownExtent : std::nullopt,
+        baseFacts ? baseFacts->knownAlignment : std::nullopt, false};
   }
 }
 
@@ -443,11 +565,33 @@ CallExpr::CallExpr(std::string callee,
       overloadIndex(overloadIndex),
       formatArgumentKinds(std::move(formatArgumentKinds)),
       templateName(std::move(templateName)) {
+  argumentPlans.reserve(this->arguments.size());
+  for (const auto &argument : this->arguments) {
+    argumentPlans.push_back(
+        ConversionPlan{ConversionKind::Identity, argument->result, argument->result});
+  }
   if (this->builtin == stdlib::BuiltinId::Alloc ||
       this->builtin == stdlib::BuiltinId::Calloc ||
       this->builtin == stdlib::BuiltinId::Realloc) {
-    addressFacts = AddressFacts{AddressOrigin::DynamicAllocation,
-                                std::nullopt, std::nullopt, true};
+    std::optional<std::size_t> extent;
+    if (this->builtin == stdlib::BuiltinId::Alloc &&
+        this->arguments.size() == 1U) {
+      extent = staticAllocationExtent(*this->arguments[0]);
+    } else if (this->builtin == stdlib::BuiltinId::Calloc &&
+               this->arguments.size() == 2U) {
+      const auto count = staticAllocationExtent(*this->arguments[0]);
+      const auto size = staticAllocationExtent(*this->arguments[1]);
+      if (count && size &&
+          (*size == 0 || *count <=
+                              std::numeric_limits<std::size_t>::max() / *size)) {
+        extent = *count * *size;
+      }
+    } else if (this->builtin == stdlib::BuiltinId::Realloc &&
+               this->arguments.size() == 2U) {
+      extent = staticAllocationExtent(*this->arguments[1]);
+    }
+    addressFacts = AddressFacts{AddressOrigin::DynamicAllocation, extent,
+                                std::nullopt, true};
   }
 }
 
@@ -1132,6 +1276,14 @@ verifyViewSemantics(const TranslationUnit &unit) {
            left.isAddressable == right.isAddressable &&
            left.isMutableLValue == right.isMutableLValue;
   };
+  const auto sameValueSemantics = [](const ViewSemantics &left,
+                                     const ViewSemantics &right) {
+    return left.category == right.category &&
+           left.integerInterpretation == right.integerInterpretation &&
+           left.lengthKind == right.lengthKind &&
+           left.staticByteLength == right.staticByteLength &&
+           left.templateName == right.templateName;
+  };
   const auto checkSemantics = [&addDiagnostic, &checkTemplate](
                                   const Expr &expression) {
     const auto &semantics = expression.result;
@@ -1259,6 +1411,55 @@ verifyViewSemantics(const TranslationUnit &unit) {
                                     " does not match result ViewSemantics");
     }
   };
+  const auto checkAddressFacts = [&addDiagnostic](
+                                     const Expr &expression,
+                                     const std::optional<AddressFacts> &facts) {
+    if (!facts) {
+      return;
+    }
+    if (!isAddressValue(expression.result)) {
+      addDiagnostic(expression,
+                    "AddressFacts require an addr result View");
+    }
+    if (facts->origin == AddressOrigin::DynamicAllocation &&
+        !facts->isBaseAddress) {
+      addDiagnostic(expression,
+                    "dynamic-allocation AddressFacts must describe a base address");
+    }
+  };
+  const auto checkConversionPlan = [&addDiagnostic, &sameValueSemantics](
+                                       const Expr &expression,
+                                       const ConversionPlan &plan,
+                                       const ViewSemantics &source,
+                                       std::string_view owner) {
+    if (!sameValueSemantics(plan.source, source)) {
+      addDiagnostic(expression, std::string(owner) +
+                                    " conversion plan source does not match its operand");
+    }
+    if (plan.destination.lengthKind != ViewLengthKind::Static ||
+        plan.destination.staticByteLength == 0) {
+      addDiagnostic(expression, std::string(owner) +
+                                    " conversion plan destination must be a fixed View");
+    }
+    if (plan.kind == ConversionKind::Identity &&
+        !sameValueSemantics(plan.source, plan.destination)) {
+      addDiagnostic(expression, std::string(owner) +
+                                    " identity conversion plan changes View semantics");
+    }
+    if (plan.kind == ConversionKind::Floating &&
+        (!isFloatingNumeric(plan.destination) ||
+         (!isFloatingNumeric(plan.source) && !isIntegerNumeric(plan.source)))) {
+      addDiagnostic(expression, std::string(owner) +
+                                    " floating conversion has incompatible Views");
+    }
+    if ((plan.kind == ConversionKind::ByteCopy ||
+         plan.kind == ConversionKind::UserTemplateAssignment) &&
+        plan.source.lengthKind == ViewLengthKind::Static &&
+        plan.source.staticByteLength != plan.destination.staticByteLength) {
+      addDiagnostic(expression, std::string(owner) +
+                                    " byte-copy conversion requires equal fixed lengths");
+    }
+  };
 
   std::function<void(const Expr &)> verifyExpr;
   std::function<void(const Stmt &)> verifyStmt;
@@ -1299,10 +1500,23 @@ verifyViewSemantics(const TranslationUnit &unit) {
     if (const auto *value = dynamic_cast<const VariableRef *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
       checkTemplateName(*value, value->templateName, "templateName");
+      checkAddressFacts(*value, value->addressFacts);
       return;
     }
     if (const auto *value = dynamic_cast<const AddressOfExpr *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
+      checkAddressFacts(*value, value->facts);
+      const auto expectedOrigin = value->storage == MemoryStorage::Local
+                                      ? AddressOrigin::LocalObject
+                                      : (value->storage == MemoryStorage::StaticLocal
+                                             ? AddressOrigin::StaticObject
+                                             : AddressOrigin::GlobalObject);
+      if (value->facts.origin != expectedOrigin ||
+          value->facts.knownExtent != value->targetByteLength ||
+          value->facts.isBaseAddress != (value->offset == 0)) {
+        addDiagnostic(*value,
+                      "AddressOfExpr AddressFacts do not match its storage range");
+      }
       return;
     }
     if (const auto *value = dynamic_cast<const DerefExpr *>(&expression)) {
@@ -1320,6 +1534,25 @@ verifyViewSemantics(const TranslationUnit &unit) {
     }
     if (const auto *value = dynamic_cast<const BinaryExpr *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
+      if (value->operation == BinaryOperator::Unknown) {
+        addDiagnostic(*value,
+                      "BinaryExpr must carry a resolved binary operation");
+      }
+      if (value->operationKind == StandardOperationKind::AddressOffset) {
+        if ((value->operation != BinaryOperator::Add &&
+             value->operation != BinaryOperator::Subtract) ||
+            (!isAddressValue(value->result) &&
+             !isIntegerNumeric(value->result)) ||
+            !value->addressFacts ||
+            value->addressFacts->origin != AddressOrigin::PointerDerived ||
+            value->addressFacts->isBaseAddress) {
+          addDiagnostic(*value,
+                        "AddressOffset operation must carry derived non-base AddressFacts");
+        }
+      } else if (value->addressFacts) {
+        addDiagnostic(*value,
+                      "only AddressOffset operations may carry AddressFacts");
+      }
       verifyExpr(*value->left);
       verifyExpr(*value->right);
       return;
@@ -1404,6 +1637,27 @@ verifyViewSemantics(const TranslationUnit &unit) {
     if (const auto *value = dynamic_cast<const CallExpr *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
       checkTemplateName(*value, value->templateName, "templateName");
+      if (value->argumentPlans.size() != value->arguments.size()) {
+        addDiagnostic(*value,
+                      "CallExpr argument conversion plan count does not match arguments");
+      } else {
+        for (std::size_t index = 0; index < value->arguments.size(); ++index) {
+          const auto *cast = dynamic_cast<const IntegerCastExpr *>(
+              value->arguments[index].get());
+          checkConversionPlan(*value, value->argumentPlans[index],
+                              cast ? cast->operand->result
+                                   : value->arguments[index]->result,
+                              "CallExpr argument");
+        }
+      }
+      checkAddressFacts(*value, value->addressFacts);
+      if (value->addressFacts &&
+          (value->builtin != stdlib::BuiltinId::Alloc &&
+           value->builtin != stdlib::BuiltinId::Calloc &&
+           value->builtin != stdlib::BuiltinId::Realloc)) {
+        addDiagnostic(*value,
+                      "only allocation calls may carry allocation AddressFacts");
+      }
       for (const auto &argument : value->arguments) {
         verifyExpr(*argument);
       }
@@ -1453,10 +1707,20 @@ verifyViewSemantics(const TranslationUnit &unit) {
         verifyStmt(*item);
       }
     } else if (const auto *value = dynamic_cast<const IntegerStore *>(&statement)) {
+      if (value->conversionPlan) {
+        checkConversionPlan(*value->value, *value->conversionPlan,
+                            value->value->result, "IntegerStore");
+      }
       verifyExpr(*value->value);
     } else if (const auto *value = dynamic_cast<const FloatStore *>(&statement)) {
+      if (value->conversionPlan) {
+        checkConversionPlan(*value->value, *value->conversionPlan,
+                            value->value->result, "FloatStore");
+      }
       verifyExpr(*value->value);
     } else if (const auto *value = dynamic_cast<const ViewCopyStore *>(&statement)) {
+      checkConversionPlan(*value->value, value->conversionPlan,
+                          value->value->result, "ViewCopyStore");
       verifyExpr(*value->value);
     } else if (const auto *value = dynamic_cast<const BoolStore *>(&statement)) {
       verifyExpr(*value->value);
@@ -1488,8 +1752,22 @@ verifyViewSemantics(const TranslationUnit &unit) {
       }
       verifyExpr(*value->format);
     } else if (const auto *value = dynamic_cast<const Return *>(&statement)) {
-      for (const auto &item : value->values) {
-        verifyExpr(*item);
+      if (!value->conversionPlans.empty() &&
+          value->conversionPlans.size() != value->values.size() &&
+          !value->values.empty()) {
+        addDiagnostic(*value->values.front(),
+                      "Return conversion plan count does not match returned values");
+      }
+      for (std::size_t index = 0; index < value->values.size(); ++index) {
+        if (index < value->conversionPlans.size()) {
+          const auto *cast = dynamic_cast<const IntegerCastExpr *>(
+              value->values[index].get());
+          checkConversionPlan(*value->values[index], value->conversionPlans[index],
+                              cast ? cast->operand->result
+                                   : value->values[index]->result,
+                              "Return");
+        }
+        verifyExpr(*value->values[index]);
       }
     } else if (const auto *value = dynamic_cast<const If *>(&statement)) {
       verifyExpr(*value->condition);

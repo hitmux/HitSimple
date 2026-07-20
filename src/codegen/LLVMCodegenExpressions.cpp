@@ -32,20 +32,6 @@ std::optional<std::size_t> typedOperatorMarker(std::string_view op) {
   return marker;
 }
 
-std::optional<bool> integerOperationIsUnsigned(std::string_view op) {
-  const auto marker = typedOperatorMarker(op);
-  if (!marker) {
-    return std::nullopt;
-  }
-  if (op[*marker] == 'u') {
-    return true;
-  }
-  if (op[*marker] == 'd') {
-    return false;
-  }
-  return std::nullopt;
-}
-
 bool isUnsignedExpression(const hir::Expr &expression) {
   return expression.result.category == hir::ViewCategory::UnsignedInteger ||
          expression.result.integerInterpretation ==
@@ -63,12 +49,19 @@ bool usesPointerStorage(const Local &storage) {
           storage.abiType->kind == hir::AbiValueKind::Pointer);
 }
 
-bool isComparison(std::string_view op) {
-  return op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" ||
-         op == "!=";
+bool isComparison(hir::BinaryOperator op) {
+  return op == hir::BinaryOperator::Less ||
+         op == hir::BinaryOperator::Greater ||
+         op == hir::BinaryOperator::LessEqual ||
+         op == hir::BinaryOperator::GreaterEqual ||
+         op == hir::BinaryOperator::Equal ||
+         op == hir::BinaryOperator::NotEqual;
 }
 
-bool isLogical(std::string_view op) { return op == "&&" || op == "||"; }
+bool isLogical(hir::BinaryOperator op) {
+  return op == hir::BinaryOperator::LogicalAnd ||
+         op == hir::BinaryOperator::LogicalOr;
+}
 
 bool isCharacterClassifier(stdlib::BuiltinId builtin) {
   using enum stdlib::BuiltinId;
@@ -468,7 +461,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
   }
 
   if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    if (isLogical(binary->op)) {
+    if (isLogical(binary->operation)) {
       auto *function = builder_.GetInsertBlock()->getParent();
       auto *rightBlock =
           llvm::BasicBlock::Create(context_, "logic.rhs", function);
@@ -480,7 +473,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
         return nullptr;
       }
       auto *leftBlock = builder_.GetInsertBlock();
-      if (binary->op == "&&") {
+      if (binary->operation == hir::BinaryOperator::LogicalAnd) {
         builder_.CreateCondBr(leftCondition, rightBlock, mergeBlock);
       } else {
         builder_.CreateCondBr(leftCondition, mergeBlock, rightBlock);
@@ -497,7 +490,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 
       builder_.SetInsertPoint(mergeBlock);
       auto *phi = builder_.CreatePHI(integerType, 2, "logic");
-      phi->addIncoming(binary->op == "&&"
+      phi->addIncoming(binary->operation == hir::BinaryOperator::LogicalAnd
                            ? llvm::ConstantInt::get(integerType, 0)
                            : llvm::ConstantInt::get(integerType, 1),
                        leftBlock);
@@ -505,7 +498,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return phi;
     }
 
-    const auto op = operatorSuffix(binary->op);
+    const auto op = hir::toString(binary->operation);
     if (binary->operationKind == hir::StandardOperationKind::StandardBytesCompare ||
         binary->operationKind == hir::StandardOperationKind::StandardCStringCompare) {
       const auto leftView = emitViewValue(*binary->left);
@@ -559,7 +552,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       else if (op == ">") predicate = builder_.CreateICmpSGT(comparison, builder_.getInt32(0));
       else if (op == ">=") predicate = builder_.CreateICmpSGE(comparison, builder_.getInt32(0));
       else {
-        addDiagnostic("unsupported byte comparison operator '" + binary->op + "'");
+        addDiagnostic("unsupported byte comparison operator '" +
+                      std::string(hir::toString(binary->operation)) + "'");
         return nullptr;
       }
       auto *value = builder_.CreateZExt(predicate, builder_.getInt8Ty(),
@@ -568,7 +562,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                  ? value
                  : builder_.CreateZExt(value, integerType, "bytes.compare.zext");
     }
-    const bool comparison = isComparison(op);
+    const bool comparison = isComparison(binary->operation);
     std::size_t operationByteLength = binary->byteLength;
     if (comparison) {
       operationByteLength = std::max(expressionByteLength(*binary->left),
@@ -582,8 +576,13 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 
     const bool leftUnsigned = isUnsignedExpression(*binary->left);
     const bool rightUnsigned = isUnsignedExpression(*binary->right);
-    const bool unsignedOperation = integerOperationIsUnsigned(binary->op)
-                                       .value_or(leftUnsigned || rightUnsigned);
+    const bool unsignedOperation =
+        binary->typedIntegerInterpretation == hir::IntegerInterpretation::Unsigned
+            ? true
+            : (binary->typedIntegerInterpretation ==
+                       hir::IntegerInterpretation::Signed
+                   ? false
+                   : leftUnsigned || rightUnsigned);
     auto *left =
         emitIntegerValue(*binary->left, operationByteLength, leftUnsigned);
     if (!left) {
@@ -779,7 +778,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       result = builder_.CreateOr(left, right, "ortmp");
     } else if (op == "^") {
       result = builder_.CreateXor(left, right, "xortmp");
-    } else if (isComparison(op)) {
+    } else if (isComparison(binary->operation)) {
       if (op == "<") {
         result = unsignedOperation
                      ? builder_.CreateICmpULT(left, right, "cmptmp")
@@ -803,7 +802,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       }
       result = builder_.CreateZExt(result, builder_.getInt8Ty());
     } else {
-      addDiagnostic("unsupported binary operator '" + binary->op + "'");
+      addDiagnostic("unsupported binary operator '" +
+                    std::string(hir::toString(binary->operation)) + "'");
       return nullptr;
     }
 
@@ -1154,7 +1154,8 @@ llvm::Value *LlvmEmitter::emitMemoryOperandPointer(
       return self(self, *unsignedValue->operand);
     }
     if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&candidate)) {
-      return (binary->op == "+" || binary->op == "-") &&
+      return (binary->operation == hir::BinaryOperator::Add ||
+              binary->operation == hir::BinaryOperator::Subtract) &&
              self(self, *binary->left);
     }
     return false;
@@ -1264,6 +1265,11 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     auto *pointer = emitPointerValue(*deref->address, "deref.view");
     if (pointer == nullptr) {
       return {};
+    }
+    if (hasRuntimeSafetyChecks() &&
+        !hasKnownStaticAddressRange(*deref->address, deref->byteLength)) {
+      (void)emitCheckedRuntimeCall(
+          declareCheckLoad(), {pointer, builder_.getInt64(deref->byteLength)});
     }
     return ViewValue{pointer, builder_.getInt64(deref->byteLength),
                      deref->byteLength, std::size_t{1}};
@@ -1423,12 +1429,20 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
 
 llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
                                            llvm::Type *type,
-                                           std::string_view name) {
+                                           std::string_view name,
+                                           const hir::ConversionPlan *plan) {
   if (usesSoftwareF128() && isF128ValueType(type)) {
     return emitFloatValue(expression, 16);
   }
   if (auto *integer = llvm::dyn_cast<llvm::IntegerType>(type)) {
-    return emitIntegerValue(expression, integer->getBitWidth() / 8U);
+    const bool sourceUnsigned =
+        plan != nullptr
+            ? (plan->source.integerInterpretation ==
+                   hir::IntegerInterpretation::Unsigned ||
+               plan->source.category == hir::ViewCategory::UnsignedInteger)
+            : sourceUsesZeroExtension(expression);
+    return emitIntegerValue(expression, integer->getBitWidth() / 8U,
+                            sourceUnsigned);
   }
   if (type->isPointerTy()) {
     return emitPointerValue(expression, name);
@@ -1979,10 +1993,16 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                   call.callee + "'");
     return nullptr;
   }
+  if (call.argumentPlans.size() != call.arguments.size()) {
+    addDiagnostic("function argument conversion plans do not match arguments for '" +
+                  call.callee + "'");
+    return nullptr;
+  }
   for (std::size_t index = 0; index < call.arguments.size(); ++index) {
     auto *parameterType = callee->getFunctionType()->getParamType(index);
     auto *value = emitValueForType(*call.arguments[index], parameterType,
-                                   call.callee + ".arg");
+                                   call.callee + ".arg",
+                                   &call.argumentPlans[index]);
     if (!value) {
       return nullptr;
     }

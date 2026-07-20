@@ -1315,6 +1315,238 @@ HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_CheckedGuardsViewDereferencesBeforeTheirReads) {
+  const auto options = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const auto condition = emitSource("func main() {\n"
+                                    "    new pointer as addr = alloc(1)\n"
+                                    "    if ([1]*pointer) {\n"
+                                    "        return 1\n"
+                                    "    }\n"
+                                    "    return 0\n"
+                                    "}\n",
+                                    options);
+  const auto copy = emitSource("func main() {\n"
+                               "    new pointer as addr = alloc(1)\n"
+                               "    new target[1] as bytes\n"
+                               "    target = [1]*pointer\n"
+                               "    return 0\n"
+                               "}\n",
+                               options);
+
+  HS_EXPECT_TRUE(condition.diagnostics.empty());
+  const auto conditionCheck =
+      condition.llvmIr.find("ptr %deref.view.value, i64 1)");
+  const auto conditionRead = condition.llvmIr.find("cond.value");
+  HS_EXPECT_TRUE(conditionCheck != std::string::npos);
+  HS_EXPECT_TRUE(conditionRead != std::string::npos);
+  HS_EXPECT_TRUE(conditionCheck < conditionRead);
+
+  HS_EXPECT_TRUE(copy.diagnostics.empty());
+  const auto copyCheck = copy.llvmIr.find("ptr %deref.view.value, i64 1)");
+  const auto copyRead = copy.llvmIr.find("llvm.memcpy");
+  HS_EXPECT_TRUE(copyCheck != std::string::npos);
+  HS_EXPECT_TRUE(copyRead != std::string::npos);
+  HS_EXPECT_TRUE(copyCheck < copyRead);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedRejectsNullViewDereferences) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto condition = emitSource("func main() {\n"
+                                    "    new pointer as addr = 0\n"
+                                    "    if ([1]*pointer) {\n"
+                                    "        return 1\n"
+                                    "    }\n"
+                                    "    return 0\n"
+                                    "}\n",
+                                    options);
+  const auto copy = emitSource("func main() {\n"
+                               "    new pointer as addr = 0\n"
+                               "    new target[1] as bytes\n"
+                               "    target = [1]*pointer\n"
+                               "    return 0\n"
+                               "}\n",
+                               options);
+
+  HS_EXPECT_TRUE(!condition.diagnostics.empty());
+  HS_EXPECT_TRUE(condition.diagnostics.front().message.find(
+                     "null address dereference") != std::string::npos);
+  HS_EXPECT_TRUE(!copy.diagnostics.empty());
+  HS_EXPECT_TRUE(copy.diagnostics.front().message.find(
+                     "null address dereference") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedTracksDynamicAddressLifetimes) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto interiorFree = emitSource("func main() {\n"
+                                       "    new pointer = alloc(2)\n"
+                                       "    new interior as addr = pointer? + 1\n"
+                                       "    free(interior)\n"
+                                       "    return 0\n"
+                                       "}\n",
+                                       options);
+  const auto doubleFree = emitSource("func main() {\n"
+                                     "    new pointer = alloc(1)\n"
+                                     "    free(pointer)\n"
+                                     "    free(pointer)\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     options);
+  const auto useAfterFree = emitSource("func main() {\n"
+                                       "    new pointer = alloc(1)\n"
+                                       "    free(pointer)\n"
+                                       "    return [1]*pointer\n"
+                                       "}\n",
+                                       options);
+  const auto useAfterRealloc =
+      emitSource("func main() {\n"
+                 "    new pointer = alloc(1)\n"
+                 "    new alias as addr = pointer\n"
+                 "    pointer = realloc(pointer, 2)\n"
+                 "    return [1]*alias\n"
+                 "}\n",
+                 options);
+  const auto reallocStaticStorage =
+      emitSource("func main() {\n"
+                 "    new local[1] as bytes\n"
+                 "    new pointer = realloc(&local, 2)\n"
+                 "    return 0\n"
+                 "}\n",
+                 options);
+  const auto freeStaticStorage = emitSource("func main() {\n"
+                                            "    new local[1] as bytes\n"
+                                            "    free(&local)\n"
+                                            "    return 0\n"
+                                            "}\n",
+                                            options);
+
+  HS_EXPECT_TRUE(!interiorFree.diagnostics.empty());
+  HS_EXPECT_TRUE(interiorFree.diagnostics.front().message.find(
+                     "free requires a dynamic-object base address") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!doubleFree.diagnostics.empty());
+  HS_EXPECT_TRUE(doubleFree.diagnostics.front().message.find("double free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!useAfterFree.diagnostics.empty());
+  HS_EXPECT_TRUE(useAfterFree.diagnostics.front().message.find("use after free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!useAfterRealloc.diagnostics.empty());
+  HS_EXPECT_TRUE(
+      useAfterRealloc.diagnostics.front().message.find("use after free") !=
+      std::string::npos);
+  HS_EXPECT_TRUE(!reallocStaticStorage.diagnostics.empty());
+  HS_EXPECT_TRUE(reallocStaticStorage.diagnostics.front().message.find(
+                     "realloc requires a dynamic-object base address") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!freeStaticStorage.diagnostics.empty());
+  HS_EXPECT_TRUE(freeStaticStorage.diagnostics.front().message.find(
+                     "free requires a dynamic-object base address") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedTracksSignedPointerOffsetRanges) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto staticBeforeBase = emitSource("func main() {\n"
+                                          "    new bytes[1] as bytes\n"
+                                          "    return [1]*((&bytes)? - 1)\n"
+                                          "}\n",
+                                          options);
+  const auto staticAtEnd = emitSource("func main() {\n"
+                                      "    new bytes[1] as bytes\n"
+                                      "    return [1]*((&bytes)? + 1)\n"
+                                      "}\n",
+                                      options);
+  const auto dynamicBeforeBase = emitSource("func main() {\n"
+                                           "    new pointer = alloc(1)\n"
+                                           "    return [1]*(pointer? - 1)\n"
+                                           "}\n",
+                                           options);
+  const auto dynamicAtEnd = emitSource("func main() {\n"
+                                       "    new pointer = alloc(1)\n"
+                                       "    return [1]*(pointer? + 1)\n"
+                                       "}\n",
+                                       options);
+  const auto returnsToBase = emitSource("func main() {\n"
+                                        "    new bytes[1] as bytes = 0\n"
+                                        "    new pointer as addr = (&bytes)? + 1\n"
+                                        "    return [1]*(pointer? - 1)\n"
+                                        "}\n",
+                                        options);
+
+  for (const auto *result : {&staticBeforeBase, &staticAtEnd,
+                             &dynamicBeforeBase, &dynamicAtEnd}) {
+    HS_EXPECT_TRUE(!result->diagnostics.empty());
+    HS_EXPECT_TRUE(result->diagnostics.front().message.find(
+                       "memory load out of bounds") != std::string::npos);
+  }
+  HS_EXPECT_TRUE(returnsToBase.diagnostics.empty());
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedUsesIntegerDataflowForDivision) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto knownZero = emitSource("func main() {\n"
+                                   "    new divisor as i32 = 0\n"
+                                   "    return 1 / divisor\n"
+                                   "}\n",
+                                   options);
+  const auto replacedWithNonZero = emitSource("func main() {\n"
+                                              "    new divisor as i32 = 0\n"
+                                              "    divisor = 1\n"
+                                              "    return 1 / divisor\n"
+                                              "}\n",
+                                              options);
+
+  HS_EXPECT_TRUE(!knownZero.diagnostics.empty());
+  HS_EXPECT_TRUE(knownZero.diagnostics.front().message.find(
+                     "division by zero") != std::string::npos);
+  HS_EXPECT_TRUE(replacedWithNonZero.diagnostics.empty());
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedMergesControlFlowSafetyFacts) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto deadBranch = emitSource("func main() {\n"
+                                    "    new divisor as i32 = 1\n"
+                                    "    if (false) {\n"
+                                    "        divisor = 0\n"
+                                    "    }\n"
+                                    "    return 1 / divisor\n"
+                                    "}\n",
+                                    options);
+  const auto divergentBranches = emitSource(
+      "func divide(flag as i32) -> i32 {\n"
+      "    new divisor as i32 = 1\n"
+      "    if (flag) {\n"
+      "        divisor = 0\n"
+      "    } else {\n"
+      "        divisor = 1\n"
+      "    }\n"
+      "    return 1 / divisor\n"
+      "}\n"
+      "func main() {\n"
+      "    return divide(0)\n"
+      "}\n",
+      options);
+  const auto loopWrite = emitSource("func divide(flag as i32) -> i32 {\n"
+                                    "    new divisor as i32 = 1\n"
+                                    "    while (flag) {\n"
+                                    "        divisor = 0\n"
+                                    "    }\n"
+                                    "    return 1 / divisor\n"
+                                    "}\n"
+                                    "func main() {\n"
+                                    "    return divide(0)\n"
+                                    "}\n",
+                                    options);
+
+  HS_EXPECT_TRUE(deadBranch.diagnostics.empty());
+  HS_EXPECT_TRUE(divergentBranches.diagnostics.empty());
+  HS_EXPECT_TRUE(loopWrite.diagnostics.empty());
+}
+
 HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
   auto result =
       emitSource("func main() {\n"

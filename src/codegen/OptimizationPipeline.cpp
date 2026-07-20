@@ -1,6 +1,8 @@
 #include "hitsimple/codegen/OptimizationPipeline.h"
+#include "hitsimple/codegen/LlvmCompatibility.h"
 
 #include <llvm/AsmParser/Parser.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/DiagnosticInfo.h>
 #include <llvm/IR/DiagnosticPrinter.h>
 #include <llvm/IR/LLVMContext.h>
@@ -102,20 +104,33 @@ private:
   bool emitRemark_ = false;
 };
 
-void collectOptimizationRemark(const llvm::DiagnosticInfo* diagnostic,
-                               void* context) {
-  if (diagnostic == nullptr ||
-      diagnostic->getKind() != llvm::DK_OptimizationRemark) {
+void appendOptimizationRemark(const llvm::DiagnosticInfo& diagnostic,
+                              void* context) {
+  if (diagnostic.getKind() != llvm::DK_OptimizationRemark) {
     return;
   }
   auto& remarks = *static_cast<std::vector<std::string>*>(context);
   std::string message;
   llvm::raw_string_ostream stream(message);
   llvm::DiagnosticPrinterRawOStream printer(stream);
-  diagnostic->print(printer);
+  diagnostic.print(printer);
   stream.flush();
   remarks.push_back(std::move(message));
 }
+
+#if LLVM_VERSION_MAJOR == 18
+void collectOptimizationRemark(const llvm::DiagnosticInfo& diagnostic,
+                               void* context) {
+  appendOptimizationRemark(diagnostic, context);
+}
+#else
+void collectOptimizationRemark(const llvm::DiagnosticInfo* diagnostic,
+                               void* context) {
+  if (diagnostic != nullptr) {
+    appendOptimizationRemark(*diagnostic, context);
+  }
+}
+#endif
 
 } // namespace
 
@@ -150,17 +165,17 @@ runOptimizationPipeline(std::string_view llvmIr,
     error = "cannot initialize LLVM native target for optimization";
     return std::nullopt;
   }
+  const std::string targetTriple = moduleTargetTriple(*module);
   std::string targetError;
-  const auto* target =
-      llvm::TargetRegistry::lookupTarget(module->getTargetTriple(), targetError);
+  const auto* target = resolveTarget(targetTriple, targetError);
   if (target == nullptr) {
-    error = "cannot resolve LLVM target '" + module->getTargetTriple() +
+    error = "cannot resolve LLVM target '" + targetTriple +
             "' for optimization: " + targetError;
     return std::nullopt;
   }
   llvm::TargetOptions targetOptions;
-  std::unique_ptr<llvm::TargetMachine> targetMachine(target->createTargetMachine(
-      module->getTargetTriple(), "generic", "", targetOptions, std::nullopt));
+  std::unique_ptr<llvm::TargetMachine> targetMachine(
+      createGenericTargetMachine(*target, targetTriple, targetOptions));
   if (!targetMachine) {
     error = "cannot create LLVM target machine for optimization";
     return std::nullopt;

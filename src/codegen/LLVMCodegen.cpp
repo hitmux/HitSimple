@@ -18,20 +18,11 @@
 #include <limits>
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace hitsimple::codegen {
 namespace {
-
-std::string_view integerOperatorSuffix(std::string_view op) {
-  const std::string_view suffixes[] = {"**", "<<", ">>", "/", "%"};
-  for (const auto suffix : suffixes) {
-    if (op.ends_with(suffix)) {
-      return suffix;
-    }
-  }
-  return op;
-}
 
 std::optional<std::int64_t> constantSignedInteger(const hir::Expr &expression) {
   if (const auto *integer =
@@ -61,6 +52,9 @@ std::optional<std::int64_t> constantSignedInteger(const hir::Expr &expression) {
       return std::nullopt;
     }
     if (unary->op == "-") {
+      if (*value == std::numeric_limits<std::int64_t>::min()) {
+        return std::nullopt;
+      }
       return -*value;
     }
     if (unary->op == "+") {
@@ -132,6 +126,23 @@ constantUnsignedInteger(const hir::Expr &expression) {
     return constantUnsignedInteger(*view->operand);
   }
   return std::nullopt;
+}
+
+std::optional<std::int64_t> addSignedIntegers(std::int64_t left,
+                                              std::int64_t right) {
+  if ((right > 0 && left > std::numeric_limits<std::int64_t>::max() - right) ||
+      (right < 0 && left < std::numeric_limits<std::int64_t>::min() - right)) {
+    return std::nullopt;
+  }
+  return left + right;
+}
+
+std::optional<std::uint64_t> multiplyUnsignedIntegers(std::uint64_t left,
+                                                       std::uint64_t right) {
+  if (left != 0 && right > std::numeric_limits<std::uint64_t>::max() / left) {
+    return std::nullopt;
+  }
+  return left * right;
 }
 
 std::optional<std::int64_t> signedMinimumForByteLength(std::size_t byteLength) {
@@ -429,37 +440,8 @@ void LlvmEmitter::declareDebugVariable(
 
 std::optional<LlvmEmitter::StaticAddressRange>
 LlvmEmitter::staticAddressRange(const hir::Expr &expression) const {
-  if (const auto *unsignedExpr =
-          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
-    return staticAddressRange(*unsignedExpr->operand);
-  }
-  if (const auto *cast =
-          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
-    return staticAddressRange(*cast->operand);
-  }
-  if (const auto *view =
-          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return staticAddressRange(*view->operand);
-  }
-  if (const auto *address =
-          dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
-    const auto offset = static_cast<std::int64_t>(address->offset);
-    return StaticAddressRange{address->bindingName, offset, offset,
-                              static_cast<std::uint64_t>(
-                                  address->offset + address->targetByteLength)};
-  }
-  const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression);
-  if (binary == nullptr || binary->op != "+") {
-    return std::nullopt;
-  }
-  const auto base = staticAddressRange(*binary->left);
-  const auto offset = constantSignedInteger(*binary->right);
-  if (!base || !offset) {
-    return std::nullopt;
-  }
-  auto range = *base;
-  range.offset += *offset;
-  return range;
+  const auto fact = staticAddressFact(expression);
+  return fact ? fact->range : std::nullopt;
 }
 
 std::optional<LlvmEmitter::StaticAddressRange>
@@ -515,8 +497,16 @@ bool LlvmEmitter::targetsRegisteredInternalObject(
   }
 
   const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression);
-  return binary != nullptr && binary->op == "+" &&
-         targetsRegisteredInternalObject(*binary->left);
+  if (binary != nullptr &&
+      binary->operationKind == hir::StandardOperationKind::AddressOffset) {
+    return targetsRegisteredInternalObject(*binary->left);
+  }
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    const auto fact = staticAddressFact(*variable);
+    return fact && fact->origin == StaticAddressOrigin::NonDynamicObject &&
+           fact->range.has_value();
+  }
+  return false;
 }
 
 bool LlvmEmitter::hasKnownStaticAddressRange(const hir::Expr &expression,
@@ -530,19 +520,378 @@ bool LlvmEmitter::hasKnownStaticAddressRange(const hir::Expr &expression,
          range->upperBound;
 }
 
+void LlvmEmitter::resetStaticSafetyState() {
+  staticIntegerValues_.clear();
+  staticUnsignedIntegerValues_.clear();
+  staticAddressFacts_.clear();
+  staticDynamicObjectStates_.clear();
+  nextStaticDynamicObjectId_ = 0;
+}
+
+LlvmEmitter::StaticSafetyState LlvmEmitter::staticSafetyState() const {
+  return StaticSafetyState{staticIntegerValues_, staticUnsignedIntegerValues_,
+                           staticAddressFacts_, staticDynamicObjectStates_};
+}
+
+void LlvmEmitter::restoreStaticSafetyState(const StaticSafetyState &state) {
+  staticIntegerValues_ = state.integerValues;
+  staticUnsignedIntegerValues_ = state.unsignedIntegerValues;
+  staticAddressFacts_ = state.addressFacts;
+  staticDynamicObjectStates_ = state.dynamicObjectStates;
+}
+
+void LlvmEmitter::mergeStaticSafetyStates(const StaticSafetyState &left,
+                                          const StaticSafetyState &right) {
+  const auto retainCommonFacts = [](const auto &leftFacts,
+                                    const auto &rightFacts) {
+    using FactMap = std::decay_t<decltype(leftFacts)>;
+    FactMap result;
+    for (const auto &[bindingName, leftValue] : leftFacts) {
+      const auto rightValue = rightFacts.find(bindingName);
+      if (rightValue != rightFacts.end() && leftValue && rightValue->second &&
+          *leftValue == *rightValue->second) {
+        result.emplace(bindingName, leftValue);
+      }
+    }
+    return result;
+  };
+
+  staticIntegerValues_ =
+      retainCommonFacts(left.integerValues, right.integerValues);
+  staticUnsignedIntegerValues_ =
+      retainCommonFacts(left.unsignedIntegerValues, right.unsignedIntegerValues);
+  staticAddressFacts_ =
+      retainCommonFacts(left.addressFacts, right.addressFacts);
+
+  staticDynamicObjectStates_.clear();
+  for (const auto &[bindingName, fact] : staticAddressFacts_) {
+    (void)bindingName;
+    if (!fact || fact->origin != StaticAddressOrigin::DynamicObject) {
+      continue;
+    }
+    const auto leftState = left.dynamicObjectStates.find(fact->dynamicObjectId);
+    const auto rightState =
+        right.dynamicObjectStates.find(fact->dynamicObjectId);
+    if (leftState == left.dynamicObjectStates.end() ||
+        rightState == right.dynamicObjectStates.end()) {
+      continue;
+    }
+    staticDynamicObjectStates_[fact->dynamicObjectId] =
+        leftState->second == rightState->second ? leftState->second
+                                                : StaticDynamicObjectState::Unknown;
+  }
+}
+
+std::optional<std::int64_t>
+LlvmEmitter::staticSignedInteger(const hir::Expr &expression) const {
+  if (const auto value = constantSignedInteger(expression)) {
+    return value;
+  }
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    const auto found = staticIntegerValues_.find(variable->bindingName);
+    return found == staticIntegerValues_.end() ? std::nullopt : found->second;
+  }
+  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
+    const auto value = staticSignedInteger(*unary->operand);
+    if (!value) {
+      return std::nullopt;
+    }
+    if (unary->op == "+") {
+      return value;
+    }
+    if (unary->op == "-" &&
+        *value != std::numeric_limits<std::int64_t>::min()) {
+      return -*value;
+    }
+    return std::nullopt;
+  }
+  if (const auto *cast =
+          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    if (cast->byteLength == 0 || cast->byteLength > 8) {
+      return std::nullopt;
+    }
+    const auto value = staticSignedInteger(*cast->operand);
+    if (!value) {
+      return std::nullopt;
+    }
+    if (cast->byteLength == 8) {
+      return cast->isSigned ? value : (*value >= 0 ? value : std::nullopt);
+    }
+    const auto bits = cast->byteLength * 8U;
+    const auto mask = (std::uint64_t{1} << bits) - 1U;
+    const auto truncated = static_cast<std::uint64_t>(*value) & mask;
+    if (!cast->isSigned) {
+      return static_cast<std::int64_t>(truncated);
+    }
+    const auto signBit = std::uint64_t{1} << (bits - 1U);
+    return static_cast<std::int64_t>((truncated ^ signBit) - signBit);
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return staticSignedInteger(*view->operand);
+  }
+  return std::nullopt;
+}
+
+std::optional<std::uint64_t>
+LlvmEmitter::staticUnsignedInteger(const hir::Expr &expression) const {
+  if (const auto value = constantUnsignedInteger(expression)) {
+    return value;
+  }
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    const auto found = staticUnsignedIntegerValues_.find(variable->bindingName);
+    return found == staticUnsignedIntegerValues_.end() ? std::nullopt
+                                                        : found->second;
+  }
+  if (const auto *unsignedExpr =
+          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
+    return staticUnsignedInteger(*unsignedExpr->operand);
+  }
+  if (const auto *cast =
+          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    if (cast->byteLength == 0 || cast->byteLength > 8) {
+      return std::nullopt;
+    }
+    auto value = staticUnsignedInteger(*cast->operand);
+    if (!value) {
+      const auto signedValue = staticSignedInteger(*cast->operand);
+      if (!signedValue) {
+        return std::nullopt;
+      }
+      value = static_cast<std::uint64_t>(*signedValue);
+    }
+    if (cast->byteLength == 8) {
+      return value;
+    }
+    return *value & ((std::uint64_t{1} << (cast->byteLength * 8U)) - 1U);
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return staticUnsignedInteger(*view->operand);
+  }
+  return std::nullopt;
+}
+
+std::optional<bool>
+LlvmEmitter::staticBooleanValue(const hir::Expr &expression) const {
+  if (const auto *test =
+          dynamic_cast<const hir::BooleanTestExpr *>(&expression)) {
+    return staticBooleanValue(*test->operand);
+  }
+  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
+    if (unary->op == "!") {
+      const auto value = staticBooleanValue(*unary->operand);
+      return value ? std::optional<bool>{!*value} : std::nullopt;
+    }
+  }
+  if (const auto value = staticSignedInteger(expression)) {
+    return *value != 0;
+  }
+  if (const auto value = staticUnsignedInteger(expression)) {
+    return *value != 0;
+  }
+  return std::nullopt;
+}
+
+std::optional<LlvmEmitter::StaticAddressFact>
+LlvmEmitter::staticAddressFact(const hir::Expr &expression) const {
+  if (const auto *unsignedExpr =
+          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
+    return staticAddressFact(*unsignedExpr->operand);
+  }
+  if (const auto *cast =
+          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    return staticAddressFact(*cast->operand);
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return staticAddressFact(*view->operand);
+  }
+  if (const auto *address =
+          dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
+    const auto offset = static_cast<std::int64_t>(address->offset);
+    return StaticAddressFact{
+        StaticAddressOrigin::NonDynamicObject,
+        0,
+        address->offset == 0,
+        StaticAddressRange{address->bindingName, offset, offset,
+                           static_cast<std::uint64_t>(address->offset +
+                                                      address->targetByteLength)}};
+  }
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    const auto found = staticAddressFacts_.find(variable->bindingName);
+    return found == staticAddressFacts_.end() ? std::nullopt : found->second;
+  }
+  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
+    const bool addressOffset =
+        binary->operationKind == hir::StandardOperationKind::AddressOffset;
+    if (!addressOffset && binary->operation != hir::BinaryOperator::Add &&
+        binary->operation != hir::BinaryOperator::Subtract) {
+      return std::nullopt;
+    }
+    auto base = staticAddressFact(*binary->left);
+    const auto offset = staticSignedInteger(*binary->right);
+    if (base && offset) {
+      auto signedOffset = *offset;
+      if (!addressOffset && binary->operation == hir::BinaryOperator::Subtract) {
+        if (signedOffset == std::numeric_limits<std::int64_t>::min()) {
+          base->range.reset();
+          return base;
+        }
+        signedOffset = -signedOffset;
+      }
+      base->isBaseAddress = false;
+      if (base->range) {
+        const auto adjusted =
+            addSignedIntegers(base->range->offset, signedOffset);
+        if (adjusted) {
+          base->range->offset = *adjusted;
+        } else {
+          base->range.reset();
+        }
+      }
+    } else if (base) {
+      base->range.reset();
+    }
+    return base;
+  }
+  const auto value = staticSignedInteger(expression);
+  if (value && *value == 0) {
+    return StaticAddressFact{StaticAddressOrigin::Null, 0, false, std::nullopt};
+  }
+  return std::nullopt;
+}
+
+void LlvmEmitter::validateStaticDynamicBase(const hir::Expr &expression,
+                                            std::string_view operation) {
+  const auto fact = staticAddressFact(expression);
+  if (!fact || fact->origin == StaticAddressOrigin::Null) {
+    return;
+  }
+  if (fact->origin != StaticAddressOrigin::DynamicObject) {
+    addDiagnostic("static safety check failed: " + std::string(operation) +
+                  " requires a dynamic-object base address");
+    return;
+  }
+  if (!fact->isBaseAddress) {
+    addDiagnostic("static safety check failed: " + std::string(operation) +
+                  " requires a dynamic-object base address");
+    return;
+  }
+  const auto state = staticDynamicObjectStates_.find(fact->dynamicObjectId);
+  if (state == staticDynamicObjectStates_.end() ||
+      state->second == StaticDynamicObjectState::Freed) {
+    addDiagnostic("static safety check failed: " +
+                  (operation == "free" ? std::string("double free")
+                                       : std::string("invalid reallocation of "
+                                                     "released dynamic object")));
+  }
+}
+
+bool LlvmEmitter::releaseStaticDynamicObject(const hir::Expr &expression) {
+  const auto fact = staticAddressFact(expression);
+  if (!fact || fact->origin != StaticAddressOrigin::DynamicObject ||
+      !fact->isBaseAddress) {
+    return false;
+  }
+  const auto state = staticDynamicObjectStates_.find(fact->dynamicObjectId);
+  if (state == staticDynamicObjectStates_.end() ||
+      state->second != StaticDynamicObjectState::Live) {
+    return false;
+  }
+  state->second = StaticDynamicObjectState::Freed;
+  return true;
+}
+
+void LlvmEmitter::recordStaticAddressAssignment(std::string_view bindingName,
+                                                const hir::Expr &value) {
+  const auto recordDynamicObject = [this, bindingName](
+                                       std::optional<std::uint64_t> extent) {
+    const auto dynamicObjectId = nextStaticDynamicObjectId_++;
+    staticDynamicObjectStates_[dynamicObjectId] = StaticDynamicObjectState::Live;
+    staticAddressFacts_[std::string(bindingName)] =
+        StaticAddressFact{
+            StaticAddressOrigin::DynamicObject,
+            dynamicObjectId,
+            true,
+            extent ? std::optional<StaticAddressRange>{StaticAddressRange{
+                         "dynamic:" + std::to_string(dynamicObjectId), 0, 0,
+                         *extent}}
+                   : std::nullopt};
+  };
+
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&value)) {
+    if (call->builtin == stdlib::BuiltinId::Alloc ||
+        call->builtin == stdlib::BuiltinId::Calloc) {
+      std::optional<std::uint64_t> extent;
+      if (call->addressFacts && call->addressFacts->knownExtent) {
+        extent = static_cast<std::uint64_t>(*call->addressFacts->knownExtent);
+      }
+      if (!extent && call->builtin == stdlib::BuiltinId::Alloc &&
+          call->arguments.size() == 1U) {
+        extent = staticUnsignedInteger(*call->arguments.front());
+      }
+      if (!extent && call->builtin == stdlib::BuiltinId::Calloc &&
+          call->arguments.size() == 2U) {
+        const auto count = staticUnsignedInteger(*call->arguments[0]);
+        const auto size = staticUnsignedInteger(*call->arguments[1]);
+        if (count && size) {
+          extent = multiplyUnsignedIntegers(*count, *size);
+        }
+      }
+      recordDynamicObject(extent);
+      return;
+    }
+    if (call->builtin == stdlib::BuiltinId::Realloc &&
+        !call->arguments.empty()) {
+      std::optional<std::uint64_t> extent;
+      if (call->addressFacts && call->addressFacts->knownExtent) {
+        extent = static_cast<std::uint64_t>(*call->addressFacts->knownExtent);
+      } else if (call->arguments.size() == 2U) {
+        extent = staticUnsignedInteger(*call->arguments[1]);
+      }
+      const auto input = staticAddressFact(*call->arguments.front());
+      if (input && input->origin == StaticAddressOrigin::Null) {
+        recordDynamicObject(extent);
+        return;
+      }
+      if (releaseStaticDynamicObject(*call->arguments.front())) {
+        recordDynamicObject(extent);
+        return;
+      }
+      staticAddressFacts_[std::string(bindingName)] = std::nullopt;
+      return;
+    }
+  }
+
+  staticAddressFacts_[std::string(bindingName)] = staticAddressFact(value);
+}
+
+void LlvmEmitter::validateStaticAddressAccess(const hir::Expr &expression,
+                                              std::string_view operation) {
+  const auto fact = staticAddressFact(expression);
+  if (!fact || fact->origin != StaticAddressOrigin::DynamicObject) {
+    return;
+  }
+  const auto state = staticDynamicObjectStates_.find(fact->dynamicObjectId);
+  if (state != staticDynamicObjectStates_.end() &&
+      state->second == StaticDynamicObjectState::Freed) {
+    addDiagnostic("static safety check failed: use after free " +
+                  std::string(operation));
+  }
+}
+
 void LlvmEmitter::validateSafety(const hir::TranslationUnit &unit) {
   if (!hasStaticSafetyChecks()) {
     return;
   }
 
-  staticIntegerValues_.clear();
-  staticUnsignedIntegerValues_.clear();
+  resetStaticSafetyState();
   if (unit.globalInit) {
     validateSafety(*unit.globalInit);
   }
   for (const auto &function : unit.functions) {
-    staticIntegerValues_.clear();
-    staticUnsignedIntegerValues_.clear();
+    resetStaticSafetyState();
     validateSafety(*function->body);
   }
 }
@@ -565,9 +914,10 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   if (const auto *store = dynamic_cast<const hir::IntegerStore *>(&statement)) {
     validateSafety(*store->value);
     staticIntegerValues_[store->bindingName] =
-        constantSignedInteger(*store->value);
+        staticSignedInteger(*store->value);
     staticUnsignedIntegerValues_[store->bindingName] =
-        constantUnsignedInteger(*store->value);
+        staticUnsignedInteger(*store->value);
+    recordStaticAddressAssignment(store->bindingName, *store->value);
     return;
   }
   if (const auto *store = dynamic_cast<const hir::FloatStore *>(&statement)) {
@@ -578,21 +928,19 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   }
   if (const auto *store = dynamic_cast<const hir::BoolStore *>(&statement)) {
     validateSafety(*store->value);
-    staticIntegerValues_[store->bindingName] = std::nullopt;
-    staticUnsignedIntegerValues_[store->bindingName] = std::nullopt;
+    staticIntegerValues_[store->bindingName] =
+        staticSignedInteger(*store->value);
+    staticUnsignedIntegerValues_[store->bindingName] =
+        staticUnsignedInteger(*store->value);
+    return;
+  }
+  if (const auto *store =
+          dynamic_cast<const hir::ViewCopyStore *>(&statement)) {
+    validateSafety(*store->value);
     return;
   }
   if (const auto *store = dynamic_cast<const hir::PointerStore *>(&statement)) {
-    auto address = constantSignedInteger(*store->address);
-    if (!address) {
-      if (const auto *variable =
-              dynamic_cast<const hir::VariableRef *>(store->address.get())) {
-        const auto found = staticIntegerValues_.find(variable->bindingName);
-        if (found != staticIntegerValues_.end()) {
-          address = found->second;
-        }
-      }
-    }
+    const auto address = staticSignedInteger(*store->address);
     if (address && *address == 0) {
       addDiagnostic("static safety check failed: null address store");
     }
@@ -603,18 +951,24 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
         addDiagnostic("static safety check failed: memory store out of bounds");
       }
     }
+    validateStaticAddressAccess(*store->address, "store");
     validateSafety(*store->address);
     validateSafety(*store->value);
     return;
   }
   if (const auto *call = dynamic_cast<const hir::Call *>(&statement)) {
-    if (call->builtin == stdlib::BuiltinId::Free && !call->arguments.empty() &&
-        dynamic_cast<const hir::AddressOfExpr *>(call->arguments[0].get()) !=
-            nullptr) {
-      addDiagnostic("static safety check failed: cannot free static storage");
+    if ((call->builtin == stdlib::BuiltinId::Free ||
+         call->builtin == stdlib::BuiltinId::Realloc) &&
+        !call->arguments.empty()) {
+      validateStaticDynamicBase(*call->arguments.front(), call->callee);
     }
     for (const auto &argument : call->arguments) {
       validateSafety(*argument);
+    }
+    if ((call->builtin == stdlib::BuiltinId::Free ||
+         call->builtin == stdlib::BuiltinId::Realloc) &&
+        !call->arguments.empty()) {
+      (void)releaseStaticDynamicObject(*call->arguments.front());
     }
     return;
   }
@@ -656,15 +1010,38 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   }
   if (const auto *ifStmt = dynamic_cast<const hir::If *>(&statement)) {
     validateSafety(*ifStmt->condition);
+    const auto condition = staticBooleanValue(*ifStmt->condition);
+    if (condition) {
+      if (*condition) {
+        validateSafety(*ifStmt->thenBlock);
+      } else if (ifStmt->elseBlock) {
+        validateSafety(*ifStmt->elseBlock);
+      }
+      return;
+    }
+
+    const auto entry = staticSafetyState();
     validateSafety(*ifStmt->thenBlock);
+    const auto thenState = staticSafetyState();
+    restoreStaticSafetyState(entry);
     if (ifStmt->elseBlock) {
       validateSafety(*ifStmt->elseBlock);
     }
+    const auto elseState = staticSafetyState();
+    mergeStaticSafetyStates(thenState, elseState);
     return;
   }
   if (const auto *whileStmt = dynamic_cast<const hir::While *>(&statement)) {
     validateSafety(*whileStmt->condition);
+    if (const auto condition = staticBooleanValue(*whileStmt->condition);
+        condition && !*condition) {
+      return;
+    }
+    const auto entry = staticSafetyState();
     validateSafety(*whileStmt->body);
+    const auto bodyState = staticSafetyState();
+    restoreStaticSafetyState(entry);
+    mergeStaticSafetyStates(entry, bodyState);
     return;
   }
   if (const auto *forStmt = dynamic_cast<const hir::For *>(&statement)) {
@@ -674,10 +1051,20 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     if (forStmt->condition) {
       validateSafety(*forStmt->condition);
     }
+    if (forStmt->condition) {
+      if (const auto condition = staticBooleanValue(*forStmt->condition);
+          condition && !*condition) {
+        return;
+      }
+    }
+    const auto entry = staticSafetyState();
+    validateSafety(*forStmt->body);
     for (const auto &post : forStmt->post) {
       validateSafety(*post);
     }
-    validateSafety(*forStmt->body);
+    const auto bodyState = staticSafetyState();
+    restoreStaticSafetyState(entry);
+    mergeStaticSafetyStates(entry, bodyState);
     return;
   }
   if (const auto *label = dynamic_cast<const hir::Label *>(&statement)) {
@@ -691,8 +1078,13 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     return;
   }
   if (const auto *tryCatch = dynamic_cast<const hir::TryCatch *>(&statement)) {
+    const auto entry = staticSafetyState();
     validateSafety(*tryCatch->tryBlock);
+    const auto tryState = staticSafetyState();
+    restoreStaticSafetyState(entry);
     validateSafety(*tryCatch->catchBlock);
+    const auto catchState = staticSafetyState();
+    mergeStaticSafetyStates(tryState, catchState);
     return;
   }
 }
@@ -700,16 +1092,7 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
 void LlvmEmitter::validateSafety(const hir::Expr &expression) {
   SourceRangeScope sourceRange(*this, expression.range);
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
-    auto address = constantSignedInteger(*deref->address);
-    if (!address) {
-      if (const auto *variable =
-              dynamic_cast<const hir::VariableRef *>(deref->address.get())) {
-        const auto found = staticIntegerValues_.find(variable->bindingName);
-        if (found != staticIntegerValues_.end()) {
-          address = found->second;
-        }
-      }
-    }
+    const auto address = staticSignedInteger(*deref->address);
     if (address && *address == 0) {
       addDiagnostic("static safety check failed: null address dereference");
     }
@@ -720,12 +1103,13 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
         addDiagnostic("static safety check failed: memory load out of bounds");
       }
     }
+    validateStaticAddressAccess(*deref->address, "dereference");
     validateSafety(*deref->address);
     return;
   }
   if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    const auto op = integerOperatorSuffix(binary->op);
-    const auto right = constantSignedInteger(*binary->right);
+    const auto op = std::string(hir::toString(binary->operation));
+    const auto right = staticSignedInteger(*binary->right);
     if ((op == "/" || op == "%") && right && *right == 0) {
       addDiagnostic("static safety check failed: division by zero");
     }
@@ -758,8 +1142,18 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
   if (const auto *ternary =
           dynamic_cast<const hir::TernaryExpr *>(&expression)) {
     validateSafety(*ternary->condition);
+    const auto condition = staticBooleanValue(*ternary->condition);
+    if (condition) {
+      validateSafety(*(*condition ? ternary->thenExpr : ternary->elseExpr));
+      return;
+    }
+    const auto entry = staticSafetyState();
     validateSafety(*ternary->thenExpr);
+    const auto thenState = staticSafetyState();
+    restoreStaticSafetyState(entry);
     validateSafety(*ternary->elseExpr);
+    const auto elseState = staticSafetyState();
+    mergeStaticSafetyStates(thenState, elseState);
     return;
   }
   if (const auto *unsignedExpr =
@@ -775,6 +1169,11 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
   if (const auto *view =
           dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
     validateSafety(*view->operand);
+    return;
+  }
+  if (const auto *test =
+          dynamic_cast<const hir::BooleanTestExpr *>(&expression)) {
+    validateSafety(*test->operand);
     return;
   }
   if (const auto *call =
@@ -804,19 +1203,7 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
   }
   if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
     const auto staticUnsignedValue = [this](const hir::Expr &operand) {
-      auto value = constantUnsignedInteger(operand);
-      if (value) {
-        return value;
-      }
-      const auto *variable = dynamic_cast<const hir::VariableRef *>(&operand);
-      if (variable == nullptr) {
-        return std::optional<std::uint64_t>{};
-      }
-      const auto found =
-          staticUnsignedIntegerValues_.find(variable->bindingName);
-      return found == staticUnsignedIntegerValues_.end()
-                 ? std::optional<std::uint64_t>{}
-                 : found->second;
+      return staticUnsignedInteger(operand);
     };
     const auto reportProductOverflow = [&staticUnsignedValue,
                                         this](const hir::Expr &size,
@@ -831,6 +1218,10 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
                       " size overflow");
       }
     };
+    if (call->builtin == stdlib::BuiltinId::Realloc &&
+        !call->arguments.empty()) {
+      validateStaticDynamicBase(*call->arguments.front(), call->callee);
+    }
     if (call->builtin == stdlib::BuiltinId::Calloc &&
         call->arguments.size() == 2U) {
       reportProductOverflow(*call->arguments[1], *call->arguments[0],
@@ -905,19 +1296,10 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
               "static safety check failed: overlapping memcpy ranges");
         }
       }
-    }
-    if (hasRuntimeSafetyChecks() && call->builtin == stdlib::BuiltinId::Abs &&
+  }
+  if (hasRuntimeSafetyChecks() && call->builtin == stdlib::BuiltinId::Abs &&
         call->arguments.size() == 1U) {
-      auto value = constantSignedInteger(*call->arguments.front());
-      if (!value) {
-        if (const auto *variable = dynamic_cast<const hir::VariableRef *>(
-                call->arguments.front().get())) {
-          const auto found = staticIntegerValues_.find(variable->bindingName);
-          if (found != staticIntegerValues_.end()) {
-            value = found->second;
-          }
-        }
-      }
+      const auto value = staticSignedInteger(*call->arguments.front());
       const auto minimum = signedMinimumForByteLength(call->byteLength);
       if (value && minimum && *value == *minimum) {
         addDiagnostic(

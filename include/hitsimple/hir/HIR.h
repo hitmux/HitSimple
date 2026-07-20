@@ -127,6 +127,34 @@ enum class StandardOperationKind : std::uint8_t {
 
 std::string_view toString(StandardOperationKind kind);
 
+// The parser spelling is preserved for diagnostics, but Codegen dispatches on
+// this Sema-owned operation instead of reparsing the spelling (including typed
+// operators) at every lowering site.
+enum class BinaryOperator : std::uint8_t {
+  Unknown,
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  Modulo,
+  Power,
+  ShiftLeft,
+  ShiftRight,
+  BitAnd,
+  BitOr,
+  BitXor,
+  Equal,
+  NotEqual,
+  Less,
+  LessEqual,
+  Greater,
+  GreaterEqual,
+  LogicalAnd,
+  LogicalOr,
+};
+
+std::string_view toString(BinaryOperator op);
+
 // Address values retain their origin independently from their P-byte View
 // representation.  This lets codegen keep a pointer until the language
 // explicitly observes its integer bits, without inventing object-range or
@@ -288,6 +316,9 @@ struct VariableRef final : Expr {
   MemoryStorage storage = MemoryStorage::Local;
   std::size_t offset = 0;
   std::string templateName;
+  // Sema snapshots address provenance at bindings so later HIR consumers do
+  // not have to infer it from a variable name or pointer-sized bytes.
+  std::optional<AddressFacts> addressFacts;
 };
 
 struct AddressOfExpr final : Expr {
@@ -331,6 +362,9 @@ struct BinaryExpr final : Expr {
   std::unique_ptr<Expr> right;
   std::size_t byteLength = 0;
   StandardOperationKind operationKind = StandardOperationKind::Legacy;
+  BinaryOperator operation = BinaryOperator::Unknown;
+  IntegerInterpretation typedIntegerInterpretation =
+      IntegerInterpretation::None;
   std::optional<AddressFacts> addressFacts;
 };
 

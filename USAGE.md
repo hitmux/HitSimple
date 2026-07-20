@@ -51,9 +51,10 @@ HitSimple input and uses LLVM's target machine to write a native object. Without
 `--crate-type=staticlib` accepts one or more HitSimple inputs and writes
 `libhitsimple.a` by default. It packages the generated objects together with
 the HitSimple runtime archive. Archive creation uses `HITSIMPLE_LLVM_AR` when
-set, then `llvm-ar-18`, then `llvm-ar` on `PATH`. External C, C++, and Rust
-objects or libraries are linked by their parent build step, not copied into the
-HitSimple static library.
+set, then the archive tool bundled in a full package, then
+`llvm-ar-<embedded LLVM major version>`, and finally `llvm-ar` on `PATH`.
+External C, C++, and Rust objects or libraries are linked by their parent build
+step, not copied into the HitSimple static library.
 
 These output modes do not require a `main` function and cannot be combined
 with dump, preprocessing, or `--emit-llvm` actions.

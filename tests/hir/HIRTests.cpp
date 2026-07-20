@@ -89,4 +89,53 @@ HS_TEST(Hir_AddressFactsDescribeObjectAndPointerDerivedAddresses) {
   HS_EXPECT_TRUE(offset->addressFacts.has_value());
   HS_EXPECT_EQ(offset->addressFacts->origin, AddressOrigin::PointerDerived);
   HS_EXPECT_TRUE(!offset->addressFacts->isBaseAddress);
+  HS_EXPECT_TRUE(offset->addressFacts->knownExtent.has_value());
+  HS_EXPECT_EQ(*offset->addressFacts->knownExtent, 32U);
+}
+
+HS_TEST(Hir_AddressFactsRetainConstantAllocationExtent) {
+  using namespace hitsimple::hir;
+  std::vector<std::unique_ptr<Expr>> arguments;
+  arguments.push_back(std::make_unique<IntegerLiteral>(
+      "6", viewSemanticsForTemplate("u64", 8)));
+  auto allocation = std::make_unique<CallExpr>(
+      "alloc", std::move(arguments), false, hitsimple::stdlib::BuiltinId::Alloc,
+      std::vector<FormatArgKind>{}, 0, "addr",
+      viewSemanticsForTemplate("addr", 8));
+
+  HS_EXPECT_TRUE(allocation->addressFacts.has_value());
+  HS_EXPECT_TRUE(allocation->addressFacts->knownExtent.has_value());
+  HS_EXPECT_EQ(*allocation->addressFacts->knownExtent, 6U);
+  HS_EXPECT_TRUE(allocation->addressFacts->isBaseAddress);
+}
+
+HS_TEST(Hir_ViewSemanticsVerifierRejectsIncompleteCallAndAddressPlans) {
+  using namespace hitsimple::hir;
+  std::vector<std::unique_ptr<Expr>> arguments;
+  arguments.push_back(std::make_unique<IntegerLiteral>(
+      "1", viewSemanticsForTemplate("i32", 4)));
+  auto incompleteCall = std::make_unique<CallExpr>(
+      "identity", std::move(arguments), false, hitsimple::stdlib::BuiltinId::None,
+      std::vector<FormatArgKind>{}, 0, "i32",
+      viewSemanticsForTemplate("i32", 4));
+  incompleteCall->argumentPlans.clear();
+  const auto callUnit = unitWithReturn(std::move(incompleteCall));
+  const auto callDiagnostics = verifyViewSemantics(*callUnit);
+  HS_EXPECT_EQ(callDiagnostics.size(), 1U);
+  HS_EXPECT_TRUE(callDiagnostics.front().message.find("argument conversion plan") !=
+                 std::string::npos);
+
+  const auto addressSemantics = viewSemanticsForTemplate("addr", 8);
+  auto offset = std::make_unique<BinaryExpr>(
+      std::make_unique<AddressOfExpr>("buffer", "buffer", 4,
+                                      MemoryStorage::Local, 0, addressSemantics),
+      "+", std::make_unique<IntegerLiteral>(
+               "1", viewSemanticsForTemplate("u64", 8)),
+      addressSemantics, StandardOperationKind::AddressOffset);
+  offset->addressFacts->isBaseAddress = true;
+  const auto addressUnit = unitWithReturn(std::move(offset));
+  const auto addressDiagnostics = verifyViewSemantics(*addressUnit);
+  HS_EXPECT_EQ(addressDiagnostics.size(), 1U);
+  HS_EXPECT_TRUE(addressDiagnostics.front().message.find("AddressOffset") !=
+                 std::string::npos);
 }

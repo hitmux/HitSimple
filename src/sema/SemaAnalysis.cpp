@@ -31,6 +31,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
   implMethodIndexes_.clear();
   userTemplateBindings_.clear();
   memberTemplateOverrides_.clear();
+  addressFacts_.clear();
   standardHeaders_ = options.standardHeaders;
   cCompatibilityMode_ = options.cCompatibilityMode;
   internalStandardModule_ = options.internalStandardModule;

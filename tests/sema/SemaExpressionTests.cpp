@@ -1242,7 +1242,8 @@ HS_TEST(Sema_RecordsAddressFactsForOffsetsAndDynamicAllocations) {
       "    new offset as u64 = 4\n"
       "    new derived as addr = &buffer[offset]\n"
       "    new allocation as addr = alloc(32)\n"
-      "    new resized as addr = realloc(allocation, 64)\n"
+      "    new alias as addr = allocation\n"
+      "    new resized as addr = realloc(alias, 64)\n"
       "    free(resized)\n"
       "    return 0\n"
       "}\n");
@@ -1256,7 +1257,13 @@ HS_TEST(Sema_RecordsAddressFactsForOffsetsAndDynamicAllocations) {
   HS_EXPECT_TRUE(dump.find("candidate=address-offset origin=pointer-derived "
                            "base=false") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=alloc") != std::string::npos);
-  HS_EXPECT_TRUE(dump.find("origin=dynamic-allocation base=true") !=
+  HS_EXPECT_TRUE(dump.find("origin=dynamic-allocation base=true extent=32") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("VariableRef name=allocation binding=allocation bytes=8 "
+                           "storage=local origin=dynamic-allocation base=true "
+                           "extent=32") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("CallExpr callee=realloc") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("origin=dynamic-allocation base=true extent=64") !=
                  std::string::npos);
 }
 

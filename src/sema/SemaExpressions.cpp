@@ -239,9 +239,13 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       addDiagnostic("use of undeclared variable '" + identifier->name + "'");
       return nullptr;
     }
-    return std::make_unique<hir::VariableRef>(
+    auto lowered = std::make_unique<hir::VariableRef>(
         symbol->name, symbol->bindingName, symbol->storage,
         fixedResult(symbol->templateName, symbol->byteLength, true, true));
+    if (symbol->templateName == "addr") {
+      lowered->addressFacts = addressFactsFor(*lowered);
+    }
+    return lowered;
   }
 
   if (const auto *integer =
@@ -910,10 +914,14 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   }
 
   if (const auto reference = resolveMemoryReference(expression)) {
-    return std::make_unique<hir::VariableRef>(
+    auto lowered = std::make_unique<hir::VariableRef>(
         reference->name, reference->bindingName, reference->storage,
         reference->offset,
         fixedResult(reference->templateName, reference->byteLength, true, true));
+    if (reference->templateName == "addr") {
+      lowered->addressFacts = addressFactsFor(*lowered);
+    }
+    return lowered;
   }
 
   if (const auto *deref = dynamic_cast<const ast::DerefExpr *>(&expression)) {
@@ -1031,6 +1039,8 @@ Analyzer::analyzeCallExpr(const ast::CallExpr &call) {
                       ? std::string{}
                       : signature.returnTemplateNames.front(),
                   signature.returnByteLengths.front()));
+  loweredCall->argumentPlans.clear();
+  loweredCall->argumentPlans.reserve(loweredCall->arguments.size());
   for (std::size_t index = 0; index < loweredCall->arguments.size(); ++index) {
     const auto *integerCast = dynamic_cast<const hir::IntegerCastExpr *>(
         loweredCall->arguments[index].get());
@@ -1039,11 +1049,15 @@ Analyzer::analyzeCallExpr(const ast::CallExpr &call) {
                              : loweredCall->arguments[index]->result;
     const auto destination = fixedResult(signature.parameterTemplateNames[index],
                                          signature.parameterByteLengths[index]);
+    const bool sameViewSemantics =
+        source.category == destination.category &&
+        source.integerInterpretation == destination.integerInterpretation &&
+        source.lengthKind == destination.lengthKind &&
+        source.staticByteLength == destination.staticByteLength &&
+        source.templateName == destination.templateName;
     const auto kind = source.category == hir::ViewCategory::Floating
                           ? hir::ConversionKind::Floating
-                          : integerCast != nullptr ||
-                                    source.staticByteLength !=
-                                        destination.staticByteLength
+                          : integerCast != nullptr || !sameViewSemantics
                                 ? hir::ConversionKind::IntegerWidth
                                 : hir::ConversionKind::Identity;
     loweredCall->argumentPlans.push_back(
@@ -1376,6 +1390,25 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
   } else {
     addDiagnostic("ordinary operation has no applicable standard candidate");
     return nullptr;
+  }
+
+  // `addr? +/- integer` is an explicit byte-address calculation.  Its View
+  // remains an integer observation unless an assignment rebinds it to `addr`,
+  // but later phases must retain the resolved address-offset operation rather
+  // than recover it from the source spelling.
+  if ((op == "+" || op == "-") && hir::isIntegerNumeric(right->result)) {
+    if (const auto *unsignedLeft =
+            dynamic_cast<const hir::UnsignedExpr *>(left.get());
+        unsignedLeft != nullptr && unsignedLeft->operand != nullptr &&
+        dynamic_cast<const hir::AddressOfExpr *>(unsignedLeft->operand.get()) !=
+            nullptr) {
+      candidate = hir::StandardOperationKind::AddressOffset;
+    }
+  }
+
+  if (candidate == hir::StandardOperationKind::AddressOffset && op == "-") {
+    right = std::make_unique<hir::UnaryExpr>(
+        "-", std::move(right), signedIntegerResult(pointerByteLength()));
   }
 
   if (const auto *leftLiteral = dynamic_cast<const hir::IntegerLiteral *>(left.get());
