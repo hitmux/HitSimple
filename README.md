@@ -44,7 +44,7 @@ Requirements:
 - re2c.
 - Clang.
 
-macOS builds also require Boost 1.85.0 or later. Release packages still require an external Clang 18 or later for final linking.
+macOS builds also require Boost 1.85.0 or later. Release packages require an external Clang toolchain whose major version matches their embedded LLVM for final linking.
 
 ```bash
 cmake -S . -B build
@@ -91,7 +91,7 @@ Install a local DEB package:
 sudo apt install ./hitsimple_0.3.4_amd64.deb
 ```
 
-Use `hitsimple_0.3.4_arm64.deb` on arm64. The package depends on `clang-18`, or a Debian `clang` package at version 18 or later. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
+Use `hitsimple_0.3.4_arm64.deb` on arm64. The package depends exactly on `clang-18`, matching its embedded LLVM 18. Debian 13's default `clang` is version 19, so it is not interchangeable; `apt` installs `clang-18` as part of the package transaction. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
 
 The tar.gz archive is a relocatable directory package. Run its `bin/hsc` directly after extraction. The compiler locates the preprocessor, standard library, and runtime relative to its own location.
 
@@ -110,7 +110,7 @@ hitsimple-0.3.4-macos-arm64.tar.gz
 hitsimple-0.3.4-macos-x86_64.tar.gz
 ```
 
-After extraction, use `bin/hsc` directly. The package locates `hsc_mcpp`, the static runtime, and the standard library relative to the executable, so the extracted directory remains usable after being moved. The system must provide Clang 18 or later, selected through `--clang`, `HITSIMPLE_CLANG`, or PATH.
+After extraction, use `bin/hsc` directly. The package locates `hsc_mcpp`, the static runtime, and the standard library relative to the executable, so the extracted directory remains usable after being moved. The system must provide a Clang toolchain matching the embedded LLVM major version, selected through `--clang`, `HITSIMPLE_CLANG`, or PATH.
 
 macOS provides only unsigned relocatable tar.gz archives; no signing, notarization, or PKG installer is provided.
 

@@ -47,15 +47,22 @@ llvm::OptimizationLevel toLlvmOptimizationLevel(OptimizationLevel level) {
 
 std::optional<llvm::PGOOptions>
 makePgoOptions(const OptimizationPipelineOptions& options) {
+  const auto makeOptions = [&](llvm::PGOOptions::PGOAction action) {
+#if LLVM_VERSION_MAJOR >= 22
+    return llvm::PGOOptions(options.profilePath, "", "", "", action);
+#else
+    return llvm::PGOOptions(options.profilePath, "", "", "", nullptr,
+                            action);
+#endif
+  };
+
   switch (options.pgoMode) {
   case PgoMode::None:
     return std::nullopt;
   case PgoMode::Instrument:
-    return llvm::PGOOptions(options.profilePath, "", "", "", nullptr,
-                            llvm::PGOOptions::IRInstr);
+    return makeOptions(llvm::PGOOptions::IRInstr);
   case PgoMode::Use:
-    return llvm::PGOOptions(options.profilePath, "", "", "", nullptr,
-                            llvm::PGOOptions::IRUse);
+    return makeOptions(llvm::PGOOptions::IRUse);
   }
   return std::nullopt;
 }

@@ -458,7 +458,7 @@ On arm64, use:
 sudo apt install ./hitsimple_0.3.4_arm64.deb
 ```
 
-Ubuntu 22.04 and Debian 12 need Clang 18 installed first. The following commands configure apt.llvm.org for the appropriate distribution codename; verify the current [apt.llvm.org](https://apt.llvm.org/) instructions and signing method before running them.
+The DEB depends exactly on `clang-18`, which matches its embedded LLVM 18; Debian 13's default Clang 19 is not compatible. Ubuntu 22.04 and Debian 12 need a Clang 18 source configured first. The following commands configure apt.llvm.org for the appropriate distribution codename; verify the current [apt.llvm.org](https://apt.llvm.org/) instructions and signing method before running them.
 
 Ubuntu 22.04:
 
@@ -505,7 +505,7 @@ bin/hsc --clang /opt/homebrew/opt/llvm@18/bin/clang path/to/hello.hs -o hello
 ./hello
 ```
 
-Use `hitsimple-0.3.4-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang 18 or later. The package is unsigned and not notarized, and no PKG is provided.
+Use `hitsimple-0.3.4-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang toolchain matching the embedded LLVM major version (Clang 18 for this release). The package is unsigned and not notarized, and no PKG is provided.
 
 Like Windows, macOS uses the software binary128 backend for `f128`, covering literals, arithmetic, comparisons, numeric conversion, formatting, scanning, and the floating-point entry points in `math.hsh`. Linux continues to use the native `fp128`/glibc backend.
 
