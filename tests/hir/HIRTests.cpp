@@ -139,3 +139,39 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsIncompleteCallAndAddressPlans) {
   HS_EXPECT_TRUE(addressDiagnostics.front().message.find("AddressOffset") !=
                  std::string::npos);
 }
+
+HS_TEST(Hir_ViewSemanticsVerifierRejectsCallPlanDestinationThatDiffersFromCallee) {
+  using namespace hitsimple::hir;
+  const auto i32 = viewSemanticsForTemplate("i32", 4);
+  const auto i64 = viewSemanticsForTemplate("i64", 8);
+
+  std::vector<std::unique_ptr<Expr>> arguments;
+  arguments.push_back(std::make_unique<IntegerLiteral>("1", i32));
+  auto call = std::make_unique<CallExpr>(
+      "identity", std::move(arguments), false, hitsimple::stdlib::BuiltinId::None,
+      std::vector<FormatArgKind>{}, 0, "i32", i32);
+  call->argumentPlans[0] =
+      ConversionPlan{ConversionKind::IntegerWidth, call->arguments[0]->result,
+                     i64};
+
+  std::vector<std::unique_ptr<Stmt>> mainStatements;
+  std::vector<std::unique_ptr<Expr>> values;
+  values.push_back(std::move(call));
+  mainStatements.push_back(std::make_unique<Return>(std::move(values)));
+
+  std::vector<std::unique_ptr<Function>> functions;
+  std::vector<Parameter> parameters;
+  parameters.emplace_back("value", "value.1", i32);
+  functions.push_back(std::make_unique<Function>(
+      "identity", std::move(parameters), std::vector<std::size_t>{},
+      std::make_unique<Block>(std::vector<std::unique_ptr<Stmt>>{})));
+  functions.push_back(std::make_unique<Function>(
+      "main", std::make_unique<Block>(std::move(mainStatements))));
+  const TranslationUnit unit(std::move(functions));
+
+  const auto diagnostics = verifyViewSemantics(unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find(
+                     "destination does not match callee parameter contract") !=
+                 std::string::npos);
+}

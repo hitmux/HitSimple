@@ -650,11 +650,14 @@ struct ImplOpBinding final {
 
 struct Parameter final {
   Parameter(std::string name, std::string bindingName, std::size_t byteLength);
+  Parameter(std::string name, std::string bindingName,
+            ViewSemantics valueSemantics);
 
   std::string name;
   std::string bindingName;
   std::optional<diagnostic::SourceRange> range;
   std::size_t byteLength = 0;
+  ViewSemantics valueSemantics;
 };
 
 struct ExternFunction final {

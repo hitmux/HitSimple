@@ -530,7 +530,8 @@ void LlvmEmitter::resetStaticSafetyState() {
 
 LlvmEmitter::StaticSafetyState LlvmEmitter::staticSafetyState() const {
   return StaticSafetyState{staticIntegerValues_, staticUnsignedIntegerValues_,
-                           staticAddressFacts_, staticDynamicObjectStates_};
+                           staticAddressFacts_, staticDynamicObjectStates_,
+                           nextStaticDynamicObjectId_};
 }
 
 void LlvmEmitter::restoreStaticSafetyState(const StaticSafetyState &state) {
@@ -538,6 +539,10 @@ void LlvmEmitter::restoreStaticSafetyState(const StaticSafetyState &state) {
   staticUnsignedIntegerValues_ = state.unsignedIntegerValues;
   staticAddressFacts_ = state.addressFacts;
   staticDynamicObjectStates_ = state.dynamicObjectStates;
+  // Object identifiers are allocation identities. Do not reuse one after
+  // restoring a control-flow snapshot that has already observed later IDs.
+  nextStaticDynamicObjectId_ =
+      std::max(nextStaticDynamicObjectId_, state.nextDynamicObjectId);
 }
 
 void LlvmEmitter::mergeStaticSafetyStates(const StaticSafetyState &left,
@@ -580,6 +585,16 @@ void LlvmEmitter::mergeStaticSafetyStates(const StaticSafetyState &left,
         leftState->second == rightState->second ? leftState->second
                                                 : StaticDynamicObjectState::Unknown;
   }
+  nextStaticDynamicObjectId_ = std::max(
+      {nextStaticDynamicObjectId_, left.nextDynamicObjectId,
+       right.nextDynamicObjectId});
+}
+
+void LlvmEmitter::invalidateStaticBinding(std::string_view bindingName) {
+  const auto key = std::string(bindingName);
+  staticIntegerValues_[key] = std::nullopt;
+  staticUnsignedIntegerValues_[key] = std::nullopt;
+  staticAddressFacts_[key] = std::nullopt;
 }
 
 std::optional<std::int64_t>
@@ -890,8 +905,9 @@ void LlvmEmitter::validateSafety(const hir::TranslationUnit &unit) {
   if (unit.globalInit) {
     validateSafety(*unit.globalInit);
   }
+  const auto globalBaseline = staticSafetyState();
   for (const auto &function : unit.functions) {
-    resetStaticSafetyState();
+    restoreStaticSafetyState(globalBaseline);
     validateSafety(*function->body);
   }
 }
@@ -913,30 +929,43 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   }
   if (const auto *store = dynamic_cast<const hir::IntegerStore *>(&statement)) {
     validateSafety(*store->value);
-    staticIntegerValues_[store->bindingName] =
-        staticSignedInteger(*store->value);
-    staticUnsignedIntegerValues_[store->bindingName] =
-        staticUnsignedInteger(*store->value);
+    const auto signedValue = staticSignedInteger(*store->value);
+    const auto unsignedValue = staticUnsignedInteger(*store->value);
     recordStaticAddressAssignment(store->bindingName, *store->value);
+    const auto addressFact = staticAddressFacts_[store->bindingName];
+    invalidateStaticBinding(store->bindingName);
+    staticIntegerValues_[store->bindingName] = signedValue;
+    staticUnsignedIntegerValues_[store->bindingName] = unsignedValue;
+    staticAddressFacts_[store->bindingName] = addressFact;
     return;
   }
   if (const auto *store = dynamic_cast<const hir::FloatStore *>(&statement)) {
     validateSafety(*store->value);
-    staticIntegerValues_[store->bindingName] = std::nullopt;
-    staticUnsignedIntegerValues_[store->bindingName] = std::nullopt;
+    invalidateStaticBinding(store->bindingName);
     return;
   }
   if (const auto *store = dynamic_cast<const hir::BoolStore *>(&statement)) {
     validateSafety(*store->value);
-    staticIntegerValues_[store->bindingName] =
-        staticSignedInteger(*store->value);
-    staticUnsignedIntegerValues_[store->bindingName] =
-        staticUnsignedInteger(*store->value);
+    const auto signedValue = staticSignedInteger(*store->value);
+    const auto unsignedValue = staticUnsignedInteger(*store->value);
+    invalidateStaticBinding(store->bindingName);
+    staticIntegerValues_[store->bindingName] = signedValue;
+    staticUnsignedIntegerValues_[store->bindingName] = unsignedValue;
     return;
   }
   if (const auto *store =
           dynamic_cast<const hir::ViewCopyStore *>(&statement)) {
     validateSafety(*store->value);
+    invalidateStaticBinding(store->bindingName);
+    return;
+  }
+  if (const auto *store = dynamic_cast<const hir::StringStore *>(&statement)) {
+    invalidateStaticBinding(store->bindingName);
+    return;
+  }
+  if (const auto *store =
+          dynamic_cast<const hir::StringCopyStore *>(&statement)) {
+    invalidateStaticBinding(store->bindingName);
     return;
   }
   if (const auto *store = dynamic_cast<const hir::PointerStore *>(&statement)) {
@@ -992,6 +1021,9 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     for (const auto &argument : call->arguments) {
       validateSafety(*argument);
     }
+    for (const auto &target : call->targets) {
+      invalidateStaticBinding(target.bindingName);
+    }
     return;
   }
   if (const auto *call =
@@ -1000,6 +1032,12 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
       validateSafety(*call->file);
     }
     validateSafety(*call->format);
+    for (const auto &target : call->countTargets) {
+      invalidateStaticBinding(target.bindingName);
+    }
+    for (const auto &target : call->scanTargets) {
+      invalidateStaticBinding(target.bindingName);
+    }
     return;
   }
   if (const auto *ret = dynamic_cast<const hir::Return *>(&statement)) {

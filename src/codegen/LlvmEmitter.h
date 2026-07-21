@@ -152,6 +152,7 @@ private:
         addressFacts;
     std::unordered_map<std::size_t, StaticDynamicObjectState>
         dynamicObjectStates;
+    std::size_t nextDynamicObjectId = 0;
   };
 
   struct CAbiMemoryPlan {
@@ -210,6 +211,7 @@ private:
   void restoreStaticSafetyState(const StaticSafetyState &state);
   void mergeStaticSafetyStates(const StaticSafetyState &left,
                                const StaticSafetyState &right);
+  void invalidateStaticBinding(std::string_view bindingName);
   std::optional<std::int64_t>
   staticSignedInteger(const hir::Expr &expression) const;
   std::optional<std::uint64_t>

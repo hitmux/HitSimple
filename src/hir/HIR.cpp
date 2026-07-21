@@ -689,7 +689,16 @@ ImplOpBinding::ImplOpBinding(std::string implTemplate, std::string op,
 Parameter::Parameter(std::string name, std::string bindingName,
                      std::size_t byteLength)
     : name(std::move(name)), bindingName(std::move(bindingName)),
-      range(activeSourceRange()), byteLength(byteLength) {}
+      range(activeSourceRange()), byteLength(byteLength),
+      valueSemantics(staticViewSemantics(ViewCategory::RawBytes,
+                                         IntegerInterpretation::RawOnly,
+                                         byteLength)) {}
+
+Parameter::Parameter(std::string name, std::string bindingName,
+                     ViewSemantics valueSemantics)
+    : name(std::move(name)), bindingName(std::move(bindingName)),
+      range(activeSourceRange()), byteLength(valueSemantics.staticByteLength),
+      valueSemantics(std::move(valueSemantics)) {}
 
 ExternFunction::ExternFunction(std::string name,
                                std::vector<std::size_t> parameterByteLengths,
@@ -1262,6 +1271,12 @@ verifyViewSemantics(const TranslationUnit &unit) {
     diagnostic.range = expression.range;
     diagnostics.push_back(std::move(diagnostic));
   };
+  std::unordered_map<std::string, const Function *> functionContracts;
+  for (const auto &function : unit.functions) {
+    if (function) {
+      functionContracts.emplace(function->name, function.get());
+    }
+  }
   const auto checkTemplate = [](const ViewSemantics &semantics,
                                 std::string_view expected) {
     return semantics.templateName == expected;
@@ -1648,6 +1663,24 @@ verifyViewSemantics(const TranslationUnit &unit) {
                               cast ? cast->operand->result
                                    : value->arguments[index]->result,
                               "CallExpr argument");
+        }
+        if (value->builtin == stdlib::BuiltinId::None) {
+          const auto callee = functionContracts.find(value->callee);
+          if (callee != functionContracts.end()) {
+            const auto &parameters = callee->second->parameters;
+            if (parameters.size() != value->arguments.size()) {
+              addDiagnostic(*value,
+                            "CallExpr argument count does not match callee parameter contract");
+            } else {
+              for (std::size_t index = 0; index < parameters.size(); ++index) {
+                if (!sameValueSemantics(value->argumentPlans[index].destination,
+                                        parameters[index].valueSemantics)) {
+                  addDiagnostic(*value,
+                                "CallExpr argument conversion plan destination does not match callee parameter contract");
+                }
+              }
+            }
+          }
         }
       }
       checkAddressFacts(*value, value->addressFacts);

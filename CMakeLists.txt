@@ -992,6 +992,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_static_checked_oob_view_deref_copy_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_oob_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
   )
+  add_hsc_shell_test(hsc_static_checked_global_oob_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_global_oob_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
   add_hsc_shell_test(hsc_static_checked_free_interior_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_free_interior.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: free requires a dynamic-object base address' stderr"
   )
@@ -1000,6 +1003,9 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_static_checked_double_free_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_double_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: double free' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_global_double_free_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_global_double_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: double free' stderr"
   )
   add_hsc_shell_test(hsc_static_checked_use_after_free_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: use after free dereference' stderr"
@@ -1051,8 +1057,10 @@ target_link_libraries(hsc_unit_tests
     hsc_static_checked_null_view_deref_copy_diagnostic
     hsc_static_checked_oob_view_deref_condition_diagnostic
     hsc_static_checked_oob_view_deref_copy_diagnostic
+    hsc_static_checked_global_oob_diagnostic
     hsc_static_checked_free_interior_diagnostic
     hsc_static_checked_double_free_diagnostic
+    hsc_static_checked_global_double_free_diagnostic
     hsc_static_checked_use_after_free_diagnostic
     hsc_static_checked_realloc_static_storage_diagnostic
     hsc_static_checked_use_after_realloc_diagnostic

@@ -253,7 +253,8 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
       continue;
     }
     currentParameters_.emplace_back(symbol.name, symbol.bindingName,
-                                    symbol.byteLength);
+                                    fixedResult(symbol.templateName,
+                                                symbol.byteLength));
   }
 
   auto body = analyze(*function.body);
@@ -336,7 +337,8 @@ bool Analyzer::lowerImplOpBodies(
         continue;
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
-                                      symbol.byteLength);
+                                      fixedResult(symbol.templateName,
+                                                  symbol.byteLength));
     }
 
     auto body = analyze(*op->body);
@@ -416,7 +418,8 @@ bool Analyzer::lowerImplMethodBodies(
         continue;
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
-                                      symbol.byteLength);
+                                      fixedResult(symbol.templateName,
+                                                  symbol.byteLength));
     }
 
     auto body = analyze(*method->body);

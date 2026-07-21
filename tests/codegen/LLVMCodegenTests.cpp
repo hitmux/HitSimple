@@ -1484,6 +1484,73 @@ HS_TEST(LLVMCodegen_StaticCheckedTracksSignedPointerOffsetRanges) {
   HS_EXPECT_TRUE(returnsToBase.diagnostics.empty());
 }
 
+HS_TEST(LLVMCodegen_CheckedInvalidatesAddressFactsAfterStorageRewrite) {
+  const auto options = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const auto result = emitSource("func main() -> i32 {\n"
+                                 "    new large[8] as bytes\n"
+                                 "    new pointer as addr = &large\n"
+                                 "    set pointer as f64\n"
+                                 "    pointer = 0.0\n"
+                                 "    set pointer as addr\n"
+                                 "    return [1]*pointer\n"
+                                 "}\n",
+                                 options);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedRestoresGlobalSafetyBaselineForFunctions) {
+  const auto staticChecked =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto checked = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const auto globalOob = emitSource("new small[1] as bytes\n"
+                                    "new pointer as addr = &small\n"
+                                    "func inspect() -> i32 {\n"
+                                    "    return [2]*pointer\n"
+                                    "}\n"
+                                    "func main() -> i32 {\n"
+                                    "    return inspect()\n"
+                                    "}\n",
+                                    staticChecked);
+  const auto globalDoubleFree = emitSource("new pointer as addr = alloc(1)\n"
+                                           "func main() -> i32 {\n"
+                                           "    free(pointer)\n"
+                                           "    free(pointer)\n"
+                                           "    return 0\n"
+                                           "}\n",
+                                           staticChecked);
+  const auto distinctGlobalAndFunctionAllocations =
+      emitSource("new globalPointer as addr = alloc(1)\n"
+                 "func main() -> i32 {\n"
+                 "    new localPointer as addr = alloc(1)\n"
+                 "    free(globalPointer)\n"
+                 "    free(localPointer)\n"
+                 "    return 0\n"
+                 "}\n",
+                 staticChecked);
+  const auto knownGlobalLoad = emitSource("new small[1] as bytes\n"
+                                          "new pointer as addr = &small\n"
+                                          "func inspect() -> i32 {\n"
+                                          "    return [1]*pointer\n"
+                                          "}\n"
+                                          "func main() -> i32 {\n"
+                                          "    return inspect()\n"
+                                          "}\n",
+                                          checked);
+
+  HS_EXPECT_TRUE(!globalOob.diagnostics.empty());
+  HS_EXPECT_TRUE(globalOob.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+  HS_EXPECT_TRUE(!globalDoubleFree.diagnostics.empty());
+  HS_EXPECT_TRUE(globalDoubleFree.diagnostics.front().message.find("double free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(distinctGlobalAndFunctionAllocations.diagnostics.empty());
+  HS_EXPECT_TRUE(knownGlobalLoad.diagnostics.empty());
+  HS_EXPECT_TRUE(knownGlobalLoad.llvmIr.find("@hs_check_load") ==
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_StaticCheckedUsesIntegerDataflowForDivision) {
   const auto options =
       optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
