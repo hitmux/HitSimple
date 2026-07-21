@@ -510,11 +510,14 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       llvm::Value *comparison = nullptr;
       if (binary->operationKind ==
           hir::StandardOperationKind::StandardCStringCompare) {
-        auto callee = module_->getOrInsertFunction(
-            "strcmp", llvm::FunctionType::get(builder_.getInt32Ty(),
-                                                  {builder_.getPtrTy(),
-                                                   builder_.getPtrTy()},
-                                                  false));
+        auto callee = hasRuntimeSafetyChecks()
+                          ? declareCheckedStringCompare()
+                          : module_->getOrInsertFunction(
+                                "strcmp",
+                                llvm::FunctionType::get(
+                                    builder_.getInt32Ty(),
+                                    {builder_.getPtrTy(), builder_.getPtrTy()},
+                                    false));
         comparison = builder_.CreateCall(callee, {leftView.data, rightView.data},
                                          "cstr.compare");
       } else {

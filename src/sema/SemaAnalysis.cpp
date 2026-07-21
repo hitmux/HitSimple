@@ -366,6 +366,9 @@ bool Analyzer::lowerImplOpBodies(
     lowered->linkage = hir::Linkage::Internal;
     lowered->usesViewAbi = true;
     lowered->viewResultByteLength = info.returnByteLengths.front();
+    for (std::size_t index = 0; index < lowered->parameters.size(); ++index) {
+      lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;
+    }
     functions.push_back(std::move(lowered));
   }
   return true;
@@ -448,7 +451,6 @@ bool Analyzer::lowerImplMethodBodies(
     lowered->usesViewAbi = true;
     lowered->viewResultByteLength =
         info.returnByteLengths.empty() ? 0U : info.returnByteLengths.front();
-    lowered->viewParametersAreCopies = true;
     functions.push_back(std::move(lowered));
   }
   return true;

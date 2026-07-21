@@ -67,6 +67,8 @@ std::vector<char> collectPrintfSpecifiers(const std::string &format) {
 
 void LlvmEmitter::emit(const hir::Block &block) {
   SourceRangeScope sourceRange(*this, block.range);
+  emitRuntimeScopeEnter();
+  ++runtimeScopeDepth_;
   for (const auto &statement : block.statements) {
     if (builder_.GetInsertBlock()->getTerminator()) {
       if (dynamic_cast<const hir::Label *>(statement.get()) == nullptr) {
@@ -75,10 +77,45 @@ void LlvmEmitter::emit(const hir::Block &block) {
     }
     emit(*statement);
   }
+  if (!builder_.GetInsertBlock()->getTerminator()) {
+    emitRuntimeScopeExit();
+  }
+  --runtimeScopeDepth_;
 }
 
 void LlvmEmitter::emit(const hir::Stmt &statement) {
   DebugLocationScope debugLocation(*this, statement.range);
+  if (!statement.staticInitializationBinding.empty() &&
+      !staticInitializationEmissionActive_) {
+    const auto guard =
+        staticInitializationGuards_.find(statement.staticInitializationBinding);
+    if (guard == staticInitializationGuards_.end()) {
+      addDiagnostic("missing one-time initialization guard for static local '" +
+                    statement.staticInitializationBinding + "'");
+      return;
+    }
+    auto *function = builder_.GetInsertBlock()->getParent();
+    auto *initializeBlock =
+        llvm::BasicBlock::Create(context_, "static.initialize", function);
+    auto *continueBlock =
+        llvm::BasicBlock::Create(context_, "static.initialized", function);
+    auto *initialized = builder_.CreateLoad(builder_.getInt1Ty(), guard->second,
+                                            "static.initialized");
+    initialized->setAlignment(llvm::Align(1));
+    builder_.CreateCondBr(initialized, continueBlock, initializeBlock);
+
+    builder_.SetInsertPoint(initializeBlock);
+    staticInitializationEmissionActive_ = true;
+    emit(statement);
+    staticInitializationEmissionActive_ = false;
+    if (!builder_.GetInsertBlock()->getTerminator()) {
+      auto *written = builder_.CreateStore(builder_.getTrue(), guard->second);
+      written->setAlignment(llvm::Align(1));
+      builder_.CreateBr(continueBlock);
+    }
+    builder_.SetInsertPoint(continueBlock);
+    return;
+  }
   if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
     for (const auto &item : list->statements) {
       emit(*item);
@@ -251,6 +288,11 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
     locals_.emplace(local.bindingName,
                     Local{storage, storageType, local.byteLength, std::nullopt,
                           alignof(std::max_align_t)});
+    auto *guard = new llvm::GlobalVariable(
+        *module_, builder_.getInt1Ty(), false, llvm::GlobalValue::InternalLinkage,
+        builder_.getFalse(), local.bindingName + ".initialized");
+    guard->setAlignment(llvm::Align(1));
+    staticInitializationGuards_.emplace(local.bindingName, guard);
     registerStaticObject(storage, local.byteLength);
     declareDebugVariable(local.name, local.range, local.byteLength, storage);
     return;

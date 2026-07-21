@@ -59,17 +59,6 @@ void LlvmEmitter::registerLocalObject(llvm::Value *storage,
   if (!hasRuntimeSafetyChecks() || storage == nullptr || byteLength == 0) {
     return;
   }
-
-  if (functionEntryBlock_ != nullptr &&
-      functionEntryBlock_->getTerminator() != nullptr) {
-    llvm::IRBuilder<> entryBuilder(context_);
-    entryBuilder.SetInsertPoint(functionEntryBlock_->getTerminator());
-    (void)emitCheckedRuntimeCall(
-        entryBuilder, declareRegisterLocalObject(),
-        {storage, entryBuilder.getInt64(byteLength)});
-    return;
-  }
-
   (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
                                {storage, builder_.getInt64(byteLength)});
 }
@@ -91,7 +80,29 @@ void LlvmEmitter::emitRuntimeFrameEnter() {
 
 void LlvmEmitter::emitRuntimeFrameExit() {
   if (hasRuntimeSafetyChecks() && runtimeFrameActive_) {
+    emitRuntimeScopeExitTo(0);
     (void)emitCheckedRuntimeCall(declareRuntimeFrameExit(), {});
+  }
+}
+
+void LlvmEmitter::emitRuntimeScopeEnter() {
+  if (hasRuntimeSafetyChecks() && runtimeFrameActive_) {
+    (void)emitCheckedRuntimeCall(declareRuntimeScopeEnter(), {});
+  }
+}
+
+void LlvmEmitter::emitRuntimeScopeExit() {
+  if (hasRuntimeSafetyChecks() && runtimeFrameActive_) {
+    (void)emitCheckedRuntimeCall(declareRuntimeScopeExit(), {});
+  }
+}
+
+void LlvmEmitter::emitRuntimeScopeExitTo(std::size_t targetDepth) {
+  if (hasRuntimeSafetyChecks() && runtimeFrameActive_ &&
+      runtimeScopeDepth_ > targetDepth) {
+    (void)emitCheckedRuntimeCall(
+        declareRuntimeScopeExitTo(),
+        {builder_.getInt64(static_cast<std::uint64_t>(targetDepth))});
   }
 }
 
@@ -343,6 +354,28 @@ llvm::FunctionCallee LlvmEmitter::declareRuntimeFrameEnter() {
 llvm::FunctionCallee LlvmEmitter::declareRuntimeFrameExit() {
   auto *type = llvm::FunctionType::get(builder_.getVoidTy(), {}, false);
   return module_->getOrInsertFunction("hs_frame_exit", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareRuntimeScopeEnter() {
+  auto *type = llvm::FunctionType::get(builder_.getVoidTy(), {}, false);
+  return module_->getOrInsertFunction("hs_scope_enter", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareRuntimeScopeExit() {
+  auto *type = llvm::FunctionType::get(builder_.getVoidTy(), {}, false);
+  return module_->getOrInsertFunction("hs_scope_exit", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareRuntimeScopeExitTo() {
+  auto *type = llvm::FunctionType::get(builder_.getVoidTy(),
+                                       {builder_.getInt64Ty()}, false);
+  return module_->getOrInsertFunction("hs_scope_exit_to", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareCheckedStringCompare() {
+  auto *type = llvm::FunctionType::get(
+      builder_.getInt32Ty(), {builder_.getPtrTy(), builder_.getPtrTy()}, false);
+  return module_->getOrInsertFunction("hs_strcmp", type);
 }
 
 std::string LlvmEmitter::decodeStringLiteral(std::string_view text) {

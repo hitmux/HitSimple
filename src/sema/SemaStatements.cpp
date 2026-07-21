@@ -320,6 +320,9 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
     if (!store) {
       return std::make_unique<hir::StatementList>(std::move(statements));
     }
+    if (memoryStorage == hir::MemoryStorage::StaticLocal) {
+      store->staticInitializationBinding = symbol.bindingName;
+    }
     statements.push_back(std::move(store));
     if (statements.size() == 1U) {
       return std::move(statements.front());

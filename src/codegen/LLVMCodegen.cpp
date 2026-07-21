@@ -525,6 +525,7 @@ void LlvmEmitter::resetStaticSafetyState() {
   staticIntegerValues_.clear();
   staticUnsignedIntegerValues_.clear();
   staticAddressFacts_.clear();
+  staticCStringTerminations_.clear();
   staticDynamicObjectStates_.clear();
   staticGlobalBindings_.clear();
   nextStaticDynamicObjectId_ = 0;
@@ -532,14 +533,15 @@ void LlvmEmitter::resetStaticSafetyState() {
 
 LlvmEmitter::StaticSafetyState LlvmEmitter::staticSafetyState() const {
   return StaticSafetyState{staticIntegerValues_, staticUnsignedIntegerValues_,
-                           staticAddressFacts_, staticDynamicObjectStates_,
-                           nextStaticDynamicObjectId_};
+                           staticAddressFacts_, staticCStringTerminations_,
+                           staticDynamicObjectStates_, nextStaticDynamicObjectId_};
 }
 
 void LlvmEmitter::restoreStaticSafetyState(const StaticSafetyState &state) {
   staticIntegerValues_ = state.integerValues;
   staticUnsignedIntegerValues_ = state.unsignedIntegerValues;
   staticAddressFacts_ = state.addressFacts;
+  staticCStringTerminations_ = state.cstrTerminations;
   staticDynamicObjectStates_ = state.dynamicObjectStates;
   // Object identifiers are allocation identities. Do not reuse one after
   // restoring a control-flow snapshot that has already observed later IDs.
@@ -570,6 +572,8 @@ LlvmEmitter::StaticSafetyState LlvmEmitter::mergedStaticSafetyStates(
                                                     right.unsignedIntegerValues);
   result.addressFacts =
       retainCommonFacts(left.addressFacts, right.addressFacts);
+  result.cstrTerminations =
+      retainCommonFacts(left.cstrTerminations, right.cstrTerminations);
 
   for (const auto &[bindingName, fact] : result.addressFacts) {
     (void)bindingName;
@@ -606,15 +610,17 @@ bool LlvmEmitter::enqueueStaticGoto(std::string_view label,
       continue;
     }
 
+    const auto outgoing = exitStaticScopes(context, incoming);
+
     auto &entry = (*context->entryStates)[target->second];
     if (entry) {
-      const auto merged = mergedStaticSafetyStates(*entry, incoming);
+      const auto merged = mergedStaticSafetyStates(*entry, outgoing);
       if (merged == *entry) {
         return true;
       }
       entry = merged;
     } else {
-      entry = incoming;
+      entry = outgoing;
     }
     context->worklist->push_back(target->second);
     return true;
@@ -622,11 +628,43 @@ bool LlvmEmitter::enqueueStaticGoto(std::string_view label,
   return false;
 }
 
+LlvmEmitter::StaticSafetyState LlvmEmitter::exitStaticScopes(
+    StaticGotoContext *target, const StaticSafetyState &incoming) {
+  auto outgoing = incoming;
+  for (auto *exited = staticGotoContext_; exited != target;
+       exited = exited->parent) {
+    restoreStaticSafetyState(outgoing);
+    if (exited->localBindings != nullptr) {
+      expireStaticLocalBindings(*exited->localBindings);
+    }
+    outgoing = staticSafetyState();
+  }
+  return outgoing;
+}
+
 void LlvmEmitter::invalidateStaticBinding(std::string_view bindingName) {
   const auto key = std::string(bindingName);
   staticIntegerValues_[key] = std::nullopt;
   staticUnsignedIntegerValues_[key] = std::nullopt;
   staticAddressFacts_[key] = std::nullopt;
+  staticCStringTerminations_[key] = std::nullopt;
+}
+
+void LlvmEmitter::expireStaticLocalBindings(
+    const std::vector<std::string> &bindingNames) {
+  for (const auto &bindingName : bindingNames) {
+    for (auto &[candidate, fact] : staticAddressFacts_) {
+      (void)candidate;
+      if (fact && fact->range && fact->range->bindingName == bindingName) {
+        fact->origin = StaticAddressOrigin::ExpiredLocalObject;
+        fact->isBaseAddress = false;
+      }
+    }
+    staticIntegerValues_.erase(bindingName);
+    staticUnsignedIntegerValues_.erase(bindingName);
+    staticAddressFacts_.erase(bindingName);
+    staticCStringTerminations_.erase(bindingName);
+  }
 }
 
 void LlvmEmitter::invalidateStaticFactsOverlapping(
@@ -946,7 +984,15 @@ void LlvmEmitter::recordStaticAddressAssignment(std::string_view bindingName,
 void LlvmEmitter::validateStaticAddressAccess(const hir::Expr &expression,
                                               std::string_view operation) {
   const auto fact = staticAddressFact(expression);
-  if (!fact || fact->origin != StaticAddressOrigin::DynamicObject) {
+  if (!fact) {
+    return;
+  }
+  if (fact->origin == StaticAddressOrigin::ExpiredLocalObject) {
+    addDiagnostic("static safety check failed: use after scope exit " +
+                  std::string(operation));
+    return;
+  }
+  if (fact->origin != StaticAddressOrigin::DynamicObject) {
     return;
   }
   const auto state = staticDynamicObjectStates_.find(fact->dynamicObjectId);
@@ -955,6 +1001,26 @@ void LlvmEmitter::validateStaticAddressAccess(const hir::Expr &expression,
     addDiagnostic("static safety check failed: use after free " +
                   std::string(operation));
   }
+}
+
+std::optional<bool>
+LlvmEmitter::staticCStringTerminated(const hir::Expr &expression) const {
+  if (dynamic_cast<const hir::StringLiteral *>(&expression) != nullptr) {
+    return true;
+  }
+  if (const auto *view =
+          dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return staticCStringTerminated(*view->operand);
+  }
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    if (variable->templateName != "cstr") {
+      return std::nullopt;
+    }
+    const auto found = staticCStringTerminations_.find(variable->bindingName);
+    return found == staticCStringTerminations_.end() ? std::nullopt
+                                                       : found->second;
+  }
+  return std::nullopt;
 }
 
 void LlvmEmitter::validateSafety(const hir::TranslationUnit &unit) {
@@ -984,6 +1050,24 @@ void LlvmEmitter::validateSafety(const hir::TranslationUnit &unit) {
 
 bool LlvmEmitter::validateSafety(const hir::Block &block) {
   SourceRangeScope sourceRange(*this, block.range);
+  std::vector<std::string> localBindings;
+  const auto collectLocalBindings = [&localBindings](const auto &self,
+                                                     const hir::Stmt &statement)
+      -> void {
+    if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
+      for (const auto &item : list->statements) {
+        self(self, *item);
+      }
+      return;
+    }
+    if (const auto *local = dynamic_cast<const hir::LocalMemory *>(&statement);
+        local != nullptr && local->storage == hir::MemoryStorage::Local) {
+      localBindings.push_back(local->bindingName);
+    }
+  };
+  for (const auto &statement : block.statements) {
+    collectLocalBindings(collectLocalBindings, *statement);
+  }
   std::unordered_map<std::string, std::size_t> labelIndexes;
   for (std::size_t index = 0; index < block.statements.size(); ++index) {
     if (const auto *label =
@@ -993,11 +1077,18 @@ bool LlvmEmitter::validateSafety(const hir::Block &block) {
   }
 
   if (labelIndexes.empty()) {
+    StaticGotoContext context{staticGotoContext_, &labelIndexes, nullptr,
+                              nullptr, &localBindings};
+    auto *previousContext = staticGotoContext_;
+    staticGotoContext_ = &context;
     for (const auto &statement : block.statements) {
       if (!validateSafety(*statement)) {
+        staticGotoContext_ = previousContext;
         return false;
       }
     }
+    staticGotoContext_ = previousContext;
+    expireStaticLocalBindings(localBindings);
     return true;
   }
 
@@ -1009,7 +1100,7 @@ bool LlvmEmitter::validateSafety(const hir::Block &block) {
       block.statements.size());
   std::deque<std::size_t> worklist;
   StaticGotoContext context{staticGotoContext_, &labelIndexes, &entryStates,
-                            &worklist};
+                            &worklist, &localBindings};
   auto *previousContext = staticGotoContext_;
   staticGotoContext_ = &context;
   const auto enqueue = [this, &entryStates, &worklist](
@@ -1062,6 +1153,7 @@ bool LlvmEmitter::validateSafety(const hir::Block &block) {
     return false;
   }
   restoreStaticSafetyState(*exitState);
+  expireStaticLocalBindings(localBindings);
   return true;
 }
 
@@ -1079,12 +1171,20 @@ bool LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     validateSafety(*store->value);
     const auto signedValue = staticSignedInteger(*store->value);
     const auto unsignedValue = staticUnsignedInteger(*store->value);
+    std::optional<bool> cstrTermination;
+    if (const auto *character =
+            dynamic_cast<const hir::CharacterLiteral *>(store->value.get());
+        character != nullptr && character->byteLength == store->targetByteLength &&
+        character->bytes.size() == store->targetByteLength) {
+      cstrTermination = character->bytes.find('\0') != std::string::npos;
+    }
     recordStaticAddressAssignment(store->bindingName, *store->value);
     const auto addressFact = staticAddressFacts_[store->bindingName];
     invalidateStaticBinding(store->bindingName);
     staticIntegerValues_[store->bindingName] = signedValue;
     staticUnsignedIntegerValues_[store->bindingName] = unsignedValue;
     staticAddressFacts_[store->bindingName] = addressFact;
+    staticCStringTerminations_[store->bindingName] = cstrTermination;
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::FloatStore *>(&statement)) {
@@ -1104,16 +1204,30 @@ bool LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   if (const auto *store =
           dynamic_cast<const hir::ViewCopyStore *>(&statement)) {
     validateSafety(*store->value);
+    auto cstrTermination = staticCStringTerminated(*store->value);
+    if (const auto *character =
+            dynamic_cast<const hir::CharacterLiteral *>(store->value.get());
+        character != nullptr && character->byteLength == store->targetByteLength &&
+        character->bytes.size() == store->targetByteLength) {
+      cstrTermination = character->bytes.find('\0') != std::string::npos;
+    }
     invalidateStaticBinding(store->bindingName);
+    staticCStringTerminations_[store->bindingName] = cstrTermination;
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::StringStore *>(&statement)) {
     invalidateStaticBinding(store->bindingName);
+    staticCStringTerminations_[store->bindingName] = true;
     return true;
   }
   if (const auto *store =
           dynamic_cast<const hir::StringCopyStore *>(&statement)) {
+    const auto source = staticCStringTerminations_.find(store->sourceBindingName);
+    const auto cstrTermination = source == staticCStringTerminations_.end()
+                                     ? std::optional<bool>{}
+                                     : source->second;
     invalidateStaticBinding(store->bindingName);
+    staticCStringTerminations_[store->bindingName] = cstrTermination;
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::PointerStore *>(&statement)) {
@@ -1281,16 +1395,46 @@ bool LlvmEmitter::validateSafety(const hir::Stmt &statement) {
   }
   if (const auto *whileStmt = dynamic_cast<const hir::While *>(&statement)) {
     validateSafety(*whileStmt->condition);
-    if (const auto condition = staticBooleanValue(*whileStmt->condition);
-        condition && !*condition) {
+    const auto condition = staticBooleanValue(*whileStmt->condition);
+    if (condition && !*condition) {
       return true;
     }
     const auto entry = staticSafetyState();
+    std::optional<StaticSafetyState> breakState;
+    std::optional<StaticSafetyState> continueState;
+    StaticLoopContext loop{staticLoopContext_, staticGotoContext_, &breakState,
+                           &continueState};
+    auto *previousLoop = staticLoopContext_;
+    staticLoopContext_ = &loop;
     const bool bodyFallsThrough = validateSafety(*whileStmt->body);
     const auto bodyState = staticSafetyState();
+    staticLoopContext_ = previousLoop;
     restoreStaticSafetyState(entry);
-    if (bodyFallsThrough) {
-      mergeStaticSafetyStates(entry, bodyState);
+    std::optional<StaticSafetyState> exitState;
+    if (!condition || !*condition) {
+      exitState = entry;
+    }
+    if (breakState) {
+      exitState = exitState ? mergedStaticSafetyStates(*exitState, *breakState)
+                            : *breakState;
+    }
+    if (bodyFallsThrough || continueState) {
+      const auto nextIteration = bodyFallsThrough
+                                     ? (continueState
+                                            ? mergedStaticSafetyStates(
+                                                  bodyState, *continueState)
+                                            : bodyState)
+                                     : *continueState;
+      if (!condition || !*condition) {
+        exitState = exitState
+                        ? mergedStaticSafetyStates(*exitState,
+                                                   mergedStaticSafetyStates(
+                                                       entry, nextIteration))
+                        : mergedStaticSafetyStates(entry, nextIteration);
+      }
+    }
+    if (exitState) {
+      restoreStaticSafetyState(*exitState);
     }
     return true;
   }
@@ -1360,8 +1504,23 @@ bool LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     }
     return false;
   }
-  if (dynamic_cast<const hir::Break *>(&statement) != nullptr ||
-      dynamic_cast<const hir::Continue *>(&statement) != nullptr) {
+  if (dynamic_cast<const hir::Break *>(&statement) != nullptr) {
+    if (staticLoopContext_ != nullptr && staticLoopContext_->breakState != nullptr) {
+      const auto outgoing =
+          exitStaticScopes(staticLoopContext_->exitScope, staticSafetyState());
+      auto &target = *staticLoopContext_->breakState;
+      target = target ? mergedStaticSafetyStates(*target, outgoing) : outgoing;
+    }
+    return false;
+  }
+  if (dynamic_cast<const hir::Continue *>(&statement) != nullptr) {
+    if (staticLoopContext_ != nullptr &&
+        staticLoopContext_->continueState != nullptr) {
+      const auto outgoing =
+          exitStaticScopes(staticLoopContext_->exitScope, staticSafetyState());
+      auto &target = *staticLoopContext_->continueState;
+      target = target ? mergedStaticSafetyStates(*target, outgoing) : outgoing;
+    }
     return false;
   }
   return true;
@@ -1411,6 +1570,18 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
     }
 
     const auto op = std::string(hir::toString(binary->operation));
+    if (binary->operationKind ==
+        hir::StandardOperationKind::StandardCStringCompare) {
+      const auto validateCStringOperand = [this](const hir::Expr &operand) {
+        if (const auto terminated = staticCStringTerminated(operand);
+            terminated && !*terminated) {
+          addDiagnostic(
+              "static safety check failed: missing terminating byte in cstr");
+        }
+      };
+      validateCStringOperand(*binary->left);
+      validateCStringOperand(*binary->right);
+    }
     const auto right = staticSignedInteger(*binary->right);
     if ((op == "/" || op == "%") && right && *right == 0) {
       addDiagnostic("static safety check failed: division by zero");

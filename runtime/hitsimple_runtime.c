@@ -41,7 +41,11 @@ _Static_assert(sizeof(HsFloat128) == 16,
 
 #endif
 
-enum { HS_MAX_OBJECTS = 1024, HS_RUNTIME_ERROR = 120 };
+enum {
+  HS_MAX_OBJECTS = 1024,
+  HS_MAX_FRAMES = 1024,
+  HS_RUNTIME_ERROR = 120,
+};
 
 typedef enum {
   HS_OBJECT_HEAP,
@@ -53,6 +57,7 @@ typedef struct {
   void *ptr;
   uint64_t size;
   uint64_t frame;
+  uint64_t scope;
   HsObjectKind kind;
   int freed;
 } HsAlloc;
@@ -84,6 +89,7 @@ enum {
 
 static HsAlloc hs_allocs[HS_MAX_OBJECTS];
 static uint64_t hs_current_frame;
+static uint64_t hs_frame_scopes[HS_MAX_FRAMES];
 
 #if defined(_WIN32)
 #define HS_THREAD_LOCAL __declspec(thread)
@@ -145,10 +151,11 @@ static HsAlloc *hs_slot(void) {
 }
 
 static HsAlloc *hs_find_exact(void *ptr, HsObjectKind kind,
-                              uint64_t frame) {
+                              uint64_t frame, uint64_t scope) {
   for (int i = 0; i < HS_MAX_OBJECTS; ++i) {
     if (hs_allocs[i].ptr == ptr && hs_allocs[i].kind == kind &&
-        hs_allocs[i].frame == frame && !hs_allocs[i].freed) {
+        hs_allocs[i].frame == frame && hs_allocs[i].scope == scope &&
+        !hs_allocs[i].freed) {
       return &hs_allocs[i];
     }
   }
@@ -156,12 +163,12 @@ static HsAlloc *hs_find_exact(void *ptr, HsObjectKind kind,
 }
 
 static void hs_register(void *ptr, uint64_t size, HsObjectKind kind,
-                        uint64_t frame) {
+                        uint64_t frame, uint64_t scope) {
   if (ptr == NULL || size == 0) {
     hs_fail("invalid object registration");
   }
 
-  HsAlloc *existing = hs_find_exact(ptr, kind, frame);
+  HsAlloc *existing = hs_find_exact(ptr, kind, frame, scope);
   if (existing != NULL) {
     if (existing->size != size) {
       hs_fail("conflicting object registration");
@@ -173,15 +180,17 @@ static void hs_register(void *ptr, uint64_t size, HsObjectKind kind,
   slot->ptr = ptr;
   slot->size = size;
   slot->frame = frame;
+  slot->scope = scope;
   slot->kind = kind;
   slot->freed = 0;
 }
 
 void hs_frame_enter(void) {
-  if (hs_current_frame == UINT64_MAX) {
+  if (hs_current_frame + 1U >= HS_MAX_FRAMES) {
     hs_fail("runtime frame depth overflow");
   }
   ++hs_current_frame;
+  hs_frame_scopes[hs_current_frame] = 0;
 }
 
 void hs_frame_exit(void) {
@@ -196,21 +205,63 @@ void hs_frame_exit(void) {
       hs_allocs[i].ptr = NULL;
       hs_allocs[i].size = 0;
       hs_allocs[i].frame = 0;
+      hs_allocs[i].scope = 0;
       hs_allocs[i].freed = 0;
     }
   }
+  hs_frame_scopes[hs_current_frame] = 0;
   --hs_current_frame;
+}
+
+void hs_scope_enter(void) {
+  if (hs_current_frame == 0) {
+    hs_fail("scope entered outside a runtime frame");
+  }
+  if (hs_frame_scopes[hs_current_frame] == UINT64_MAX) {
+    hs_fail("runtime scope depth overflow");
+  }
+  ++hs_frame_scopes[hs_current_frame];
+}
+
+void hs_scope_exit(void) {
+  if (hs_current_frame == 0 || hs_frame_scopes[hs_current_frame] == 0) {
+    hs_fail("runtime scope underflow");
+  }
+
+  const uint64_t scope = hs_frame_scopes[hs_current_frame];
+  for (int i = 0; i < HS_MAX_OBJECTS; ++i) {
+    if (hs_allocs[i].ptr != NULL &&
+        hs_allocs[i].kind == HS_OBJECT_LOCAL &&
+        hs_allocs[i].frame == hs_current_frame && hs_allocs[i].scope == scope) {
+      hs_allocs[i].ptr = NULL;
+      hs_allocs[i].size = 0;
+      hs_allocs[i].frame = 0;
+      hs_allocs[i].scope = 0;
+      hs_allocs[i].freed = 0;
+    }
+  }
+  --hs_frame_scopes[hs_current_frame];
+}
+
+void hs_scope_exit_to(uint64_t target_scope) {
+  if (hs_current_frame == 0 || target_scope > hs_frame_scopes[hs_current_frame]) {
+    hs_fail("invalid runtime scope exit");
+  }
+  while (hs_frame_scopes[hs_current_frame] > target_scope) {
+    hs_scope_exit();
+  }
 }
 
 void hs_register_local(void *ptr, uint64_t size) {
   if (hs_current_frame == 0) {
     hs_fail("local object registered outside a runtime frame");
   }
-  hs_register(ptr, size, HS_OBJECT_LOCAL, hs_current_frame);
+  hs_register(ptr, size, HS_OBJECT_LOCAL, hs_current_frame,
+              hs_frame_scopes[hs_current_frame]);
 }
 
 void hs_register_static(void *ptr, uint64_t size) {
-  hs_register(ptr, size, HS_OBJECT_STATIC, 0);
+  hs_register(ptr, size, HS_OBJECT_STATIC, 0, 0);
 }
 
 void hs_free(void *ptr);
@@ -223,7 +274,7 @@ void *hs_alloc(uint64_t size) {
   if (ptr == NULL) {
     hs_fail("allocation returned null");
   }
-  hs_register(ptr, size, HS_OBJECT_HEAP, 0);
+  hs_register(ptr, size, HS_OBJECT_HEAP, 0, 0);
   return ptr;
 }
 
@@ -239,7 +290,7 @@ void *hs_calloc(uint64_t count, uint64_t size) {
   if (ptr == NULL) {
     hs_fail("allocation returned null");
   }
-  hs_register(ptr, total, HS_OBJECT_HEAP, 0);
+  hs_register(ptr, total, HS_OBJECT_HEAP, 0, 0);
   return ptr;
 }
 

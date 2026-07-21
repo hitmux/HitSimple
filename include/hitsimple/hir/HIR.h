@@ -558,6 +558,11 @@ struct Stmt {
   virtual ~Stmt() = default;
 
   std::optional<diagnostic::SourceRange> range;
+  // A function-local static declaration marks its initializer with the
+  // storage binding that owns the one-time initialization guard.  Keeping the
+  // marker on the lowered statement preserves every assignment form without
+  // re-encoding assignment semantics in code generation.
+  std::string staticInitializationBinding;
 };
 
 struct AssignmentExpr final : Expr {
@@ -658,6 +663,10 @@ struct Parameter final {
   std::optional<diagnostic::SourceRange> range;
   std::size_t byteLength = 0;
   ViewSemantics valueSemantics;
+  // Internal View-ABI functions pass addresses at the ABI boundary.  This
+  // determines whether the callee first materializes an isolated View value
+  // or retains the caller storage as the writable assignment destination.
+  bool viewIsCopy = true;
 };
 
 struct ExternFunction final {
@@ -989,7 +998,6 @@ struct Function final {
   std::optional<FunctionAbiSignature> abiSignature;
   bool usesViewAbi = false;
   std::size_t viewResultByteLength = 0;
-  bool viewParametersAreCopies = false;
 };
 
 struct TranslationUnit final {

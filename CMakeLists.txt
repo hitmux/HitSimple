@@ -962,6 +962,21 @@ target_link_libraries(hsc_unit_tests
   add_test(NAME hsc_static_checked_emit_llvm
     COMMAND hsc --static-checked ${PROJECT_SOURCE_DIR}/examples/hello.hs --emit-llvm
   )
+  add_hsc_shell_test(hsc_checked_scope_lifetime_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_lifetime.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_scope_goto_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_goto.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_scope_break_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_break.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_scope_continue_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_continue.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_checked_cstr_compare_boundary
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_cstr_compare_boundary.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'unterminated checked string' stderr"
+  )
   add_hsc_shell_test(hsc_run_printf_calloc_string_unchecked
     "$<TARGET_FILE:hsc> --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/printf_calloc_string.hs -o ${CMAKE_CURRENT_BINARY_DIR}/printf_calloc_string_unchecked && ${CMAKE_CURRENT_BINARY_DIR}/printf_calloc_string_unchecked"
   )
@@ -1940,7 +1955,8 @@ target_link_libraries(hsc_unit_tests
 
   foreach(issue
       sem-001 sem-002 sem-003 sem-004 sem-005 sem-006 sem-007 sem-008
-      call-001 sem-009 lit-001 ir-001 safe-001 ir-002 opt-001)
+      call-001 sem-009 lit-001 ir-001 safe-001 ir-002 opt-001 life-001 life-002 life-003
+      static-001 cstr-001 op-001)
     add_hsc_issue_baseline(${issue})
   endforeach()
 

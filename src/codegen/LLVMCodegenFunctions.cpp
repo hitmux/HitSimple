@@ -382,10 +382,14 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
   loopTargets_.clear();
   catchTargets_.clear();
   labelBlocks_.clear();
+  labelScopeDepths_.clear();
+  staticInitializationGuards_.clear();
   const auto previousEntryBlock = functionEntryBlock_;
   const bool previousFrameActive = runtimeFrameActive_;
+  const auto previousScopeDepth = runtimeScopeDepth_;
   functionEntryBlock_ = nullptr;
   runtimeFrameActive_ = false;
+  runtimeScopeDepth_ = 0;
 
   if (hasRuntimeSafetyChecks()) {
     functionEntryBlock_ = entry;
@@ -409,6 +413,7 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
   }
   functionEntryBlock_ = previousEntryBlock;
   runtimeFrameActive_ = previousFrameActive;
+  runtimeScopeDepth_ = previousScopeDepth;
   if (!diagnostics_.empty()) {
     return;
   }
@@ -444,12 +449,15 @@ void LlvmEmitter::emit(const hir::Function &function) {
   loopTargets_.clear();
   catchTargets_.clear();
   labelBlocks_.clear();
+  labelScopeDepths_.clear();
+  staticInitializationGuards_.clear();
 
   auto *entry = llvm::BasicBlock::Create(context_, "entry", llvmFunction);
   builder_.SetInsertPoint(entry);
   beginDebugFunction(function, *llvmFunction);
   const auto previousEntryBlock = functionEntryBlock_;
   const bool previousFrameActive = runtimeFrameActive_;
+  const auto previousScopeDepth = runtimeScopeDepth_;
   const auto *memoryPlan = cAbiMemoryPlan(function.name);
   const auto directParameters =
       cAbiDirectAggregateParameters_.find(function.name);
@@ -465,6 +473,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
   const auto previousViewAbiResultByteLength = viewAbiResultByteLength_;
   functionEntryBlock_ = nullptr;
   runtimeFrameActive_ = false;
+  runtimeScopeDepth_ = 0;
   cAbiSRetStorage_ = nullptr;
   cAbiSRetStorageType_ = nullptr;
   viewAbiResultStorage_ = nullptr;
@@ -477,7 +486,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
     builder_.CreateBr(body);
     builder_.SetInsertPoint(body);
   }
-  collectLabels(*function.body, *llvmFunction);
+  collectLabels(*function.body, *llvmFunction, 1U);
 
   if (function.usesViewAbi) {
     auto argument = llvmFunction->arg_begin();
@@ -499,7 +508,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
                                                parameter.byteLength);
       auto *incomingArgument = &*argument++;
       llvm::Value *storage = incomingArgument;
-      if (function.viewParametersAreCopies) {
+      if (parameter.viewIsCopy) {
         storage = createFunctionEntryAlloca(storageType, parameter.bindingName);
         llvm::cast<llvm::AllocaInst>(storage)->setAlignment(llvm::Align(1));
         builder_.CreateMemCpy(storage, llvm::Align(1), incomingArgument,
@@ -508,9 +517,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
       }
       locals_.emplace(parameter.bindingName,
                       Local{storage, storageType, parameter.byteLength,
-                            std::nullopt, function.viewParametersAreCopies
-                                              ? std::size_t{1}
-                                              : std::size_t{1}});
+                            std::nullopt, std::size_t{1}});
       declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                            storage, static_cast<unsigned>(
                                &parameter - function.parameters.data() + 1U));
@@ -532,6 +539,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
     }
     functionEntryBlock_ = previousEntryBlock;
     runtimeFrameActive_ = previousFrameActive;
+    runtimeScopeDepth_ = previousScopeDepth;
     cAbiSRetStorage_ = previousSRetStorage;
     cAbiSRetStorageType_ = previousSRetStorageType;
     viewAbiResultStorage_ = previousViewAbiResultStorage;
@@ -686,6 +694,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
   }
   functionEntryBlock_ = previousEntryBlock;
   runtimeFrameActive_ = previousFrameActive;
+  runtimeScopeDepth_ = previousScopeDepth;
   cAbiSRetStorage_ = previousSRetStorage;
   cAbiSRetStorageType_ = previousSRetStorageType;
   viewAbiResultStorage_ = previousViewAbiResultStorage;

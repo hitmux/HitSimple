@@ -1,0 +1,5 @@
+set(CASE_ACTION "compile")
+set(CASE_FLAGS "--static-checked")
+set(EXPECT_COMPILE_EXIT "1")
+set(EXPECT_COMPILE_STDOUT_REGEX "^$")
+set(EXPECT_COMPILE_STDERR_REGEX "static safety check failed: use after scope exit dereference")
