@@ -1431,10 +1431,7 @@ HS_TEST(LLVMCodegen_StaticCheckedTracksDynamicAddressLifetimes) {
   HS_EXPECT_TRUE(!useAfterFree.diagnostics.empty());
   HS_EXPECT_TRUE(useAfterFree.diagnostics.front().message.find("use after free") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(!useAfterRealloc.diagnostics.empty());
-  HS_EXPECT_TRUE(
-      useAfterRealloc.diagnostics.front().message.find("use after free") !=
-      std::string::npos);
+  HS_EXPECT_TRUE(useAfterRealloc.diagnostics.empty());
   HS_EXPECT_TRUE(!reallocStaticStorage.diagnostics.empty());
   HS_EXPECT_TRUE(reallocStaticStorage.diagnostics.front().message.find(
                      "realloc requires a dynamic-object base address") !=
@@ -1547,7 +1544,7 @@ HS_TEST(LLVMCodegen_StaticCheckedRestoresGlobalSafetyBaselineForFunctions) {
                  std::string::npos);
   HS_EXPECT_TRUE(distinctGlobalAndFunctionAllocations.diagnostics.empty());
   HS_EXPECT_TRUE(knownGlobalLoad.diagnostics.empty());
-  HS_EXPECT_TRUE(knownGlobalLoad.llvmIr.find("@hs_check_load") ==
+  HS_EXPECT_TRUE(knownGlobalLoad.llvmIr.find("@hs_check_load") !=
                  std::string::npos);
 }
 
@@ -1872,6 +1869,148 @@ HS_TEST(LLVMCodegen_CheckedSkipsRuntimeChecksForStaticAddressRanges) {
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_store") == std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") == std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i32 42") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesFactsAfterIndirectWrites) {
+  const auto checked = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const std::vector<std::pair<std::string_view, std::string_view>> cases = {
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new small[1] as bytes\n"
+       "    new p as addr = &large\n"
+       "    [8]*&p = &small\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new p as addr = &large\n"
+       "    memset(&p, 0, 8)\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new small[1] as bytes\n"
+       "    new p as addr = &large\n"
+       "    new replacement as addr = &small\n"
+       "    new copied as addr = memcpy(&p, &replacement, 8)\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new small[1] as bytes\n"
+       "    new p as addr = &large\n"
+       "    new replacement as addr = &small\n"
+       "    new moved as addr = memmove(&p, &replacement, 8)\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new divisor as i64 = 0\n"
+       "    new file as handle\n"
+       "    new read as u64 = fread(divisor, 8, 1, file)\n"
+       "    new quotient as i64 = 1 / divisor\n"
+       "    return 0\n"
+       "}\n",
+       "@hs_checked_division_by_zero"}};
+
+  for (const auto &[source, requiredIr] : cases) {
+    const auto result = emitSource(source, checked);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.llvmIr.find(requiredIr) != std::string::npos);
+  }
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalFactsAfterOrdinaryCall) {
+  const auto result = emitSource(
+      "new large[8] as bytes\n"
+      "new small[1] as bytes\n"
+      "new p as addr = &large\n"
+      "func poison() {\n"
+      "    p = &small\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    poison()\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesEscapedLocalFactsAfterOrdinaryCall) {
+  const auto result = emitSource(
+      "new small[1] as bytes\n"
+      "func poison(slot as addr) {\n"
+      "    [8]*slot = &small\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &large\n"
+      "    poison(&p)\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesRhsSemanticsForAddressOffsetWidening) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new buffer[4] as bytes\n"
+      "    new base as addr = &buffer[1]\n"
+      "    new negative8 as i8 = -1\n"
+      "    new negative16 as i16 = -1\n"
+      "    new positive8 as u8 = 1\n"
+      "    new before8 as addr = base? + negative8\n"
+      "    new before16 as addr = base? + negative16\n"
+      "    new after as addr = base? + positive8\n"
+      "    [1]*before8 = 1\n"
+      "    [1]*before16 = 2\n"
+      "    [1]*after = 3\n"
+      "    return 0\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("sext i8") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("sext i16") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("zext i8") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedRejectsDistortedIntegerCastAddressFacts) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &large\n"
+      "    new narrowed as i32 = to_i32(p)\n"
+      "    new widened as u64 = to_u64(narrowed)\n"
+      "    new restored as addr = widened\n"
+      "    return [2]*restored\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedMergesReallocFailureWithSuccess) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new p as addr = alloc(1)\n"
+      "    new alias as addr = p\n"
+      "    p = realloc(p, 2)\n"
+      "    free(alias)\n"
+      "    return 0\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
 }
 
 HS_TEST(LLVMCodegen_StaticCheckedDoesNotEmitRuntimeChecks) {

@@ -1013,8 +1013,8 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_static_checked_realloc_static_storage_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_realloc_static_storage.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: realloc requires a dynamic-object base address' stderr"
   )
-  add_hsc_shell_test(hsc_static_checked_use_after_realloc_diagnostic
-    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_realloc.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: use after free dereference' stderr"
+  add_hsc_shell_test(hsc_static_checked_realloc_alias_not_provably_dangling
+    "$<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_realloc.hs -o program"
   )
   add_hsc_shell_test(hsc_checked_null_view_deref_condition_diagnostic
     "! $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
@@ -1063,7 +1063,7 @@ target_link_libraries(hsc_unit_tests
     hsc_static_checked_global_double_free_diagnostic
     hsc_static_checked_use_after_free_diagnostic
     hsc_static_checked_realloc_static_storage_diagnostic
-    hsc_static_checked_use_after_realloc_diagnostic
+    hsc_static_checked_realloc_alias_not_provably_dangling
     hsc_checked_view_deref_condition_runtime_error
     hsc_checked_view_deref_copy_runtime_error
     PROPERTIES LABELS "phase5;safe-001"

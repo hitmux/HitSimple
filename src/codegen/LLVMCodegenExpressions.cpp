@@ -1058,7 +1058,8 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
       offset->addressFacts->origin == hir::AddressOrigin::PointerDerived) {
     auto *base = emitPointerValue(*offset->left, std::string(name) + ".base");
     auto *byteOffset =
-        emitIntegerValue(*offset->right, sizeof(void *), true);
+        emitIntegerValue(*offset->right, sizeof(void *),
+                         sourceUsesZeroExtension(*offset->right));
     if (base == nullptr || byteOffset == nullptr) {
       return nullptr;
     }

@@ -23,6 +23,7 @@
 #include <string_view>
 #include <utility>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace llvm {
@@ -212,6 +213,10 @@ private:
   void mergeStaticSafetyStates(const StaticSafetyState &left,
                                const StaticSafetyState &right);
   void invalidateStaticBinding(std::string_view bindingName);
+  void invalidateStaticFactsOverlapping(
+      const std::optional<StaticAddressRange> &range,
+      std::optional<std::uint64_t> byteLength);
+  void invalidateStaticGlobalFacts();
   std::optional<std::int64_t>
   staticSignedInteger(const hir::Expr &expression) const;
   std::optional<std::uint64_t>
@@ -407,6 +412,7 @@ private:
       staticAddressFacts_;
   std::unordered_map<std::size_t, StaticDynamicObjectState>
       staticDynamicObjectStates_;
+  std::unordered_set<std::string> staticGlobalBindings_;
   std::size_t nextStaticDynamicObjectId_ = 0;
   std::vector<LoopTargets> loopTargets_;
   std::vector<CatchTarget> catchTargets_;

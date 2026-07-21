@@ -525,6 +525,7 @@ void LlvmEmitter::resetStaticSafetyState() {
   staticUnsignedIntegerValues_.clear();
   staticAddressFacts_.clear();
   staticDynamicObjectStates_.clear();
+  staticGlobalBindings_.clear();
   nextStaticDynamicObjectId_ = 0;
 }
 
@@ -595,6 +596,25 @@ void LlvmEmitter::invalidateStaticBinding(std::string_view bindingName) {
   staticIntegerValues_[key] = std::nullopt;
   staticUnsignedIntegerValues_[key] = std::nullopt;
   staticAddressFacts_[key] = std::nullopt;
+}
+
+void LlvmEmitter::invalidateStaticFactsOverlapping(
+    const std::optional<StaticAddressRange> &range,
+    std::optional<std::uint64_t> byteLength) {
+  if (!range || (byteLength && *byteLength == 0)) {
+    return;
+  }
+
+  // Static facts are keyed by definition binding. Every range originating at
+  // this binding overlaps it, even when the write is through an address or a
+  // standard-library memory operation rather than a direct assignment.
+  invalidateStaticBinding(range->bindingName);
+}
+
+void LlvmEmitter::invalidateStaticGlobalFacts() {
+  for (const auto &bindingName : staticGlobalBindings_) {
+    invalidateStaticBinding(bindingName);
+  }
 }
 
 std::optional<std::int64_t>
@@ -716,6 +736,12 @@ LlvmEmitter::staticAddressFact(const hir::Expr &expression) const {
   }
   if (const auto *cast =
           dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    const auto pointerBytes = sizeof(void *);
+    if (cast->byteLength != pointerBytes ||
+        cast->operand->result.lengthKind != hir::ViewLengthKind::Static ||
+        cast->operand->result.staticByteLength != pointerBytes) {
+      return std::nullopt;
+    }
     return staticAddressFact(*cast->operand);
   }
   if (const auto *view =
@@ -866,14 +892,18 @@ void LlvmEmitter::recordStaticAddressAssignment(std::string_view bindingName,
         extent = staticUnsignedInteger(*call->arguments[1]);
       }
       const auto input = staticAddressFact(*call->arguments.front());
-      if (input && input->origin == StaticAddressOrigin::Null) {
-        recordDynamicObject(extent);
-        return;
+      if (extent && *extent == 0) {
+        (void)releaseStaticDynamicObject(*call->arguments.front());
+      } else if (input && input->origin == StaticAddressOrigin::DynamicObject) {
+        const auto state = staticDynamicObjectStates_.find(input->dynamicObjectId);
+        if (state != staticDynamicObjectStates_.end()) {
+          state->second = StaticDynamicObjectState::Unknown;
+        }
       }
-      if (releaseStaticDynamicObject(*call->arguments.front())) {
-        recordDynamicObject(extent);
-        return;
-      }
+
+      // realloc may fail, leaving its input object live.  Merging that path
+      // with a successful reallocation leaves both the old object's lifetime
+      // and the returned address unknown.
       staticAddressFacts_[std::string(bindingName)] = std::nullopt;
       return;
     }
@@ -906,6 +936,15 @@ void LlvmEmitter::validateSafety(const hir::TranslationUnit &unit) {
     validateSafety(*unit.globalInit);
   }
   const auto globalBaseline = staticSafetyState();
+  const auto recordGlobalBindings = [this](const auto &facts) {
+    for (const auto &[bindingName, value] : facts) {
+      (void)value;
+      staticGlobalBindings_.insert(bindingName);
+    }
+  };
+  recordGlobalBindings(globalBaseline.integerValues);
+  recordGlobalBindings(globalBaseline.unsignedIntegerValues);
+  recordGlobalBindings(globalBaseline.addressFacts);
   for (const auto &function : unit.functions) {
     restoreStaticSafetyState(globalBaseline);
     validateSafety(*function->body);
@@ -983,6 +1022,8 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     validateStaticAddressAccess(*store->address, "store");
     validateSafety(*store->address);
     validateSafety(*store->value);
+    invalidateStaticFactsOverlapping(staticAddressRange(*store->address),
+                                     store->targetByteLength);
     return;
   }
   if (const auto *call = dynamic_cast<const hir::Call *>(&statement)) {
@@ -997,7 +1038,48 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     if ((call->builtin == stdlib::BuiltinId::Free ||
          call->builtin == stdlib::BuiltinId::Realloc) &&
         !call->arguments.empty()) {
-      (void)releaseStaticDynamicObject(*call->arguments.front());
+      if (call->builtin == stdlib::BuiltinId::Free) {
+        (void)releaseStaticDynamicObject(*call->arguments.front());
+      } else {
+        const auto extent = call->arguments.size() == 2U
+                                ? staticUnsignedInteger(*call->arguments[1])
+                                : std::optional<std::uint64_t>{};
+        if (extent && *extent == 0) {
+          (void)releaseStaticDynamicObject(*call->arguments.front());
+        } else if (const auto input =
+                       staticAddressFact(*call->arguments.front());
+                   input && input->origin == StaticAddressOrigin::DynamicObject) {
+          const auto state = staticDynamicObjectStates_.find(input->dynamicObjectId);
+          if (state != staticDynamicObjectStates_.end()) {
+            state->second = StaticDynamicObjectState::Unknown;
+          }
+        }
+      }
+    }
+    if (call->builtin == stdlib::BuiltinId::None) {
+      invalidateStaticGlobalFacts();
+      for (const auto &argument : call->arguments) {
+        invalidateStaticFactsOverlapping(staticMemoryOperandRange(*argument),
+                                         std::nullopt);
+      }
+    }
+    if ((call->builtin == stdlib::BuiltinId::Memset ||
+         call->builtin == stdlib::BuiltinId::Memcpy ||
+         call->builtin == stdlib::BuiltinId::Memmove) &&
+        call->arguments.size() == 3U) {
+      invalidateStaticFactsOverlapping(
+          staticMemoryOperandRange(*call->arguments[0]),
+          staticUnsignedInteger(*call->arguments[2]));
+    }
+    if (call->builtin == stdlib::BuiltinId::Fread &&
+        call->arguments.size() == 4U) {
+      const auto size = staticUnsignedInteger(*call->arguments[1]);
+      const auto count = staticUnsignedInteger(*call->arguments[2]);
+      const auto byteLength = size && count
+                                  ? multiplyUnsignedIntegers(*size, *count)
+                                  : std::optional<std::uint64_t>{};
+      invalidateStaticFactsOverlapping(
+          staticMemoryOperandRange(*call->arguments[0]), byteLength);
     }
     return;
   }
@@ -1006,6 +1088,7 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     for (const auto &argument : call->arguments) {
       validateSafety(*argument);
     }
+    invalidateStaticGlobalFacts();
     return;
   }
   if (const auto *call =
@@ -1014,6 +1097,7 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     if (call->file) {
       validateSafety(*call->file);
     }
+    invalidateStaticGlobalFacts();
     return;
   }
   if (const auto *call =
@@ -1024,6 +1108,7 @@ void LlvmEmitter::validateSafety(const hir::Stmt &statement) {
     for (const auto &target : call->targets) {
       invalidateStaticBinding(target.bindingName);
     }
+    invalidateStaticGlobalFacts();
     return;
   }
   if (const auto *call =
@@ -1219,6 +1304,7 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
     for (const auto &argument : call->arguments) {
       validateSafety(*argument);
     }
+    invalidateStaticGlobalFacts();
     return;
   }
   if (const auto *call =
@@ -1346,6 +1432,31 @@ void LlvmEmitter::validateSafety(const hir::Expr &expression) {
     }
     for (const auto &argument : call->arguments) {
       validateSafety(*argument);
+    }
+    if (call->builtin == stdlib::BuiltinId::None) {
+      invalidateStaticGlobalFacts();
+      for (const auto &argument : call->arguments) {
+        invalidateStaticFactsOverlapping(staticMemoryOperandRange(*argument),
+                                         std::nullopt);
+      }
+    }
+    if ((call->builtin == stdlib::BuiltinId::Memset ||
+         call->builtin == stdlib::BuiltinId::Memcpy ||
+         call->builtin == stdlib::BuiltinId::Memmove) &&
+        call->arguments.size() == 3U) {
+      invalidateStaticFactsOverlapping(
+          staticMemoryOperandRange(*call->arguments[0]),
+          staticUnsignedInteger(*call->arguments[2]));
+    }
+    if (call->builtin == stdlib::BuiltinId::Fread &&
+        call->arguments.size() == 4U) {
+      const auto size = staticUnsignedInteger(*call->arguments[1]);
+      const auto count = staticUnsignedInteger(*call->arguments[2]);
+      const auto byteLength = size && count
+                                  ? multiplyUnsignedIntegers(*size, *count)
+                                  : std::optional<std::uint64_t>{};
+      invalidateStaticFactsOverlapping(
+          staticMemoryOperandRange(*call->arguments[0]), byteLength);
     }
     return;
   }
