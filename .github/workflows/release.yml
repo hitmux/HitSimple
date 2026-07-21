@@ -1205,7 +1205,9 @@ jobs:
           HitSimple ${HITSIMPLE_VERSION} is a beta release.
 
           Highlights:
-          - Checked runtime failures now carry source locations on Linux, macOS, and Windows. Windows functions that use software `f128` omit those writes to keep `f128` format/scan stable.
+          - Sema and HIR now preserve complete View semantics and explicit conversion plans across operations, assignments, calls, returns, and ternaries.
+          - Checked and static-checked analysis tracks lifetimes and address facts across scope exits, control-flow edges, indirect writes, and calls; static locals now initialize only once.
+          - LLVM lowering retains pointer provenance where possible and runs the embedded LLVM optimization pipeline with PGO and optimization remarks.
           - Release assets include Linux tarballs and DEBs, macOS tarballs, Fedora 44 and EL9 RPMs, Windows full/slim ZIPs, the VS Code extension VSIX, and SHA256SUMS.
           - The Windows full package bundles llvm-mingw. Slim and macOS packages require a Clang 18 toolchain matching their embedded LLVM; RPM packages require the matching system Clang major.
 
