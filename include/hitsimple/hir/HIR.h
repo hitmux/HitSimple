@@ -5,6 +5,7 @@
 #include "hitsimple/stdlib/StandardLibrary.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -39,6 +40,164 @@ enum class Linkage {
 };
 
 std::string_view toString(Linkage linkage);
+
+// A View describes how an expression result is interpreted. It intentionally
+// does not model C-like static types: the same bytes may be observed through a
+// different View only after semantic analysis has explicitly selected it.
+enum class ViewCategory : std::uint8_t {
+  SignedInteger,
+  UnsignedInteger,
+  UntemplatedInteger,
+  Floating,
+  Boolean,
+  Address,
+  Handle,
+  Bytes,
+  CString,
+  UserTemplate,
+  RawBytes,
+};
+
+std::string_view toString(ViewCategory category);
+
+enum class IntegerInterpretation : std::uint8_t {
+  None,
+  Signed,
+  Unsigned,
+  RawOnly,
+};
+
+std::string_view toString(IntegerInterpretation interpretation);
+
+enum class ViewLengthKind : std::uint8_t {
+  Static,
+  Dynamic,
+};
+
+std::string_view toString(ViewLengthKind kind);
+
+struct ViewSemantics final {
+  ViewCategory category;
+  IntegerInterpretation integerInterpretation;
+  ViewLengthKind lengthKind;
+  // Valid only when lengthKind is Static. Dynamic Views keep this at zero.
+  std::size_t staticByteLength;
+  // An empty name represents the untemplated `none` View.
+  std::string templateName;
+  bool isAddressable;
+  bool isMutableLValue;
+};
+
+ViewSemantics staticViewSemantics(ViewCategory category,
+                                  IntegerInterpretation interpretation,
+                                  std::size_t byteLength,
+                                  std::string templateName = {},
+                                  bool isAddressable = false,
+                                  bool isMutableLValue = false);
+ViewSemantics dynamicViewSemantics(ViewCategory category,
+                                   std::string templateName = {});
+ViewSemantics viewSemanticsForTemplate(
+    std::string templateName, std::size_t byteLength,
+    bool isAddressable = false, bool isMutableLValue = false,
+    IntegerInterpretation untemplatedInterpretation =
+        IntegerInterpretation::Signed);
+ViewSemantics booleanTestResultSemantics();
+
+bool isFixedView(const ViewSemantics &semantics);
+bool isIntegerNumeric(const ViewSemantics &semantics);
+bool isFloatingNumeric(const ViewSemantics &semantics);
+bool isBooleanTestable(const ViewSemantics &semantics);
+bool isAddressValue(const ViewSemantics &semantics);
+bool isRawOnly(const ViewSemantics &semantics);
+
+// The semantic analyzer records the selected ordinary-operation family.  This
+// prevents later stages from inferring a rule from an AST operator spelling or
+// from a coincidental byte width.
+enum class StandardOperationKind : std::uint8_t {
+  Legacy,
+  UntemplatedInteger,
+  StandardInteger,
+  StandardBoolean,
+  StandardAddress,
+  StandardHandle,
+  StandardBytesCompare,
+  StandardCStringCompare,
+  AddressOffset,
+};
+
+std::string_view toString(StandardOperationKind kind);
+
+// The parser spelling is preserved for diagnostics, but Codegen dispatches on
+// this Sema-owned operation instead of reparsing the spelling (including typed
+// operators) at every lowering site.
+enum class BinaryOperator : std::uint8_t {
+  Unknown,
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  Modulo,
+  Power,
+  ShiftLeft,
+  ShiftRight,
+  BitAnd,
+  BitOr,
+  BitXor,
+  Equal,
+  NotEqual,
+  Less,
+  LessEqual,
+  Greater,
+  GreaterEqual,
+  LogicalAnd,
+  LogicalOr,
+};
+
+std::string_view toString(BinaryOperator op);
+
+// Address values retain their origin independently from their P-byte View
+// representation.  This lets codegen keep a pointer until the language
+// explicitly observes its integer bits, without inventing object-range or
+// alias guarantees for values reconstructed from integers.
+enum class AddressOrigin : std::uint8_t {
+  LocalObject,
+  StaticObject,
+  GlobalObject,
+  DynamicAllocation,
+  ExternalObject,
+  PointerDerived,
+  OpaqueInteger,
+};
+
+std::string_view toString(AddressOrigin origin);
+
+struct AddressFacts final {
+  AddressOrigin origin = AddressOrigin::OpaqueInteger;
+  std::optional<std::size_t> knownExtent;
+  std::optional<std::size_t> knownAlignment;
+  bool isBaseAddress = false;
+};
+
+// A conversion plan is the Sema-owned description of an assignment-like
+// boundary.  `source` and `destination` are preserved so codegen never needs
+// to recover signedness or category from an expression node kind.
+enum class ConversionKind : std::uint8_t {
+  Identity,
+  IntegerWidth,
+  Floating,
+  BooleanNormalize,
+  ByteCopy,
+  CStringCopy,
+  UserTemplateAssignment,
+};
+
+std::string_view toString(ConversionKind kind);
+
+struct ConversionPlan final {
+  ConversionKind kind = ConversionKind::Identity;
+  ViewSemantics source;
+  ViewSemantics destination;
+};
 
 enum class LinkageTarget {
   Global,
@@ -106,43 +265,50 @@ struct AbiOverride final {
 };
 
 struct Expr {
-  Expr();
+  explicit Expr(ViewSemantics result);
   virtual ~Expr() = default;
 
   std::optional<diagnostic::SourceRange> range;
+  ViewSemantics result;
 };
 
 struct IntegerLiteral final : Expr {
-  explicit IntegerLiteral(std::string value);
-  IntegerLiteral(std::string value, std::size_t byteLength);
+  IntegerLiteral(std::string value, ViewSemantics result);
 
   std::string value;
   std::size_t byteLength = 4;
 };
 
+// Character literals retain their post-escape byte sequence.  A one-byte
+// literal may carry unsigned integer interpretation; a multi-byte literal is
+// raw-only and therefore must not be reconstructed through a host integer.
+struct CharacterLiteral final : Expr {
+  CharacterLiteral(std::string bytes, ViewSemantics result);
+
+  std::string bytes;
+  std::size_t byteLength = 0;
+};
+
 struct StringLiteral final : Expr {
-  explicit StringLiteral(std::string value);
-  StringLiteral(std::string value, std::size_t byteLength);
+  StringLiteral(std::string value, ViewSemantics result);
 
   std::string value;
   std::size_t byteLength = 0;
 };
 
 struct FloatLiteral final : Expr {
-  FloatLiteral(std::string value, std::size_t byteLength);
+  FloatLiteral(std::string value, ViewSemantics result);
 
   std::string value;
   std::size_t byteLength = 8;
 };
 
 struct VariableRef final : Expr {
-  VariableRef(std::string name, std::size_t byteLength,
-              std::string templateName = {});
-  VariableRef(std::string name, std::string bindingName, std::size_t byteLength,
-              MemoryStorage storage, std::string templateName = {});
-  VariableRef(std::string name, std::string bindingName, std::size_t byteLength,
-              MemoryStorage storage, std::size_t offset,
-              std::string templateName = {});
+  VariableRef(std::string name, ViewSemantics result);
+  VariableRef(std::string name, std::string bindingName, MemoryStorage storage,
+              ViewSemantics result);
+  VariableRef(std::string name, std::string bindingName, MemoryStorage storage,
+              std::size_t offset, ViewSemantics result);
 
   std::string name;
   std::string bindingName;
@@ -150,12 +316,15 @@ struct VariableRef final : Expr {
   MemoryStorage storage = MemoryStorage::Local;
   std::size_t offset = 0;
   std::string templateName;
+  // Sema snapshots address provenance at bindings so later HIR consumers do
+  // not have to infer it from a variable name or pointer-sized bytes.
+  std::optional<AddressFacts> addressFacts;
 };
 
 struct AddressOfExpr final : Expr {
   AddressOfExpr(std::string name, std::string bindingName,
                 std::size_t targetByteLength, MemoryStorage storage,
-                std::size_t offset, std::size_t byteLength);
+                std::size_t offset, ViewSemantics result);
 
   std::string name;
   std::string bindingName;
@@ -163,28 +332,45 @@ struct AddressOfExpr final : Expr {
   MemoryStorage storage = MemoryStorage::Local;
   std::size_t offset = 0;
   std::size_t byteLength = 0;
+  AddressFacts facts;
 };
 
 struct DerefExpr final : Expr {
-  DerefExpr(std::unique_ptr<Expr> address, std::size_t byteLength);
+  DerefExpr(std::unique_ptr<Expr> address, ViewSemantics result);
 
   std::unique_ptr<Expr> address;
   std::size_t byteLength = 0;
 };
 
+// Boolean-test preserves the operand's complete View and records the
+// canonical one-byte bool result. Codegen lowering is intentionally deferred
+// until the typed HIR transition is complete.
+struct BooleanTestExpr final : Expr {
+  BooleanTestExpr(std::unique_ptr<Expr> operand, ViewSemantics result);
+
+  std::unique_ptr<Expr> operand;
+};
+
 struct BinaryExpr final : Expr {
   BinaryExpr(std::unique_ptr<Expr> left, std::string op,
-             std::unique_ptr<Expr> right, std::size_t byteLength);
+             std::unique_ptr<Expr> right, ViewSemantics result,
+             StandardOperationKind operationKind =
+                 StandardOperationKind::Legacy);
 
   std::unique_ptr<Expr> left;
   std::string op;
   std::unique_ptr<Expr> right;
   std::size_t byteLength = 0;
+  StandardOperationKind operationKind = StandardOperationKind::Legacy;
+  BinaryOperator operation = BinaryOperator::Unknown;
+  IntegerInterpretation typedIntegerInterpretation =
+      IntegerInterpretation::None;
+  std::optional<AddressFacts> addressFacts;
 };
 
 struct UnaryExpr final : Expr {
   UnaryExpr(std::string op, std::unique_ptr<Expr> operand,
-            std::size_t byteLength);
+            ViewSemantics result);
 
   std::string op;
   std::unique_ptr<Expr> operand;
@@ -193,7 +379,7 @@ struct UnaryExpr final : Expr {
 
 struct TernaryExpr final : Expr {
   TernaryExpr(std::unique_ptr<Expr> condition, std::unique_ptr<Expr> thenExpr,
-              std::unique_ptr<Expr> elseExpr, std::size_t byteLength);
+              std::unique_ptr<Expr> elseExpr, ViewSemantics result);
 
   std::unique_ptr<Expr> condition;
   std::unique_ptr<Expr> thenExpr;
@@ -202,15 +388,15 @@ struct TernaryExpr final : Expr {
 };
 
 struct UnsignedExpr final : Expr {
-  UnsignedExpr(std::unique_ptr<Expr> operand, std::size_t byteLength);
+  UnsignedExpr(std::unique_ptr<Expr> operand, ViewSemantics result);
 
   std::unique_ptr<Expr> operand;
   std::size_t byteLength = 0;
 };
 
 struct IntegerCastExpr final : Expr {
-  IntegerCastExpr(std::unique_ptr<Expr> operand, std::size_t byteLength,
-                  bool isSigned);
+  IntegerCastExpr(std::unique_ptr<Expr> operand, bool isSigned,
+                  ViewSemantics result);
 
   std::unique_ptr<Expr> operand;
   std::size_t byteLength = 0;
@@ -220,8 +406,8 @@ struct IntegerCastExpr final : Expr {
 // A temporary interpretation of an existing View. It owns no storage and
 // therefore must preserve the operand's bytes and addressability.
 struct TemplateViewExpr final : Expr {
-  TemplateViewExpr(std::unique_ptr<Expr> operand, std::size_t byteLength,
-                   std::string templateName, bool isAddressable);
+  TemplateViewExpr(std::unique_ptr<Expr> operand, std::string templateName,
+                   bool isAddressable, ViewSemantics result);
 
   std::unique_ptr<Expr> operand;
   std::size_t byteLength = 0;
@@ -235,7 +421,7 @@ struct TemplateViewExpr final : Expr {
 struct UserTemplateOpCallExpr final : Expr {
   UserTemplateOpCallExpr(std::string callee,
                          std::vector<std::unique_ptr<Expr>> arguments,
-                         std::size_t byteLength, std::string templateName);
+                         std::string templateName, ViewSemantics result);
 
   std::string callee;
   std::vector<std::unique_ptr<Expr>> arguments;
@@ -245,7 +431,7 @@ struct UserTemplateOpCallExpr final : Expr {
 
 struct FloatBinaryExpr final : Expr {
   FloatBinaryExpr(std::unique_ptr<Expr> left, std::string op,
-                  std::unique_ptr<Expr> right, std::size_t byteLength);
+                  std::unique_ptr<Expr> right, ViewSemantics result);
 
   std::unique_ptr<Expr> left;
   std::string op;
@@ -256,7 +442,7 @@ struct FloatBinaryExpr final : Expr {
 struct FloatCompareExpr final : Expr {
   FloatCompareExpr(std::unique_ptr<Expr> left, std::string op,
                    std::unique_ptr<Expr> right,
-                   std::size_t operandByteLength);
+                   std::size_t operandByteLength, ViewSemantics result);
 
   std::unique_ptr<Expr> left;
   std::string op;
@@ -265,8 +451,8 @@ struct FloatCompareExpr final : Expr {
 };
 
 struct ToFloatExpr final : Expr {
-  ToFloatExpr(std::unique_ptr<Expr> operand, std::size_t byteLength,
-              bool sourceUnsigned = false, bool sourceIsFloating = false);
+  ToFloatExpr(std::unique_ptr<Expr> operand, bool sourceUnsigned,
+              bool sourceIsFloating, ViewSemantics result);
 
   std::unique_ptr<Expr> operand;
   std::size_t byteLength = 0;
@@ -276,7 +462,7 @@ struct ToFloatExpr final : Expr {
 
 struct ToIntExpr final : Expr {
   ToIntExpr(std::unique_ptr<Expr> operand, std::size_t floatByteLength,
-            std::size_t byteLength, bool isUnsigned = false);
+            bool isUnsigned, ViewSemantics result);
 
   std::unique_ptr<Expr> operand;
   std::size_t floatByteLength = 0;
@@ -307,7 +493,7 @@ std::string_view toString(FormatOutputSink sink);
 struct UserTemplateFormatCallExpr final : Expr {
   UserTemplateFormatCallExpr(std::string callee, std::unique_ptr<Expr> value,
                              FormatOutputSink sink, std::unique_ptr<Expr> file,
-                             std::size_t byteLength);
+                             ViewSemantics result);
 
   std::string callee;
   std::unique_ptr<Expr> value;
@@ -318,10 +504,10 @@ struct UserTemplateFormatCallExpr final : Expr {
 
 struct CallExpr final : Expr {
   CallExpr(std::string callee, std::vector<std::unique_ptr<Expr>> arguments,
-           std::size_t byteLength, bool isFloating = false,
-           stdlib::BuiltinId builtin = stdlib::BuiltinId::None,
-           std::vector<FormatArgKind> formatArgumentKinds = {},
-           std::uint16_t overloadIndex = 0, std::string templateName = {});
+           bool isFloating, stdlib::BuiltinId builtin,
+           std::vector<FormatArgKind> formatArgumentKinds,
+           std::uint16_t overloadIndex, std::string templateName,
+           ViewSemantics result);
 
   std::string callee;
   std::vector<std::unique_ptr<Expr>> arguments;
@@ -333,6 +519,8 @@ struct CallExpr final : Expr {
   std::uint16_t overloadIndex = 0;
   std::vector<FormatArgKind> formatArgumentKinds;
   std::string templateName;
+  std::vector<ConversionPlan> argumentPlans;
+  std::optional<AddressFacts> addressFacts;
 };
 
 enum class DynamicByteViewOperation : std::uint8_t {
@@ -348,7 +536,8 @@ std::string_view toString(DynamicByteViewOperation operation);
 struct DynamicByteViewExpr final : Expr {
   DynamicByteViewExpr(DynamicByteViewOperation operation,
                       std::unique_ptr<Expr> source,
-                      std::unique_ptr<Expr> runtimeLength);
+                      std::unique_ptr<Expr> runtimeLength,
+                      ViewSemantics result);
 
   DynamicByteViewOperation operation = DynamicByteViewOperation::ResizeBytes;
   std::unique_ptr<Expr> source;
@@ -358,7 +547,7 @@ struct DynamicByteViewExpr final : Expr {
 // The non-intrinsic byte-order reversal path for fixed View lengths other
 // than the native bswap widths.
 struct ByteSwapExpr final : Expr {
-  ByteSwapExpr(std::unique_ptr<Expr> source, std::size_t byteLength);
+  ByteSwapExpr(std::unique_ptr<Expr> source, ViewSemantics result);
 
   std::unique_ptr<Expr> source;
   std::size_t byteLength = 0;
@@ -369,12 +558,17 @@ struct Stmt {
   virtual ~Stmt() = default;
 
   std::optional<diagnostic::SourceRange> range;
+  // A function-local static declaration marks its initializer with the
+  // storage binding that owns the one-time initialization guard.  Keeping the
+  // marker on the lowered statement preserves every assignment form without
+  // re-encoding assignment semantics in code generation.
+  std::string staticInitializationBinding;
 };
 
 struct AssignmentExpr final : Expr {
   AssignmentExpr(std::vector<std::unique_ptr<Stmt>> stores,
                  std::unique_ptr<Expr> result,
-                 std::size_t byteLength);
+                 ViewSemantics semantics);
 
   std::vector<std::unique_ptr<Stmt>> stores;
   std::unique_ptr<Expr> result;
@@ -461,11 +655,18 @@ struct ImplOpBinding final {
 
 struct Parameter final {
   Parameter(std::string name, std::string bindingName, std::size_t byteLength);
+  Parameter(std::string name, std::string bindingName,
+            ViewSemantics valueSemantics);
 
   std::string name;
   std::string bindingName;
   std::optional<diagnostic::SourceRange> range;
   std::size_t byteLength = 0;
+  ViewSemantics valueSemantics;
+  // Internal View-ABI functions pass addresses at the ABI boundary.  This
+  // determines whether the callee first materializes an isolated View value
+  // or retains the caller storage as the writable assignment destination.
+  bool viewIsCopy = true;
 };
 
 struct ExternFunction final {
@@ -508,6 +709,7 @@ struct IntegerStore final : Stmt {
   MemoryStorage storage = MemoryStorage::Local;
   std::size_t offset = 0;
   std::unique_ptr<Expr> value;
+  std::optional<ConversionPlan> conversionPlan;
 };
 
 struct FloatStore final : Stmt {
@@ -524,6 +726,25 @@ struct FloatStore final : Stmt {
   MemoryStorage storage = MemoryStorage::Local;
   std::size_t offset = 0;
   std::unique_ptr<Expr> value;
+  std::optional<ConversionPlan> conversionPlan;
+};
+
+// Generic byte-for-byte assignment for bytes and user-template fallback
+// assignment.  The source remains a View, rather than being reinterpreted as
+// an integer scalar.
+struct ViewCopyStore final : Stmt {
+  ViewCopyStore(std::string target, std::string bindingName,
+                std::size_t targetByteLength, MemoryStorage storage,
+                std::size_t offset, std::unique_ptr<Expr> value,
+                ConversionPlan conversionPlan);
+
+  std::string target;
+  std::string bindingName;
+  std::size_t targetByteLength = 0;
+  MemoryStorage storage = MemoryStorage::Local;
+  std::size_t offset = 0;
+  std::unique_ptr<Expr> value;
+  ConversionPlan conversionPlan;
 };
 
 struct StringStore final : Stmt {
@@ -679,9 +900,11 @@ struct InputCallStore final : Stmt {
 };
 
 struct Return final : Stmt {
-  explicit Return(std::vector<std::unique_ptr<Expr>> values);
+  explicit Return(std::vector<std::unique_ptr<Expr>> values,
+                  std::vector<ConversionPlan> conversionPlans = {});
 
   std::vector<std::unique_ptr<Expr>> values;
+  std::vector<ConversionPlan> conversionPlans;
 };
 
 struct If final : Stmt {
@@ -775,7 +998,6 @@ struct Function final {
   std::optional<FunctionAbiSignature> abiSignature;
   bool usesViewAbi = false;
   std::size_t viewResultByteLength = 0;
-  bool viewParametersAreCopies = false;
 };
 
 struct TranslationUnit final {
@@ -826,6 +1048,13 @@ applyLinkageOverrides(TranslationUnit &unit,
 std::vector<diagnostic::Diagnostic>
 applyAbiOverrides(TranslationUnit &unit,
                   const std::vector<AbiOverride> &overrides);
+
+// Validates result semantics, legacy byte-length shadow fields, and the
+// semantic contracts of special HIR nodes. Sema invokes this before exposing
+// a TranslationUnit to code generation; callers that build HIR directly can
+// use it as the same invariant gate.
+std::vector<diagnostic::Diagnostic>
+verifyViewSemantics(const TranslationUnit &unit);
 
 void dump(const TranslationUnit &unit, std::ostream &out);
 std::string dumpToString(const TranslationUnit &unit);

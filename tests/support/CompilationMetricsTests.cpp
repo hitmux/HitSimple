@@ -51,7 +51,8 @@ HS_TEST(CompilationMetrics_CountsHirNodes) {
                                                        MemoryStorage::Local));
   statements.push_back(std::make_unique<IntegerStore>(
       "value", "value", 4, MemoryStorage::Local,
-      std::make_unique<IntegerLiteral>("42", 4)));
+      std::make_unique<IntegerLiteral>(
+          "42", viewSemanticsForTemplate("i32", 4))));
   std::vector<std::unique_ptr<Function>> functions;
   functions.push_back(std::make_unique<Function>(
       "main", std::make_unique<Block>(std::move(statements))));

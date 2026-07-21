@@ -161,6 +161,40 @@ struct CatchViewContract {
   std::size_t byteLength = 0;
 };
 
+inline hir::ViewSemantics fixedResult(std::string templateName,
+                                      std::size_t byteLength,
+                                      bool isAddressable = false,
+                                      bool isMutableLValue = false) {
+  return hir::viewSemanticsForTemplate(std::move(templateName), byteLength,
+                                       isAddressable, isMutableLValue);
+}
+
+inline hir::ViewSemantics signedIntegerResult(std::size_t byteLength) {
+  return hir::staticViewSemantics(hir::ViewCategory::UntemplatedInteger,
+                                  hir::IntegerInterpretation::Signed,
+                                  byteLength);
+}
+
+inline hir::ViewSemantics unsignedIntegerResult(std::size_t byteLength) {
+  return hir::staticViewSemantics(hir::ViewCategory::UntemplatedInteger,
+                                  hir::IntegerInterpretation::Unsigned,
+                                  byteLength);
+}
+
+inline hir::ViewSemantics rawBytesResult(std::size_t byteLength) {
+  return hir::staticViewSemantics(hir::ViewCategory::RawBytes,
+                                  hir::IntegerInterpretation::RawOnly,
+                                  byteLength);
+}
+
+inline hir::ViewSemantics booleanResult() {
+  return hir::booleanTestResultSemantics();
+}
+
+inline hir::ViewSemantics dynamicBytesResult() {
+  return hir::dynamicViewSemantics(hir::ViewCategory::Bytes, "bytes");
+}
+
 class Analyzer {
 public:
   AnalyzeResult analyze(const ast::TranslationUnit &unit,
@@ -216,6 +250,8 @@ private:
       std::unique_ptr<hir::Expr> loweredValue,
       std::string_view lengthDiagnosticSubject,
       std::string_view targetLengthSubject);
+  std::unique_ptr<hir::Expr>
+  preservePointerDerivedAddress(std::unique_ptr<hir::Expr> expression);
   std::unique_ptr<hir::Stmt> analyzeStringAssign(const ast::AssignStmt &assign,
                                                  const Symbol &target);
   std::unique_ptr<hir::Stmt> analyzeBoolAssign(const ast::AssignStmt &assign,
@@ -334,6 +370,14 @@ private:
                                      stdlib::BuiltinId builtin);
   bool rejectUnavailableStandardBuiltin(const ast::CallExpr &call);
   bool registerReturnLengths(const std::vector<std::size_t> &byteLengths);
+  std::optional<hir::AddressFacts>
+  addressFactsFor(const hir::Expr &expression) const;
+  void recordAddressFacts(std::string_view bindingName,
+                          const hir::Expr &expression);
+  void clearAddressFacts(std::string_view bindingName);
+  void mergeAddressFacts(
+      const std::unordered_map<std::string, std::optional<hir::AddressFacts>> &left,
+      const std::unordered_map<std::string, std::optional<hir::AddressFacts>> &right);
   std::optional<diagnostic::SourceRange>
   currentScopeDeclarationRange(std::string_view name) const;
   void addDiagnostic(
@@ -361,6 +405,8 @@ private:
   std::unordered_map<std::string, std::string> userTemplateBindings_;
   std::unordered_map<std::string, std::optional<std::string>>
       memberTemplateOverrides_;
+  std::unordered_map<std::string, std::optional<hir::AddressFacts>>
+      addressFacts_;
   std::vector<hir::GlobalMemory> globals_;
   FunctionSignature *currentFunction_ = nullptr;
   std::vector<hir::Parameter> currentParameters_;

@@ -1,0 +1,6 @@
+set(CASE_ACTION "run")
+set(CASE_FLAGS "--checked")
+set(EXPECT_COMPILE_EXIT "0")
+set(EXPECT_RUN_EXIT "0")
+set(EXPECT_RUN_STDOUT_REGEX "^$")
+set(EXPECT_RUN_STDERR_REGEX "^$")

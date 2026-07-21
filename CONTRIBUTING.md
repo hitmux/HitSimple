@@ -14,7 +14,7 @@ cmake --build build --parallel
 Run the complete test suite with:
 
 ```bash
-ctest --test-dir build --output-on-failure
+cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
 Useful focused checks are:
@@ -73,7 +73,28 @@ Run the relevant focused tests first, then run the full suite when the environme
 
 ```bash
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
 If a required check cannot run, state the command, failure, and unverified scope clearly.
+
+## Plan-Driven Change Scope
+
+When `Plan.md` assigns work to named PRs, a pull request must cover exactly one
+of those PR boundaries. Its description must contain these standalone lines:
+
+```text
+Plan: PR <number>
+Issues: <ISSUE-ID>[, <ISSUE-ID>...]
+Focused tests: <command(s) for the mapped CTest label or other required gate>
+Acceptance: <observable completion criterion>
+```
+
+The listed issue IDs must exist in the Plan's Issue-to-Plan-to-PR tracking
+table, and the focused tests must cover their mapped labels or stated
+artifacts. A reviewer must reject a change that crosses another planned PR
+boundary, lacks an independently runnable acceptance path, or adds an
+unplanned concern. Split it into its own PR, or update `Issue.md` and `Plan.md`
+with evidence before review. The `PR traceability` GitHub Actions job checks
+that the four fields are present; branch protection must require that check
+before merge.

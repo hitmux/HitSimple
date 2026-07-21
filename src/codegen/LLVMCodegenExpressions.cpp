@@ -32,61 +32,36 @@ std::optional<std::size_t> typedOperatorMarker(std::string_view op) {
   return marker;
 }
 
-std::optional<bool> integerOperationIsUnsigned(std::string_view op) {
-  const auto marker = typedOperatorMarker(op);
-  if (!marker) {
-    return std::nullopt;
-  }
-  if (op[*marker] == 'u') {
-    return true;
-  }
-  if (op[*marker] == 'd') {
-    return false;
-  }
-  return std::nullopt;
-}
-
-bool isUnsignedIntegerTemplate(std::string_view name) {
-  return name == "u8" || name == "u16" || name == "u32" || name == "u64";
-}
-
 bool isUnsignedExpression(const hir::Expr &expression) {
-  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-    return isUnsignedIntegerTemplate(variable->templateName);
-  }
-  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
-    return isUnsignedIntegerTemplate(call->templateName);
-  }
-  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return isUnsignedIntegerTemplate(view->templateName);
-  }
-  if (dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr) {
-    return true;
-  }
-  if (const auto *cast = dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
-    return !cast->isSigned;
-  }
-  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    const auto isUnsigned = integerOperationIsUnsigned(binary->op);
-    return isUnsigned.value_or(isUnsignedExpression(*binary->left) ||
-                               isUnsignedExpression(*binary->right));
-  }
-  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
-    return isUnsignedExpression(*unary->operand);
-  }
-  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression)) {
-    return isUnsignedExpression(*ternary->thenExpr) ||
-           isUnsignedExpression(*ternary->elseExpr);
-  }
-  return false;
+  return expression.result.category == hir::ViewCategory::UnsignedInteger ||
+         expression.result.integerInterpretation ==
+             hir::IntegerInterpretation::Unsigned;
 }
 
-bool isComparison(std::string_view op) {
-  return op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" ||
-         op == "!=";
+bool sourceUsesZeroExtension(const hir::Expr &expression) {
+  return isUnsignedExpression(expression) ||
+         expression.result.category == hir::ViewCategory::Boolean;
 }
 
-bool isLogical(std::string_view op) { return op == "&&" || op == "||"; }
+bool usesPointerStorage(const Local &storage) {
+  return storage.isPointerStorage ||
+         (storage.abiType &&
+          storage.abiType->kind == hir::AbiValueKind::Pointer);
+}
+
+bool isComparison(hir::BinaryOperator op) {
+  return op == hir::BinaryOperator::Less ||
+         op == hir::BinaryOperator::Greater ||
+         op == hir::BinaryOperator::LessEqual ||
+         op == hir::BinaryOperator::GreaterEqual ||
+         op == hir::BinaryOperator::Equal ||
+         op == hir::BinaryOperator::NotEqual;
+}
+
+bool isLogical(hir::BinaryOperator op) {
+  return op == hir::BinaryOperator::LogicalAnd ||
+         op == hir::BinaryOperator::LogicalOr;
+}
 
 bool isCharacterClassifier(stdlib::BuiltinId builtin) {
   using enum stdlib::BuiltinId;
@@ -146,73 +121,9 @@ f128MathRuntimeSymbol(stdlib::BuiltinId builtin) {
 }
 
 std::size_t expressionByteLength(const hir::Expr &expression) {
-  if (const auto *integer =
-          dynamic_cast<const hir::IntegerLiteral *>(&expression)) {
-    return integer->byteLength;
-  }
-  if (const auto *variable =
-          dynamic_cast<const hir::VariableRef *>(&expression)) {
-    return variable->byteLength;
-  }
-  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    return binary->byteLength;
-  }
-  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
-    return unary->byteLength;
-  }
-  if (const auto *ternary =
-          dynamic_cast<const hir::TernaryExpr *>(&expression)) {
-    return ternary->byteLength;
-  }
-  if (const auto *unsignedExpr =
-          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
-    return unsignedExpr->byteLength;
-  }
-  if (const auto *cast =
-          dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
-    return cast->byteLength;
-  }
-  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return view->byteLength;
-  }
-  if (const auto *call =
-          dynamic_cast<const hir::UserTemplateOpCallExpr *>(&expression)) {
-    return call->byteLength;
-  }
-  if (const auto *call =
-          dynamic_cast<const hir::UserTemplateFormatCallExpr *>(&expression)) {
-    return call->byteLength;
-  }
-  if (const auto *floating =
-          dynamic_cast<const hir::FloatLiteral *>(&expression)) {
-    return floating->byteLength;
-  }
-  if (const auto *floating =
-          dynamic_cast<const hir::FloatBinaryExpr *>(&expression)) {
-    return floating->byteLength;
-  }
-  if (dynamic_cast<const hir::FloatCompareExpr *>(&expression) != nullptr) {
-    return 1;
-  }
-  if (const auto *conversion =
-          dynamic_cast<const hir::ToFloatExpr *>(&expression)) {
-    return conversion->byteLength;
-  }
-  if (const auto *conversion =
-          dynamic_cast<const hir::ToIntExpr *>(&expression)) {
-    return conversion->byteLength;
-  }
-  if (const auto *assignment =
-          dynamic_cast<const hir::AssignmentExpr *>(&expression)) {
-    return assignment->byteLength;
-  }
-  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
-    return call->byteLength;
-  }
-  if (const auto *swap = dynamic_cast<const hir::ByteSwapExpr *>(&expression)) {
-    return swap->byteLength;
-  }
-  return 4;
+  return expression.result.lengthKind == hir::ViewLengthKind::Static
+             ? expression.result.staticByteLength
+             : 0U;
 }
 
 std::string_view operatorSuffix(std::string_view op) {
@@ -229,16 +140,52 @@ std::string_view operatorSuffix(std::string_view op) {
 } // namespace
 
 llvm::Value *LlvmEmitter::emitConditionValue(const hir::Expr &expression) {
-  auto *value = emitIntegerValue(expression, 4);
-  if (!value) {
+  const auto *boolean = dynamic_cast<const hir::BooleanTestExpr *>(&expression);
+  if (boolean == nullptr || boolean->operand == nullptr) {
+    addDiagnostic("Boolean-test lowering requires BooleanTestExpr HIR");
     return nullptr;
   }
-  return builder_.CreateICmpNE(value, builder_.getInt32(0), "cond");
+  const auto view = emitViewValue(*boolean->operand);
+  if (view.data == nullptr || view.length == nullptr) {
+    return nullptr;
+  }
+  if (view.staticLength) {
+    if (*view.staticLength == 1 || *view.staticLength == 2 ||
+        *view.staticLength == 4 || *view.staticLength == 8 ||
+        *view.staticLength == 16) {
+      auto *type = integerTypeForByteLength(*view.staticLength);
+      if (type == nullptr) {
+        return nullptr;
+      }
+      auto *value = builder_.CreateLoad(type, view.data, "cond.value");
+      llvm::cast<llvm::LoadInst>(value)->setAlignment(
+          alignmentAt(view.alignment));
+      return builder_.CreateICmpNE(value, llvm::ConstantInt::get(type, 0),
+                                   "cond.nonzero");
+    }
+    llvm::Value *any = builder_.getFalse();
+    for (std::size_t index = 0; index < *view.staticLength; ++index) {
+      auto *byte = builder_.CreateLoad(
+          builder_.getInt8Ty(),
+          builder_.CreateInBoundsGEP(builder_.getInt8Ty(), view.data,
+                                     builder_.getInt64(index), "cond.byte.addr"),
+          "cond.byte");
+      llvm::cast<llvm::LoadInst>(byte)->setAlignment(llvm::Align(1));
+      auto *nonZero = builder_.CreateICmpNE(byte, builder_.getInt8(0),
+                                            "cond.byte.nonzero");
+      any = builder_.CreateOr(any, nonZero, "cond.any");
+    }
+    return any;
+  }
+  auto *any = builder_.CreateCall(declareViewAnyNonZero(),
+                                  {view.data, view.length}, "cond.any");
+  return builder_.CreateICmpNE(any, builder_.getInt32(0), "cond.nonzero");
 }
 
 llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                                            std::size_t byteLength) {
-  return emitIntegerValue(expression, byteLength, false);
+  return emitIntegerValue(expression, byteLength,
+                          sourceUsesZeroExtension(expression));
 }
 
 llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
@@ -248,6 +195,33 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
   auto *integerType = integerTypeForByteLength(byteLength);
   if (!integerType) {
     return nullptr;
+  }
+
+  if (const auto *boolean = dynamic_cast<const hir::BooleanTestExpr *>(&expression)) {
+    auto *condition = emitConditionValue(*boolean);
+    if (condition == nullptr) {
+      return nullptr;
+    }
+    auto *normalized = builder_.CreateZExt(condition, builder_.getInt8Ty(),
+                                            "booltest.value");
+    if (integerType == builder_.getInt8Ty()) {
+      return normalized;
+    }
+    return builder_.CreateZExt(normalized, integerType, "booltest.zext");
+  }
+
+  if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression);
+      unary != nullptr && unary->op == "!") {
+    auto *condition = emitConditionValue(*unary->operand);
+    if (condition == nullptr) {
+      return nullptr;
+    }
+    auto *normalized = builder_.CreateZExt(builder_.CreateNot(condition),
+                                            builder_.getInt8Ty(), "nottmp");
+    if (integerType == builder_.getInt8Ty()) {
+      return normalized;
+    }
+    return builder_.CreateZExt(normalized, integerType, "not.zext");
   }
 
   if (dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
@@ -275,7 +249,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
               ? "format.result.value"
               : "view.value";
       auto *loaded = builder_.CreateLoad(sourceType, view.data, resultName);
-      llvm::cast<llvm::LoadInst>(loaded)->setAlignment(llvm::Align(1));
+      llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
+          alignmentAt(view.alignment));
       if (sourceType == integerType) {
         return loaded;
       }
@@ -292,7 +267,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
           {view.length, builder_.getInt64(byteLength)});
     }
     auto *loaded = builder_.CreateLoad(integerType, view.data, "dynamic.view");
-    llvm::cast<llvm::LoadInst>(loaded)->setAlignment(llvm::Align(1));
+    llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
+        alignmentAt(view.alignment));
     return loaded;
   }
 
@@ -304,6 +280,19 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return nullptr;
     }
     return llvm::ConstantInt::get(integerType, *value, true);
+  }
+
+  if (const auto *character =
+          dynamic_cast<const hir::CharacterLiteral *>(&expression)) {
+    if (character->bytes.size() != 1U ||
+        character->result.integerInterpretation !=
+            hir::IntegerInterpretation::Unsigned) {
+      addDiagnostic("raw character literal cannot be used as an integer");
+      return nullptr;
+    }
+    return llvm::ConstantInt::get(
+        integerType,
+        static_cast<unsigned char>(character->bytes.front()), true);
   }
 
   if (const auto *variable =
@@ -328,13 +317,14 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     }
 
     llvm::Value *loaded = nullptr;
-    if (storage->abiType &&
-        storage->abiType->kind == hir::AbiValueKind::Pointer) {
+    if (usesPointerStorage(*storage)) {
       auto *pointer = builder_.CreateLoad(
           builder_.getPtrTy(),
           bytePointer(storage->storageType, storage->storage, variable->offset,
                       variable->name + ".addr"),
           variable->name + ".ptr");
+      llvm::cast<llvm::LoadInst>(pointer)->setAlignment(
+          alignmentAt(storage->alignment, variable->offset));
       loaded = builder_.CreatePtrToInt(pointer, sourceType,
                                        variable->name + ".value");
     } else if (storage->abiType &&
@@ -347,6 +337,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
           sourceType, bytePointer(storage->storageType, storage->storage,
                                   variable->offset, variable->name + ".addr"),
           variable->name + ".value");
+      llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
+          alignmentAt(storage->alignment, variable->offset));
     }
     if (sourceType == integerType) {
       return loaded;
@@ -381,22 +373,21 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
   }
 
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
-    auto *addressValue = emitIntegerValue(*deref->address, sizeof(void *));
-    if (!addressValue) {
+    auto *pointer = emitPointerValue(*deref->address, "deref.addr");
+    if (!pointer) {
       return nullptr;
     }
     auto *sourceType = integerTypeForByteLength(deref->byteLength);
     if (!sourceType) {
       return nullptr;
     }
-    auto *pointer = builder_.CreateIntToPtr(addressValue, builder_.getPtrTy(),
-                                            "deref.addr");
     if (hasRuntimeSafetyChecks() &&
         !hasKnownStaticAddressRange(*deref->address, deref->byteLength)) {
       (void)emitCheckedRuntimeCall(
           declareCheckLoad(), {pointer, builder_.getInt64(deref->byteLength)});
     }
     auto *loaded = builder_.CreateLoad(sourceType, pointer, "deref.value");
+    llvm::cast<llvm::LoadInst>(loaded)->setAlignment(llvm::Align(1));
     if (sourceType == integerType) {
       return loaded;
     }
@@ -470,7 +461,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
   }
 
   if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
-    if (isLogical(binary->op)) {
+    if (isLogical(binary->operation)) {
       auto *function = builder_.GetInsertBlock()->getParent();
       auto *rightBlock =
           llvm::BasicBlock::Create(context_, "logic.rhs", function);
@@ -482,7 +473,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
         return nullptr;
       }
       auto *leftBlock = builder_.GetInsertBlock();
-      if (binary->op == "&&") {
+      if (binary->operation == hir::BinaryOperator::LogicalAnd) {
         builder_.CreateCondBr(leftCondition, rightBlock, mergeBlock);
       } else {
         builder_.CreateCondBr(leftCondition, mergeBlock, rightBlock);
@@ -499,7 +490,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 
       builder_.SetInsertPoint(mergeBlock);
       auto *phi = builder_.CreatePHI(integerType, 2, "logic");
-      phi->addIncoming(binary->op == "&&"
+      phi->addIncoming(binary->operation == hir::BinaryOperator::LogicalAnd
                            ? llvm::ConstantInt::get(integerType, 0)
                            : llvm::ConstantInt::get(integerType, 1),
                        leftBlock);
@@ -507,13 +498,78 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return phi;
     }
 
-    const auto op = operatorSuffix(binary->op);
-    const bool comparison = isComparison(op);
+    const auto op = hir::toString(binary->operation);
+    if (binary->operationKind == hir::StandardOperationKind::StandardBytesCompare ||
+        binary->operationKind == hir::StandardOperationKind::StandardCStringCompare) {
+      const auto leftView = emitViewValue(*binary->left);
+      const auto rightView = emitViewValue(*binary->right);
+      if (leftView.data == nullptr || rightView.data == nullptr ||
+          leftView.length == nullptr || rightView.length == nullptr) {
+        return nullptr;
+      }
+      llvm::Value *comparison = nullptr;
+      if (binary->operationKind ==
+          hir::StandardOperationKind::StandardCStringCompare) {
+        auto callee = hasRuntimeSafetyChecks()
+                          ? declareCheckedStringCompare()
+                          : module_->getOrInsertFunction(
+                                "strcmp",
+                                llvm::FunctionType::get(
+                                    builder_.getInt32Ty(),
+                                    {builder_.getPtrTy(), builder_.getPtrTy()},
+                                    false));
+        comparison = builder_.CreateCall(callee, {leftView.data, rightView.data},
+                                         "cstr.compare");
+      } else {
+        auto *leftShorter = builder_.CreateICmpULT(leftView.length, rightView.length,
+                                                   "bytes.left.shorter");
+        auto *commonLength = builder_.CreateSelect(leftShorter, leftView.length,
+                                                   rightView.length,
+                                                   "bytes.common.length");
+        auto callee = module_->getOrInsertFunction(
+            "memcmp", llvm::FunctionType::get(builder_.getInt32Ty(),
+                                                  {builder_.getPtrTy(),
+                                                   builder_.getPtrTy(),
+                                                   builder_.getInt64Ty()},
+                                                  false));
+        comparison = builder_.CreateCall(callee,
+                                         {leftView.data, rightView.data,
+                                          commonLength},
+                                         "bytes.compare");
+        auto *equalPrefix = builder_.CreateICmpEQ(comparison, builder_.getInt32(0),
+                                                   "bytes.prefix.equal");
+        auto *lengthOrder = builder_.CreateSelect(
+            builder_.CreateICmpULT(leftView.length, rightView.length),
+            builder_.getInt32(-1),
+            builder_.CreateSelect(
+                builder_.CreateICmpUGT(leftView.length, rightView.length),
+                builder_.getInt32(1), builder_.getInt32(0)), "bytes.length.order");
+        comparison = builder_.CreateSelect(equalPrefix, lengthOrder, comparison,
+                                            "bytes.lexical.order");
+      }
+      llvm::Value *predicate = nullptr;
+      if (op == "==") predicate = builder_.CreateICmpEQ(comparison, builder_.getInt32(0));
+      else if (op == "!=") predicate = builder_.CreateICmpNE(comparison, builder_.getInt32(0));
+      else if (op == "<") predicate = builder_.CreateICmpSLT(comparison, builder_.getInt32(0));
+      else if (op == "<=") predicate = builder_.CreateICmpSLE(comparison, builder_.getInt32(0));
+      else if (op == ">") predicate = builder_.CreateICmpSGT(comparison, builder_.getInt32(0));
+      else if (op == ">=") predicate = builder_.CreateICmpSGE(comparison, builder_.getInt32(0));
+      else {
+        addDiagnostic("unsupported byte comparison operator '" +
+                      std::string(hir::toString(binary->operation)) + "'");
+        return nullptr;
+      }
+      auto *value = builder_.CreateZExt(predicate, builder_.getInt8Ty(),
+                                        "bytes.compare.bool");
+      return integerType == builder_.getInt8Ty()
+                 ? value
+                 : builder_.CreateZExt(value, integerType, "bytes.compare.zext");
+    }
+    const bool comparison = isComparison(binary->operation);
     std::size_t operationByteLength = binary->byteLength;
     if (comparison) {
-      operationByteLength =
-          std::max({std::size_t{4}, expressionByteLength(*binary->left),
-                    expressionByteLength(*binary->right)});
+      operationByteLength = std::max(expressionByteLength(*binary->left),
+                                     expressionByteLength(*binary->right));
     }
 
     auto *sourceType = integerTypeForByteLength(operationByteLength);
@@ -523,8 +579,13 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 
     const bool leftUnsigned = isUnsignedExpression(*binary->left);
     const bool rightUnsigned = isUnsignedExpression(*binary->right);
-    const bool unsignedOperation = integerOperationIsUnsigned(binary->op)
-                                       .value_or(leftUnsigned || rightUnsigned);
+    const bool unsignedOperation =
+        binary->typedIntegerInterpretation == hir::IntegerInterpretation::Unsigned
+            ? true
+            : (binary->typedIntegerInterpretation ==
+                       hir::IntegerInterpretation::Signed
+                   ? false
+                   : leftUnsigned || rightUnsigned);
     auto *left =
         emitIntegerValue(*binary->left, operationByteLength, leftUnsigned);
     if (!left) {
@@ -534,6 +595,43 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                                    rightUnsigned);
     if (!right) {
       return nullptr;
+    }
+
+    const auto emitCheckedFailure =
+        [this](llvm::Value *failure, llvm::FunctionCallee callee,
+               std::string_view blockName) {
+          auto *function = builder_.GetInsertBlock()->getParent();
+          auto *failureBlock = llvm::BasicBlock::Create(
+              context_, std::string(blockName) + ".error", function);
+          auto *continueBlock = llvm::BasicBlock::Create(
+              context_, std::string(blockName) + ".continue", function);
+          builder_.CreateCondBr(failure, failureBlock, continueBlock);
+
+          builder_.SetInsertPoint(failureBlock);
+          (void)emitCheckedRuntimeCall(callee, {});
+          builder_.CreateUnreachable();
+
+          builder_.SetInsertPoint(continueBlock);
+        };
+
+    if (hasRuntimeSafetyChecks() && (op == "/" || op == "%")) {
+      emitCheckedFailure(
+          builder_.CreateICmpEQ(right, llvm::ConstantInt::get(sourceType, 0),
+                                "divisor.zero"),
+          declareCheckedDivisionByZero(), "division");
+    }
+    if (hasRuntimeSafetyChecks() && (op == "<<" || op == ">>") &&
+        !rightUnsigned) {
+      emitCheckedFailure(
+          builder_.CreateICmpSLT(right, llvm::ConstantInt::get(sourceType, 0),
+                                 "shift.negative"),
+          declareCheckedNegativeShift(), "shift");
+    }
+    if (hasRuntimeSafetyChecks() && op == "**" && !rightUnsigned) {
+      emitCheckedFailure(
+          builder_.CreateICmpSLT(right, llvm::ConstantInt::get(sourceType, 0),
+                                 "exponent.negative"),
+          declareCheckedNegativeExponent(), "exponent");
     }
 
     llvm::Value *result = nullptr;
@@ -549,9 +647,13 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
           builder_.CreateAlloca(sourceType, nullptr, "pow.result");
       auto *exponentStorage =
           builder_.CreateAlloca(sourceType, nullptr, "pow.exponent");
-      builder_.CreateStore(llvm::ConstantInt::get(sourceType, 1),
-                           resultStorage);
-      builder_.CreateStore(right, exponentStorage);
+      resultStorage->setAlignment(llvm::Align(1));
+      exponentStorage->setAlignment(llvm::Align(1));
+      auto *initialResult = builder_.CreateStore(
+          llvm::ConstantInt::get(sourceType, 1), resultStorage);
+      initialResult->setAlignment(llvm::Align(1));
+      auto *initialExponent = builder_.CreateStore(right, exponentStorage);
+      initialExponent->setAlignment(llvm::Align(1));
 
       auto *conditionBlock =
           llvm::BasicBlock::Create(context_, "pow.cond", function);
@@ -564,6 +666,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       builder_.SetInsertPoint(conditionBlock);
       auto *currentExponent =
           builder_.CreateLoad(sourceType, exponentStorage, "pow.exp");
+      llvm::cast<llvm::LoadInst>(currentExponent)->setAlignment(llvm::Align(1));
       auto *hasMore =
           unsignedOperation
               ? builder_.CreateICmpUGT(currentExponent,
@@ -577,21 +680,96 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       builder_.SetInsertPoint(bodyBlock);
       auto *currentResult =
           builder_.CreateLoad(sourceType, resultStorage, "pow.value");
+      llvm::cast<llvm::LoadInst>(currentResult)->setAlignment(llvm::Align(1));
       auto *nextResult = builder_.CreateMul(currentResult, left, "pow.mul");
-      builder_.CreateStore(nextResult, resultStorage);
+      auto *resultStore = builder_.CreateStore(nextResult, resultStorage);
+      resultStore->setAlignment(llvm::Align(1));
       auto *nextExponent = builder_.CreateSub(
           currentExponent, llvm::ConstantInt::get(sourceType, 1), "pow.dec");
-      builder_.CreateStore(nextExponent, exponentStorage);
+      auto *exponentStore = builder_.CreateStore(nextExponent, exponentStorage);
+      exponentStore->setAlignment(llvm::Align(1));
       builder_.CreateBr(conditionBlock);
 
       builder_.SetInsertPoint(afterBlock);
       result = builder_.CreateLoad(sourceType, resultStorage, "pow.result");
+      llvm::cast<llvm::LoadInst>(result)->setAlignment(llvm::Align(1));
     } else if (op == "/") {
-      result = unsignedOperation ? builder_.CreateUDiv(left, right, "divtmp")
-                                 : builder_.CreateSDiv(left, right, "divtmp");
+      if (unsignedOperation) {
+        result = builder_.CreateUDiv(left, right, "divtmp");
+      } else {
+        auto *function = builder_.GetInsertBlock()->getParent();
+        auto *specialBlock = llvm::BasicBlock::Create(context_, "div.special",
+                                                       function);
+        auto *normalBlock = llvm::BasicBlock::Create(context_, "div.normal",
+                                                      function);
+        auto *mergeBlock = llvm::BasicBlock::Create(context_, "div.end",
+                                                     function);
+        const auto bitWidth = sourceType->getBitWidth();
+        auto *isMinimum = builder_.CreateICmpEQ(
+            left, llvm::ConstantInt::get(
+                      sourceType, llvm::APInt::getSignedMinValue(bitWidth)),
+            "div.is_minimum");
+        auto *isNegativeOne = builder_.CreateICmpEQ(
+            right, llvm::ConstantInt::getSigned(sourceType, -1),
+            "div.is_negative_one");
+        builder_.CreateCondBr(builder_.CreateAnd(isMinimum, isNegativeOne,
+                                                 "div.overflow"),
+                              specialBlock, normalBlock);
+
+        builder_.SetInsertPoint(specialBlock);
+        builder_.CreateBr(mergeBlock);
+
+        builder_.SetInsertPoint(normalBlock);
+        auto *normal = builder_.CreateSDiv(left, right, "divtmp");
+        builder_.CreateBr(mergeBlock);
+        normalBlock = builder_.GetInsertBlock();
+
+        builder_.SetInsertPoint(mergeBlock);
+        auto *phi = builder_.CreatePHI(sourceType, 2, "div.result");
+        phi->addIncoming(llvm::ConstantInt::get(
+                             sourceType,
+                             llvm::APInt::getSignedMinValue(bitWidth)),
+                         specialBlock);
+        phi->addIncoming(normal, normalBlock);
+        result = phi;
+      }
     } else if (op == "%") {
-      result = unsignedOperation ? builder_.CreateURem(left, right, "remtmp")
-                                 : builder_.CreateSRem(left, right, "remtmp");
+      if (unsignedOperation) {
+        result = builder_.CreateURem(left, right, "remtmp");
+      } else {
+        auto *function = builder_.GetInsertBlock()->getParent();
+        auto *specialBlock = llvm::BasicBlock::Create(context_, "rem.special",
+                                                       function);
+        auto *normalBlock = llvm::BasicBlock::Create(context_, "rem.normal",
+                                                      function);
+        auto *mergeBlock = llvm::BasicBlock::Create(context_, "rem.end",
+                                                     function);
+        const auto bitWidth = sourceType->getBitWidth();
+        auto *isMinimum = builder_.CreateICmpEQ(
+            left, llvm::ConstantInt::get(
+                      sourceType, llvm::APInt::getSignedMinValue(bitWidth)),
+            "rem.is_minimum");
+        auto *isNegativeOne = builder_.CreateICmpEQ(
+            right, llvm::ConstantInt::getSigned(sourceType, -1),
+            "rem.is_negative_one");
+        builder_.CreateCondBr(builder_.CreateAnd(isMinimum, isNegativeOne,
+                                                 "rem.overflow"),
+                              specialBlock, normalBlock);
+
+        builder_.SetInsertPoint(specialBlock);
+        builder_.CreateBr(mergeBlock);
+
+        builder_.SetInsertPoint(normalBlock);
+        auto *normal = builder_.CreateSRem(left, right, "remtmp");
+        builder_.CreateBr(mergeBlock);
+        normalBlock = builder_.GetInsertBlock();
+
+        builder_.SetInsertPoint(mergeBlock);
+        auto *phi = builder_.CreatePHI(sourceType, 2, "rem.result");
+        phi->addIncoming(llvm::ConstantInt::get(sourceType, 0), specialBlock);
+        phi->addIncoming(normal, normalBlock);
+        result = phi;
+      }
     } else if (op == "<<") {
       result = builder_.CreateShl(left, right, "shltmp");
     } else if (op == ">>") {
@@ -603,7 +781,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       result = builder_.CreateOr(left, right, "ortmp");
     } else if (op == "^") {
       result = builder_.CreateXor(left, right, "xortmp");
-    } else if (isComparison(op)) {
+    } else if (isComparison(binary->operation)) {
       if (op == "<") {
         result = unsignedOperation
                      ? builder_.CreateICmpULT(left, right, "cmptmp")
@@ -627,7 +805,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       }
       result = builder_.CreateZExt(result, builder_.getInt8Ty());
     } else {
-      addDiagnostic("unsupported binary operator '" + binary->op + "'");
+      addDiagnostic("unsupported binary operator '" +
+                    std::string(hir::toString(binary->operation)) + "'");
       return nullptr;
     }
 
@@ -843,6 +1022,11 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
 
 llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
                                            std::string_view name) {
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression);
+      view != nullptr && view->operand != nullptr &&
+      view->operand->result.category == hir::ViewCategory::Address) {
+    return emitPointerValue(*view->operand, name);
+  }
   if (const auto *string = dynamic_cast<const hir::StringLiteral *>(&expression)) {
     const auto bytes = decodeStringLiteral(string->value);
     auto *pointer = builder_.CreateGlobalStringPtr(bytes, std::string(name));
@@ -852,6 +1036,40 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
           {pointer, builder_.getInt64(bytes.size() + 1U)});
     }
     return pointer;
+  }
+  if (const auto *address =
+          dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
+    const Local *storage = nullptr;
+    if (const auto local = locals_.find(address->bindingName);
+        local != locals_.end()) {
+      storage = &local->second;
+    } else if (const auto global = globals_.find(address->bindingName);
+               global != globals_.end()) {
+      storage = &global->second;
+    }
+    if (storage == nullptr) {
+      addDiagnostic("unknown local '" + address->name + "'");
+      return nullptr;
+    }
+    return bytePointer(storage->storageType, storage->storage, address->offset,
+                       name);
+  }
+  if (const auto *offset = dynamic_cast<const hir::BinaryExpr *>(&expression);
+      offset != nullptr &&
+      offset->operationKind == hir::StandardOperationKind::AddressOffset &&
+      offset->addressFacts &&
+      offset->addressFacts->origin == hir::AddressOrigin::PointerDerived) {
+    auto *base = emitPointerValue(*offset->left, std::string(name) + ".base");
+    auto *byteOffset =
+        emitIntegerValue(*offset->right, sizeof(void *),
+                         sourceUsesZeroExtension(*offset->right));
+    if (base == nullptr || byteOffset == nullptr) {
+      return nullptr;
+    }
+    // The offset may be outside the original object.  Do not attach inbounds
+    // or any alias/range assumption to pointer-derived addresses.
+    return builder_.CreateGEP(builder_.getInt8Ty(), base, byteOffset,
+                              std::string(name));
   }
   if (const auto *variable =
           dynamic_cast<const hir::VariableRef *>(&expression)) {
@@ -867,13 +1085,14 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
       addDiagnostic("unknown local '" + variable->name + "'");
       return nullptr;
     }
-    if (storage->abiType &&
-        storage->abiType->kind == hir::AbiValueKind::Pointer) {
-      return builder_.CreateLoad(
+    if (usesPointerStorage(*storage)) {
+      auto *loaded = builder_.CreateLoad(
           builder_.getPtrTy(),
           bytePointer(storage->storageType, storage->storage, variable->offset,
                       name),
           std::string(name) + ".value");
+      loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+      return loaded;
     }
     if (variable->byteLength != sizeof(void *)) {
       return bytePointer(storage->storageType, storage->storage,
@@ -939,7 +1158,8 @@ llvm::Value *LlvmEmitter::emitMemoryOperandPointer(
       return self(self, *unsignedValue->operand);
     }
     if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&candidate)) {
-      return (binary->op == "+" || binary->op == "-") &&
+      return (binary->operation == hir::BinaryOperator::Add ||
+              binary->operation == hir::BinaryOperator::Subtract) &&
              self(self, *binary->left);
     }
     return false;
@@ -985,7 +1205,8 @@ ViewValue LlvmEmitter::emitUserTemplateOpCall(
     return {};
   }
   return ViewValue{firstBytePointer(storageType, result),
-                   builder_.getInt64(resultByteLength), resultByteLength};
+                   builder_.getInt64(resultByteLength), resultByteLength,
+                   std::size_t{1}};
 }
 
 ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
@@ -997,13 +1218,15 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       return {};
     }
     auto *storage = builder_.CreateAlloca(type, nullptr, std::string(name));
+    storage->setAlignment(llvm::Align(1));
     auto *store = builder_.CreateStore(value, storage);
     store->setAlignment(llvm::Align(1));
     if (hasRuntimeSafetyChecks()) {
       (void)emitCheckedRuntimeCall(
           declareRegisterLocalObject(), {storage, builder_.getInt64(byteLength)});
     }
-    return ViewValue{storage, builder_.getInt64(byteLength), byteLength};
+    return ViewValue{storage, builder_.getInt64(byteLength), byteLength,
+                     std::size_t{1}};
   };
 
   if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
@@ -1038,17 +1261,22 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     return ViewValue{bytePointer(storage->storageType, storage->storage,
                                  variable->offset, variable->name + ".view"),
                      builder_.getInt64(variable->byteLength),
-                     variable->byteLength};
+                     variable->byteLength,
+                     alignmentAt(storage->alignment, variable->offset).value()};
   }
 
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
-    auto *address = emitIntegerValue(*deref->address, sizeof(void *));
-    if (address == nullptr) {
+    auto *pointer = emitPointerValue(*deref->address, "deref.view");
+    if (pointer == nullptr) {
       return {};
     }
-    return ViewValue{builder_.CreateIntToPtr(address, builder_.getPtrTy(),
-                                              "deref.view"),
-                     builder_.getInt64(deref->byteLength), deref->byteLength};
+    if (hasRuntimeSafetyChecks() &&
+        !hasKnownStaticAddressRange(*deref->address, deref->byteLength)) {
+      (void)emitCheckedRuntimeCall(
+          declareCheckLoad(), {pointer, builder_.getInt64(deref->byteLength)});
+    }
+    return ViewValue{pointer, builder_.getInt64(deref->byteLength),
+                     deref->byteLength, std::size_t{1}};
   }
 
   if (const auto *dynamic =
@@ -1069,6 +1297,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       }
       auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), resultLength,
                                             "view.resize.bytes");
+      result->setAlignment(llvm::Align(1));
       if (hasRuntimeSafetyChecks()) {
         (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
                                      {result, resultLength});
@@ -1089,18 +1318,19 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
           staticLength = static_cast<std::size_t>(*parsed);
         }
       }
-      return ViewValue{result, resultLength, staticLength};
+      return ViewValue{result, resultLength, staticLength, std::size_t{1}};
     }
 
     auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), source.length,
                                           "view.swap.bytes");
+    result->setAlignment(llvm::Align(1));
     if (hasRuntimeSafetyChecks()) {
       (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
                                    {result, source.length});
     }
     (void)emitCheckedRuntimeCall(declareReverseBytes(),
                                  {result, source.data, source.length});
-    return ViewValue{result, source.length, std::nullopt};
+    return ViewValue{result, source.length, std::nullopt, std::size_t{1}};
   }
 
   if (const auto *swap = dynamic_cast<const hir::ByteSwapExpr *>(&expression)) {
@@ -1111,6 +1341,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     auto *result = builder_.CreateAlloca(builder_.getInt8Ty(),
                                           builder_.getInt64(swap->byteLength),
                                           "view.swap.bytes");
+    result->setAlignment(llvm::Align(1));
     if (hasRuntimeSafetyChecks()) {
       (void)emitCheckedRuntimeCall(
           declareRegisterLocalObject(),
@@ -1125,7 +1356,8 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       }
       llvm::Value *value =
           builder_.CreateLoad(type, source.data, "view.swap.input");
-      llvm::cast<llvm::LoadInst>(value)->setAlignment(llvm::Align(1));
+      llvm::cast<llvm::LoadInst>(value)->setAlignment(
+          alignmentAt(source.alignment));
       if (swap->byteLength != 1) {
         auto intrinsic =
             declareIntrinsic(*module_, llvm::Intrinsic::bswap, {type});
@@ -1139,7 +1371,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
           {result, source.data, builder_.getInt64(swap->byteLength)});
     }
     return ViewValue{result, builder_.getInt64(swap->byteLength),
-                     swap->byteLength};
+                     swap->byteLength, std::size_t{1}};
   }
 
   if (const auto *string = dynamic_cast<const hir::StringLiteral *>(&expression)) {
@@ -1151,7 +1383,31 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
           {pointer, builder_.getInt64(bytes.size() + 1U)});
     }
     return ViewValue{pointer, builder_.getInt64(bytes.size() + 1U),
-                     bytes.size() + 1U};
+                     bytes.size() + 1U, std::size_t{1}};
+  }
+
+  if (const auto *character =
+          dynamic_cast<const hir::CharacterLiteral *>(&expression)) {
+    auto *storage = builder_.CreateAlloca(builder_.getInt8Ty(),
+                                          builder_.getInt64(character->byteLength),
+                                          "view.character");
+    storage->setAlignment(llvm::Align(1));
+    for (std::size_t index = 0; index < character->bytes.size(); ++index) {
+      auto *slot = builder_.CreateInBoundsGEP(
+          builder_.getInt8Ty(), storage, builder_.getInt64(index),
+          "view.character.byte");
+      auto *store = builder_.CreateStore(
+          builder_.getInt8(static_cast<unsigned char>(character->bytes[index])),
+          slot);
+      store->setAlignment(llvm::Align(1));
+    }
+    if (hasRuntimeSafetyChecks()) {
+      (void)emitCheckedRuntimeCall(
+          declareRegisterLocalObject(),
+          {storage, builder_.getInt64(character->byteLength)});
+    }
+    return ViewValue{storage, builder_.getInt64(character->byteLength),
+                     character->byteLength, std::size_t{1}};
   }
 
   const auto byteLength = expressionByteLength(expression);
@@ -1171,18 +1427,26 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
                        call->byteLength, "view.float");
   }
   return makeStorage(integerTypeForByteLength(byteLength),
-                     emitIntegerValue(expression, byteLength, true),
+                     emitIntegerValue(expression, byteLength),
                      byteLength, "view.value");
 }
 
 llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
                                            llvm::Type *type,
-                                           std::string_view name) {
+                                           std::string_view name,
+                                           const hir::ConversionPlan *plan) {
   if (usesSoftwareF128() && isF128ValueType(type)) {
     return emitFloatValue(expression, 16);
   }
   if (auto *integer = llvm::dyn_cast<llvm::IntegerType>(type)) {
-    return emitIntegerValue(expression, integer->getBitWidth() / 8U);
+    const bool sourceUnsigned =
+        plan != nullptr
+            ? (plan->source.integerInterpretation ==
+                   hir::IntegerInterpretation::Unsigned ||
+               plan->source.category == hir::ViewCategory::UnsignedInteger)
+            : sourceUsesZeroExtension(expression);
+    return emitIntegerValue(expression, integer->getBitWidth() / 8U,
+                            sourceUnsigned);
   }
   if (type->isPointerTy()) {
     return emitPointerValue(expression, name);
@@ -1215,11 +1479,13 @@ llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
         addDiagnostic("unknown aggregate storage '" + variable->name + "'");
         return nullptr;
       }
-      return builder_.CreateLoad(
+      auto *loaded = builder_.CreateLoad(
           type,
           bytePointer(storage->storageType, storage->storage, variable->offset,
                       std::string(name) + ".vector.addr"),
           std::string(name) + ".vector");
+      loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+      return loaded;
     }
     if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
       auto *value = emitCallValue(*call);
@@ -1251,14 +1517,18 @@ llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
         return nullptr;
       }
       if (storage->storageType == type && variable->offset == 0) {
-        return builder_.CreateLoad(type, storage->storage,
-                                   std::string(name) + ".aggregate");
+        auto *loaded = builder_.CreateLoad(type, storage->storage,
+                                           std::string(name) + ".aggregate");
+        loaded->setAlignment(alignmentAt(storage->alignment));
+        return loaded;
       }
-      return builder_.CreateLoad(
+      auto *loaded = builder_.CreateLoad(
           type,
           bytePointer(storage->storageType, storage->storage, variable->offset,
                       std::string(name) + ".aggregate.addr"),
           std::string(name) + ".aggregate");
+      loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+      return loaded;
     }
     if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
       auto *value = emitCallValue(*call);
@@ -1271,9 +1541,13 @@ llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
               module_->getDataLayout().getTypeStoreSize(type)) {
         auto *storage = createFunctionEntryAlloca(type,
                                                   std::string(name) + ".vector.tmp");
-        builder_.CreateStore(value, storage);
-        return builder_.CreateLoad(type, storage,
-                                   std::string(name) + ".aggregate");
+        storage->setAlignment(llvm::Align(1));
+        auto *store = builder_.CreateStore(value, storage);
+        store->setAlignment(llvm::Align(1));
+        auto *loaded = builder_.CreateLoad(type, storage,
+                                           std::string(name) + ".aggregate");
+        loaded->setAlignment(llvm::Align(1));
+        return loaded;
       }
       if (value != nullptr) {
         addDiagnostic("function call result does not match aggregate ABI type");
@@ -1295,6 +1569,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   auto *i64Ty = builder_.getInt64Ty();
   const auto builtin = call.builtin;
 
+  if (call.provider != stdlib::BuiltinProvider::CoreHs) {
   if (builtin == stdlib::BuiltinId::Print ||
       builtin == stdlib::BuiltinId::Printf ||
       builtin == stdlib::BuiltinId::Fprintf) {
@@ -1356,7 +1631,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto *pointer = emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedAlloc() : declareMalloc(),
         {size}, "alloc.ptr");
-    return builder_.CreatePtrToInt(pointer, builder_.getInt64Ty(), "alloc.addr");
+    return pointer;
   }
   if (builtin == stdlib::BuiltinId::Calloc) {
     auto *count = emitIntegerValue(*call.arguments[0], sizeof(void *));
@@ -1367,22 +1642,18 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto *pointer = emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedCalloc() : declareCalloc(),
         {count, size}, "calloc.ptr");
-    return builder_.CreatePtrToInt(pointer, builder_.getInt64Ty(),
-                                   "calloc.addr");
+    return pointer;
   }
   if (builtin == stdlib::BuiltinId::Realloc) {
-    auto *address = emitIntegerValue(*call.arguments[0], sizeof(void *));
     auto *size = emitIntegerValue(*call.arguments[1], sizeof(void *));
-    if (!address || !size) {
+    auto *pointer = emitPointerValue(*call.arguments[0], "realloc.in");
+    if (!pointer || !size) {
       return nullptr;
     }
-    auto *pointer =
-        builder_.CreateIntToPtr(address, builder_.getPtrTy(), "realloc.in");
     auto *result = emitCheckedRuntimeCall(
         hasRuntimeSafetyChecks() ? declareCheckedRealloc() : declareRealloc(),
         {pointer, size}, "realloc.ptr");
-    return builder_.CreatePtrToInt(result, builder_.getInt64Ty(),
-                                   "realloc.addr");
+    return result;
   }
   if (builtin == stdlib::BuiltinId::Memcpy ||
       builtin == stdlib::BuiltinId::Memmove) {
@@ -1398,7 +1669,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(calleeName, ptrTy, {ptrTy, ptrTy, i64Ty});
     auto *result = emitCheckedRuntimeCall(callee, {dst, src, length},
                                           call.callee + ".ptr");
-    return builder_.CreatePtrToInt(result, i64Ty, call.callee + ".addr");
+    return result;
   }
   if (builtin == stdlib::BuiltinId::Memcmp) {
     auto *left =
@@ -1451,7 +1722,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto callee = declareCFunction(calleeName, ptrTy, {ptrTy, ptrTy});
     auto *result = emitCheckedRuntimeCall(callee, {dst, src},
                                           call.callee + ".ptr");
-    return builder_.CreatePtrToInt(result, i64Ty, call.callee + ".addr");
+    return result;
   }
   if (builtin == stdlib::BuiltinId::Strncpy) {
     auto *dst =
@@ -1467,7 +1738,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                    ptrTy, {ptrTy, ptrTy, i64Ty});
     auto *result = emitCheckedRuntimeCall(callee, {dst, src, count},
                                           "strncpy.ptr");
-    return builder_.CreatePtrToInt(result, i64Ty, "strncpy.addr");
+    return result;
   }
   if (builtin == stdlib::BuiltinId::Strchr) {
     auto *str = emitBorrowedViewPointer(*call.arguments[0], "strchr.str");
@@ -1479,7 +1750,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                                              : "strchr",
                                    ptrTy, {ptrTy, i32Ty});
     auto *result = emitCheckedRuntimeCall(callee, {str, byte}, "strchr.ptr");
-    return builder_.CreatePtrToInt(result, i64Ty, "strchr.addr");
+    return result;
   }
   if (builtin == stdlib::BuiltinId::Fopen) {
     auto *name = emitBorrowedViewPointer(*call.arguments[0], "fopen.name");
@@ -1706,6 +1977,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
         builtin == stdlib::BuiltinId::ToUpper ? "ctype.to_upper"
                                               : "ctype.to_lower");
   }
+  }
 
   auto *callee = module_->getFunction(call.callee);
   if (callee == nullptr) {
@@ -1725,10 +1997,16 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                   call.callee + "'");
     return nullptr;
   }
+  if (call.argumentPlans.size() != call.arguments.size()) {
+    addDiagnostic("function argument conversion plans do not match arguments for '" +
+                  call.callee + "'");
+    return nullptr;
+  }
   for (std::size_t index = 0; index < call.arguments.size(); ++index) {
     auto *parameterType = callee->getFunctionType()->getParamType(index);
     auto *value = emitValueForType(*call.arguments[index], parameterType,
-                                   call.callee + ".arg");
+                                   call.callee + ".arg",
+                                   &call.argumentPlans[index]);
     if (!value) {
       return nullptr;
     }
@@ -1752,7 +2030,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       return nullptr;
     }
     auto *loaded = builder_.CreateLoad(floatType, view.data, "view.float");
-    llvm::cast<llvm::LoadInst>(loaded)->setAlignment(llvm::Align(1));
+    llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
+        alignmentAt(view.alignment));
     return loaded;
   }
 
@@ -1798,6 +2077,7 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
         sourceType, bytePointer(storage->storageType, storage->storage,
                                 variable->offset, variable->name + ".addr"),
         variable->name + ".float");
+    loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
     if (sourceType == floatType) {
       return loaded;
     }
@@ -1995,11 +2275,15 @@ bool LlvmEmitter::usesSoftwareF128() const {
 llvm::Value *LlvmEmitter::emitStdoutFile() {
   auto *ptrTy = builder_.getPtrTy();
   if (parseTargetTriple(moduleTargetTriple(*module_)).isOSDarwin()) {
-    return builder_.CreateLoad(
+    auto *loaded = builder_.CreateLoad(
         ptrTy, module_->getOrInsertGlobal("__stdoutp", ptrTy), "stdout");
+    loaded->setAlignment(llvm::Align(alignof(void *)));
+    return loaded;
   }
-  return builder_.CreateLoad(
+  auto *loaded = builder_.CreateLoad(
       ptrTy, module_->getOrInsertGlobal("stdout", ptrTy), "stdout");
+  loaded->setAlignment(llvm::Align(alignof(void *)));
+  return loaded;
 }
 
 bool LlvmEmitter::isF128ValueType(llvm::Type *type) const {

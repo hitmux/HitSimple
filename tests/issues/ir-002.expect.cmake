@@ -1,0 +1,6 @@
+set(CASE_ACTION "emit-llvm")
+set(CASE_FLAGS "--emit-llvm")
+set(EXPECT_COMPILE_EXIT "0")
+set(EXPECT_COMPILE_STDOUT_REGEX "^$")
+set(EXPECT_COMPILE_STDERR_REGEX "^$")
+set(EXPECT_IR_REGEX [[phi i(8|16|32|64) \[]])

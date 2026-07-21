@@ -32,7 +32,7 @@ HS_TEST(Process_RunProcessUsesArgvAndUnicodeRedirectPath) {
                 std::istreambuf_iterator<char>());
   }
   std::filesystem::remove(output);
-  HS_EXPECT_TRUE(text.find("0 tests, 0 failures") != std::string::npos);
+  HS_EXPECT_TRUE(text.find("0/0 PASS") != std::string::npos);
 }
 
 HS_TEST(Path_Utf8RoundTripsUnicodeAndSpaces) {
@@ -56,4 +56,15 @@ HS_TEST(Toolchain_UsesExplicitCxxExecutableBeforeDiscovery) {
   const auto selection = hitsimple::support::resolveClangxx(*executable);
   HS_EXPECT_TRUE(selection.path.has_value());
   HS_EXPECT_EQ(selection.source, std::string("--clangxx"));
+}
+
+HS_TEST(Toolchain_PreferredArchiveToolMatchesEmbeddedLlvmMajor) {
+#ifdef HITSIMPLE_LLVM_MAJOR_VERSION
+  HS_EXPECT_EQ(hitsimple::support::preferredLlvmArExecutableName(),
+               std::string("llvm-ar-") +
+                   std::to_string(HITSIMPLE_LLVM_MAJOR_VERSION));
+#else
+  HS_EXPECT_EQ(hitsimple::support::preferredLlvmArExecutableName(),
+               std::string("llvm-ar"));
+#endif
 }

@@ -23,15 +23,70 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
-find_program(CLANG_EXECUTABLE NAMES clang-18 clang clang++ REQUIRED)
-find_program(CLANGXX_EXECUTABLE NAMES clang++-18 clang++ REQUIRED)
-find_program(LLVM_AR_EXECUTABLE NAMES llvm-ar-18 llvm-ar REQUIRED)
-find_program(LLVM_NM_EXECUTABLE NAMES llvm-nm-18 llvm-nm REQUIRED)
-find_program(LLVM_PROFDATA_EXECUTABLE NAMES llvm-profdata-18 llvm-profdata REQUIRED)
+unset(CLANG_EXECUTABLE CACHE)
+unset(CLANGXX_EXECUTABLE CACHE)
+unset(LLVM_AR_EXECUTABLE CACHE)
+unset(LLVM_NM_EXECUTABLE CACHE)
+unset(LLVM_PROFDATA_EXECUTABLE CACHE)
+unset(LLVM_DWARFDUMP_EXECUTABLE CACHE)
+if(NOT IS_DIRECTORY "${LLVM_TOOLS_BINARY_DIR}")
+  message(FATAL_ERROR
+    "LLVM package did not provide a usable tool directory: ${LLVM_TOOLS_BINARY_DIR}")
+endif()
+find_program(CLANG_EXECUTABLE
+  NAMES clang
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(CLANGXX_EXECUTABLE
+  NAMES clang++
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_AR_EXECUTABLE
+  NAMES llvm-ar
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_NM_EXECUTABLE
+  NAMES llvm-nm
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_PROFDATA_EXECUTABLE
+  NAMES llvm-profdata
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
-  NAMES llvm-dwarfdump llvm-dwarfdump-19 llvm-dwarfdump-18
+  NAMES llvm-dwarfdump
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
 )
 find_program(GDB_EXECUTABLE gdb)
+
+get_filename_component(HITSIMPLE_LLVM_TOOLS_DIRECTORY
+  "${LLVM_TOOLS_BINARY_DIR}" REALPATH)
+foreach(HITSIMPLE_LLVM_TOOL IN ITEMS
+    CLANG_EXECUTABLE
+    CLANGXX_EXECUTABLE
+    LLVM_AR_EXECUTABLE
+    LLVM_NM_EXECUTABLE
+    LLVM_PROFDATA_EXECUTABLE
+    LLVM_DWARFDUMP_EXECUTABLE)
+  if(NOT ${HITSIMPLE_LLVM_TOOL})
+    continue()
+  endif()
+  get_filename_component(HITSIMPLE_LLVM_TOOL_REALPATH
+    "${${HITSIMPLE_LLVM_TOOL}}" REALPATH)
+  get_filename_component(HITSIMPLE_LLVM_TOOL_DIRECTORY
+    "${HITSIMPLE_LLVM_TOOL_REALPATH}" DIRECTORY)
+  if(NOT HITSIMPLE_LLVM_TOOL_DIRECTORY STREQUAL HITSIMPLE_LLVM_TOOLS_DIRECTORY)
+    message(FATAL_ERROR
+      "${HITSIMPLE_LLVM_TOOL} must come from ${HITSIMPLE_LLVM_TOOLS_DIRECTORY}, "
+      "but resolved to ${${HITSIMPLE_LLVM_TOOL}}")
+  endif()
+endforeach()
 
 # LLVM packages may append host SDK paths. Propagate only actual LLVM headers.
 set(HITSIMPLE_LLVM_INCLUDE_DIRS)
@@ -47,7 +102,15 @@ endif()
 llvm_map_components_to_libnames(
   LLVM_LIBS
   Core
+  Analysis
   AsmParser
+  Passes
+  TransformUtils
+  ScalarOpts
+  InstCombine
+  Vectorize
+  Instrumentation
+  ProfileData
   Linker
   Support
   Target
@@ -203,6 +266,7 @@ add_library(hitsimple_frontend STATIC
   src/codegen/LLVMCodegenFunctions.cpp
   src/codegen/LLVMCodegenRuntime.cpp
   src/codegen/LLVMCodegenStatements.cpp
+  src/codegen/OptimizationPipeline.cpp
   src/diagnostic/Diagnostic.cpp
   src/hir/HIR.cpp
   src/hir/HIRDumper.cpp
@@ -278,6 +342,7 @@ target_include_directories(hitsimple_frontend
 target_compile_definitions(hitsimple_frontend
   PUBLIC
     ${LLVM_DEFINITIONS}
+    HITSIMPLE_LLVM_MAJOR_VERSION=${LLVM_VERSION_MAJOR}
     HITSIMPLE_VERSION="${PROJECT_VERSION}"
     HITSIMPLE_PROJECT_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     HITSIMPLE_BUILT_STDLIB_DIR="${HITSIMPLE_GENERATED_STDLIB_DIR}"
@@ -410,7 +475,9 @@ if(BUILD_TESTING)
     tests/test_main.cpp
     tests/diagnostic/SourceLocationTests.cpp
     tests/codegen/LLVMCodegenTests.cpp
+    tests/codegen/OptimizationPipelineTests.cpp
     tests/compat/CCompatTests.cpp
+    tests/hir/HIRTests.cpp
     tests/lexer/LexerTests.cpp
     tests/parser/ParserTests.cpp
     tests/preprocessor/PreprocessorTests.cpp
@@ -431,6 +498,10 @@ if(BUILD_TESTING)
       ${PROJECT_SOURCE_DIR}/include
       ${PROJECT_SOURCE_DIR}/tests
       ${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+  target_include_directories(hsc_unit_tests
+    SYSTEM PRIVATE
+      ${HITSIMPLE_LLVM_INCLUDE_DIRS}
   )
 
   if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
@@ -586,20 +657,29 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_optimization_levels_build_all_artifact_types
     "for opt in -O0 -O1 -O2 -O3 -Os; do $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o executable-$opt && ./executable-$opt && $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} --emit-object $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object-$opt.o && test -s object-$opt.o && $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} --crate-type=staticlib $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o staticlib-$opt.a && test -s staticlib-$opt.a; done"
   )
-  add_hsc_shell_test(hsc_optimization_is_forwarded_to_all_clang_build_steps
-    "printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANG_EXECUTABLE} \"$@\"' > clang-wrapper && printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANGXX_EXECUTABLE} \"$@\"' > clangxx-wrapper && chmod +x clang-wrapper clangxx-wrapper && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper ${PROJECT_SOURCE_DIR}/examples/hello.hs -o default-program && grep -Fx -- '-O2' clang.args && ! grep -Eq -- '^-O(0|1|3|s)$' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -O0 -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o last-wins-program && grep -Fx -- '-O3' clang.args && ! grep -Fx -- '-O0' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --emit-object -O1 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object.o && grep -Fx -- '-O1' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --crate-type=staticlib -Os ${PROJECT_SOURCE_DIR}/examples/hello.hs -o library.a && grep -Fx -- '-Os' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o mixed-c && ./mixed-c && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-c.optimizations && test \"$(wc -l < mixed-c.optimizations)\" -eq 3 && test \"$(sort -u mixed-c.optimizations | wc -l)\" -eq 1 && grep -Fx -- '-Os' mixed-c.optimizations && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --clangxx $PWD/clangxx-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o mixed-cxx && ./mixed-cxx && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-cxx.optimizations && test \"$(wc -l < mixed-cxx.optimizations)\" -eq 3 && test \"$(sort -u mixed-cxx.optimizations | wc -l)\" -eq 1 && grep -Fx -- '-Os' mixed-cxx.optimizations"
+  add_hsc_shell_test(hsc_embedded_optimization_keeps_clang_in_backend_mode
+    "printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANG_EXECUTABLE} \"$@\"' > clang-wrapper && printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANGXX_EXECUTABLE} \"$@\"' > clangxx-wrapper && chmod +x clang-wrapper clangxx-wrapper && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper ${PROJECT_SOURCE_DIR}/examples/hello.hs -o default-program && grep -Fx -- '-O0' clang.args && ! grep -Fx -- '-O2' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -O0 -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o last-wins-program && grep -Fx -- '-O0' clang.args && ! grep -Fx -- '-O3' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --emit-object -O1 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object.o && grep -Fx -- '-O0' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --crate-type=staticlib -Os ${PROJECT_SOURCE_DIR}/examples/hello.hs -o library.a && grep -Fx -- '-O0' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o mixed-c && ./mixed-c && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-c.optimizations && test \"$(wc -l < mixed-c.optimizations)\" -eq 3 && test \"$(grep -Fc -- '-O0' mixed-c.optimizations)\" -eq 1 && test \"$(grep -Fc -- '-Os' mixed-c.optimizations)\" -eq 2 && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --clangxx $PWD/clangxx-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o mixed-cxx && ./mixed-cxx && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-cxx.optimizations && test \"$(wc -l < mixed-cxx.optimizations)\" -eq 3 && test \"$(grep -Fc -- '-O0' mixed-cxx.optimizations)\" -eq 1 && test \"$(grep -Fc -- '-Os' mixed-cxx.optimizations)\" -eq 2"
   )
   add_hsc_shell_test(hsc_emit_llvm_ignores_native_optimization_selection
     "$<TARGET_FILE:hsc> --emit-llvm -O0 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o o0.ll && $<TARGET_FILE:hsc> --emit-llvm -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o o3.ll && cmp -s o0.ll o3.ll"
   )
   add_hsc_shell_test(hsc_pgo_instrument_and_use
-    "$<TARGET_FILE:hsc> -O2 --pgo-instrument=program.profraw ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-instrumented && ./program-instrumented >instrumented.stdout && grep -Fx '42' instrumented.stdout && test -s program.profraw && ${LLVM_PROFDATA_EXECUTABLE} merge -sparse program.profraw -o program.profdata && test -s program.profdata && $<TARGET_FILE:hsc> -O2 --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-pgo && ./program-pgo >pgo.stdout && grep -Fx '42' pgo.stdout"
+    "HITSIMPLE_OPT=$PWD/missing-opt $<TARGET_FILE:hsc> -O2 --pgo-instrument=program.profraw ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-instrumented && ./program-instrumented >instrumented.stdout && grep -Fx '42' instrumented.stdout && test -s program.profraw && ${LLVM_PROFDATA_EXECUTABLE} merge -sparse program.profraw -o program.profdata && test -s program.profdata && HITSIMPLE_OPT=$PWD/missing-opt $<TARGET_FILE:hsc> -O2 --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-pgo && ./program-pgo >pgo.stdout && grep -Fx '42' pgo.stdout"
+  )
+  add_hsc_shell_test(hsc_optimization_pipeline_emits_opt_in_remarks
+    "$<TARGET_FILE:hsc> -O2 --optimization-remarks=remarks.txt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program && ./program && grep -Fq 'HitSimple canonicalization completed; invoking the LLVM default optimization pipeline' remarks.txt"
+  )
+  add_hsc_shell_test(hsc_optimization_levels_preserve_core_runtime_result
+    "$<TARGET_FILE:hsc> -O0 ${PROJECT_SOURCE_DIR}/tests/cases/run/arithmetic.hs -o program-o0 && ./program-o0 > o0.stdout && $<TARGET_FILE:hsc> -O2 ${PROJECT_SOURCE_DIR}/tests/cases/run/arithmetic.hs -o program-o2 && ./program-o2 > o2.stdout && cmp -s o0.stdout o2.stdout"
+  )
+  add_hsc_shell_test(hsc_rejects_incompatible_backend_clang
+    "printf '%s\n' '#!/bin/sh' 'if test \"$1\" = --version; then echo \"clang version 17.0.0\"; exit 0; fi' 'exec ${CLANG_EXECUTABLE} \"$@\"' > incompatible-clang && chmod +x incompatible-clang && ! $<TARGET_FILE:hsc> --clang $PWD/incompatible-clang ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program >stdout 2>stderr && grep -Fq 'embedded LLVM major version' stderr && grep -Fq 'incompatible with backend Clang major version 17' stderr"
   )
   add_hsc_shell_test(hsc_pgo_reports_invalid_options_and_outputs
     "! $<TARGET_FILE:hsc> --pgo-unknown ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq \"unknown option '--pgo-unknown'\" stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'mutually exclusive' stderr && ! $<TARGET_FILE:hsc> --pgo-use=missing.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'PGO profile data does not exist' stderr && mkdir -p profile-directory && ! $<TARGET_FILE:hsc> --pgo-use=profile-directory ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'PGO profile data is not a regular file' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'only supported for --crate-type=bin' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --crate-type=staticlib ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'only supported for --crate-type=bin' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'not supported with --emit-llvm' stderr"
   )
   add_hsc_shell_test(hsc_help_documents_optimization_and_pgo
-    "$<TARGET_FILE:hsc> --help > help.txt && grep -Fq -- '-O0, -O1, -O2, -O3, -Os' help.txt && grep -Fq 'default: -O2' help.txt && grep -Fq -- '--pgo-instrument=<profraw>' help.txt && grep -Fq -- '--pgo-use=<profdata>' help.txt && grep -Fq 'llvm-profdata merge -sparse' help.txt"
+    "$<TARGET_FILE:hsc> --help > help.txt && grep -Fq -- '-O0, -O1, -O2, -O3, -Os' help.txt && grep -Fq 'default: -O2' help.txt && grep -Fq -- '--optimization-remarks=<path>' help.txt && grep -Fq -- '--pgo-instrument=<profraw>' help.txt && grep -Fq -- '--pgo-use=<profdata>' help.txt && grep -Fq 'llvm-profdata merge -sparse' help.txt"
   )
   add_hsc_shell_test(hsc_ctype_reference_executable
     "$<TARGET_FILE:hsc> --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program"
@@ -882,6 +962,21 @@ target_link_libraries(hsc_unit_tests
   add_test(NAME hsc_static_checked_emit_llvm
     COMMAND hsc --static-checked ${PROJECT_SOURCE_DIR}/examples/hello.hs --emit-llvm
   )
+  add_hsc_shell_test(hsc_checked_scope_lifetime_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_lifetime.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_scope_goto_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_goto.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_scope_break_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_break.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_scope_continue_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_continue.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_checked_cstr_compare_boundary
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_cstr_compare_boundary.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'unterminated checked string' stderr"
+  )
   add_hsc_shell_test(hsc_run_printf_calloc_string_unchecked
     "$<TARGET_FILE:hsc> --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/printf_calloc_string.hs -o ${CMAKE_CURRENT_BINARY_DIR}/printf_calloc_string_unchecked && ${CMAKE_CURRENT_BINARY_DIR}/printf_calloc_string_unchecked"
   )
@@ -899,6 +994,54 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_static_checked_calloc_overflow_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_calloc_overflow.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: calloc size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_null_view_deref_condition_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_null_view_deref_copy_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_oob_view_deref_condition_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_oob_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_oob_view_deref_copy_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_oob_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_goto_skipped_assignment_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_goto_skipped_assignment.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_goto_unknown_path_emits_load_check
+    "$<TARGET_FILE:hsc> --checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_goto_unknown_path.hs -o module.ll && grep -Fq '@hs_check_load' module.ll"
+  )
+  add_hsc_shell_test(hsc_static_checked_global_oob_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_global_oob_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_free_interior_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_free_interior.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: free requires a dynamic-object base address' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_free_static_storage_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_free_static_storage.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: free requires a dynamic-object base address' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_double_free_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_double_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: double free' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_global_double_free_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_global_double_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: double free' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_use_after_free_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_free_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: use after free dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_realloc_static_storage_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_realloc_static_storage.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: realloc requires a dynamic-object base address' stderr"
+  )
+  add_hsc_shell_test(hsc_static_checked_realloc_alias_not_provably_dangling
+    "$<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_use_after_realloc.hs -o program"
+  )
+  add_hsc_shell_test(hsc_checked_null_view_deref_condition_diagnostic
+    "! $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_condition.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_null_view_deref_copy_diagnostic
+    "! $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_null_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: null address dereference' stderr"
   )
   add_hsc_shell_test(hsc_static_checked_memcpy_overlap_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_memcpy_overlap.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: overlapping memcpy ranges' stderr"
@@ -923,6 +1066,28 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_checked_calloc_overflow_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_calloc_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: calloc size overflow' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_view_deref_condition_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_view_deref_condition.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_view_deref_copy_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_view_deref_copy.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
+  )
+  set_tests_properties(
+    hsc_static_checked_null_view_deref_condition_diagnostic
+    hsc_static_checked_null_view_deref_copy_diagnostic
+    hsc_static_checked_oob_view_deref_condition_diagnostic
+    hsc_static_checked_oob_view_deref_copy_diagnostic
+    hsc_static_checked_global_oob_diagnostic
+    hsc_static_checked_free_interior_diagnostic
+    hsc_static_checked_double_free_diagnostic
+    hsc_static_checked_global_double_free_diagnostic
+    hsc_static_checked_use_after_free_diagnostic
+    hsc_static_checked_realloc_static_storage_diagnostic
+    hsc_static_checked_realloc_alias_not_provably_dangling
+    hsc_checked_view_deref_condition_runtime_error
+    hsc_checked_view_deref_copy_runtime_error
+    PROPERTIES LABELS "phase5;safe-001"
   )
   add_hsc_shell_test(hsc_checked_fread_overflow_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: fread size overflow' stderr"
@@ -1051,7 +1216,7 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_nested_view.hs -o ${CMAKE_CURRENT_BINARY_DIR}/try_catch_nested_view_smoke && ${CMAKE_CURRENT_BINARY_DIR}/try_catch_nested_view_smoke"
   )
   add_hsc_shell_test(hsc_rejects_incompatible_try_catch_view
-    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_incompatible_view.hs -o ${CMAKE_CURRENT_BINARY_DIR}/try_catch_incompatible_view_smoke 2>stderr && grep -Fq 'throw View byte length 8 does not match catch byte length 4' stderr"
+    "! $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_incompatible_view.hs -o ${CMAKE_CURRENT_BINARY_DIR}/try_catch_incompatible_view_smoke 2>stderr && grep -Fq 'bytes assignment requires an equal-length source View' stderr"
   )
   add_hsc_shell_test(hsc_run_try_catch_float_view_checked
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/try_catch_float_view.hs -o ${CMAKE_CURRENT_BINARY_DIR}/try_catch_float_view_checked_smoke && ${CMAKE_CURRENT_BINARY_DIR}/try_catch_float_view_checked_smoke"
@@ -1772,6 +1937,65 @@ target_link_libraries(hsc_unit_tests
     set_tests_properties(hsc_debug_info_gdb PROPERTIES
       SKIP_REGULAR_EXPRESSION "SKIP: ptrace is unavailable")
   endif()
+
+  function(add_hsc_issue_baseline issue)
+    add_test(
+      NAME hsc_issue_${issue}
+      COMMAND ${CMAKE_COMMAND}
+        -DHSC=$<TARGET_FILE:hsc>
+        -DCASE=${PROJECT_SOURCE_DIR}/tests/issues/${issue}.hs
+        -DEXPECT_FILE=${PROJECT_SOURCE_DIR}/tests/issues/${issue}.expect.cmake
+        -DOUTPUT_DIR=${HSC_CTEST_OUTPUT_ROOT}/hsc_issue_${issue}
+        -P ${PROJECT_SOURCE_DIR}/cmake/VerifyIssueBaseline.cmake
+    )
+    string(TOLOWER "${issue}" issue_label)
+    set_tests_properties(hsc_issue_${issue} PROPERTIES
+      LABELS "phase0;${issue_label}")
+  endfunction()
+
+  foreach(issue
+      sem-001 sem-002 sem-003 sem-004 sem-005 sem-006 sem-007 sem-008
+      call-001 sem-009 lit-001 ir-001 safe-001 ir-002 opt-001 life-001 life-002 life-003
+      static-001 cstr-001 op-001)
+    add_hsc_issue_baseline(${issue})
+  endforeach()
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_hsc_shell_test(hsc_ir_001_alignment_sanitizer
+      "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/issues/ir-001.hs -o packed.ll && ${CLANG_EXECUTABLE} -fsanitize=alignment packed.ll $<TARGET_FILE:hitsimple_runtime> -lm -o packed && ./packed"
+    )
+    add_hsc_shell_test(hsc_ir_001_aarch64_codegen
+      "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/issues/ir-001.hs -o packed.ll && ${CLANG_EXECUTABLE} -target aarch64-unknown-linux-gnu -c packed.ll -o packed-aarch64.o"
+    )
+    add_hsc_shell_test(hsc_ir_002_o0_o2
+      "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/issues/ir-002.hs -o division.ll && ${CLANG_EXECUTABLE} -O0 division.ll $<TARGET_FILE:hitsimple_runtime> -lm -o division-o0 && ./division-o0 && ${CLANG_EXECUTABLE} -O2 division.ll $<TARGET_FILE:hitsimple_runtime> -lm -o division-o2 && ./division-o2"
+    )
+    add_hsc_shell_test(hsc_opt_001_vectorization
+      "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/benchmark_memory.hs -o opt.ll && ${CLANG_EXECUTABLE} -O2 -Rpass=loop-vectorize -Rpass-analysis=loop-vectorize -c opt.ll -o opt.o 2>opt.remarks && grep -Ec 'vectorized loop' opt.remarks | grep -Eq '^[2-9]|^[1-9][0-9]+$' && ! grep -Fq 'unsafe dependent memory operations' opt.remarks"
+    )
+    add_hsc_shell_test(hsc_opt_001_embedded_pipeline
+      "$<TARGET_FILE:hsc> -O2 --optimization-remarks=opt.embedded.remarks ${PROJECT_SOURCE_DIR}/tests/issues/opt-001.hs -o opt-program && grep -Fq 'HitSimple canonicalization completed; invoking the LLVM default optimization pipeline' opt.embedded.remarks"
+    )
+    set_tests_properties(hsc_ir_001_alignment_sanitizer
+                         hsc_ir_001_aarch64_codegen
+                         PROPERTIES LABELS "phase3;ir-001")
+    set_tests_properties(hsc_ir_002_o0_o2
+                         PROPERTIES LABELS "phase3;ir-002")
+    set_tests_properties(hsc_opt_001_vectorization
+                         PROPERTIES LABELS "phase4;opt-001")
+    set_tests_properties(hsc_opt_001_embedded_pipeline
+                         PROPERTIES LABELS "phase4;opt-001")
+  endif()
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_hsc_shell_test(hsc_issue_bench_001
+      "BENCHMARK_BUILD_DIR=$PWD/benchmark-build HSC=$<TARGET_FILE:hsc> CXX=${CLANGXX_EXECUTABLE} ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/run_benchmark.sh 1 0 0 > benchmark.log && grep -Fq 'resolved hsc path: $<TARGET_FILE:hsc>' benchmark.log && grep -Fq 'HS/C++ 中位数比:' benchmark.log"
+    )
+  else()
+    add_test(NAME hsc_issue_bench_001 COMMAND ${CMAKE_COMMAND} -E true)
+    set_tests_properties(hsc_issue_bench_001 PROPERTIES DISABLED TRUE)
+  endif()
+  set_tests_properties(hsc_issue_bench_001 PROPERTIES LABELS "phase0;bench-001")
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
@@ -1799,7 +2023,7 @@ set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE ${HITSIMPLE_DEBIAN_ARCHITECTURE})
 set(CPACK_DEBIAN_FILE_NAME
   "hitsimple_${PROJECT_VERSION}_${HITSIMPLE_DEBIAN_ARCHITECTURE}.deb")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "clang-18 | clang (>= 1:18)")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "clang-${LLVM_VERSION_MAJOR}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
   "HitSimple experimental language compiler")
 set(CPACK_RPM_PACKAGE_ARCHITECTURE ${HITSIMPLE_RPM_ARCHITECTURE})

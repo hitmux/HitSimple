@@ -13,15 +13,18 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Type.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/Support/Alignment.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace llvm {
@@ -35,11 +38,20 @@ struct Local {
   llvm::Type *storageType = nullptr;
   std::size_t byteLength = 0;
   std::optional<hir::AbiType> abiType;
+  // This records a fact about the storage address, not the preferred
+  // alignment of the value currently being accessed through it.
+  std::size_t alignment = 1;
+  // Core addr locals retain native pointer storage.  This is intentionally
+  // separate from abiType: it records a lowering representation, not a C ABI
+  // promise.
+  bool isPointerStorage = false;
 };
 
 struct LoopTargets {
   llvm::BasicBlock *breakBlock = nullptr;
   llvm::BasicBlock *continueBlock = nullptr;
+  std::size_t breakScopeDepth = 0;
+  std::size_t continueScopeDepth = 0;
 };
 
 struct CatchTarget {
@@ -47,6 +59,7 @@ struct CatchTarget {
   llvm::Type *errorStorageType = nullptr;
   llvm::Value *errorStorage = nullptr;
   std::size_t errorByteLength = 0;
+  std::size_t scopeDepth = 0;
 };
 
 struct RuntimeObject {
@@ -59,6 +72,9 @@ struct ViewValue {
   llvm::Value *data = nullptr;
   llvm::Value *length = nullptr;
   std::optional<std::size_t> staticLength;
+  // A generic View is byte-addressed.  A larger value is present only when
+  // the storage origin proves it for this exact View address.
+  std::size_t alignment = 1;
 };
 
 class LlvmEmitter {
@@ -107,6 +123,60 @@ private:
     std::int64_t lowerBound = 0;
     std::int64_t offset = 0;
     std::uint64_t upperBound = 0;
+
+    bool operator==(const StaticAddressRange &) const = default;
+  };
+
+  enum class StaticAddressOrigin {
+    Null,
+    DynamicObject,
+    NonDynamicObject,
+    ExpiredLocalObject,
+  };
+
+  enum class StaticDynamicObjectState {
+    Live,
+    Freed,
+    Unknown,
+  };
+
+  struct StaticAddressFact {
+    StaticAddressOrigin origin = StaticAddressOrigin::Null;
+    std::size_t dynamicObjectId = 0;
+    bool isBaseAddress = false;
+    std::optional<StaticAddressRange> range;
+
+    bool operator==(const StaticAddressFact &) const = default;
+  };
+
+  struct StaticSafetyState {
+    std::unordered_map<std::string, std::optional<std::int64_t>>
+        integerValues;
+    std::unordered_map<std::string, std::optional<std::uint64_t>>
+        unsignedIntegerValues;
+    std::unordered_map<std::string, std::optional<StaticAddressFact>>
+        addressFacts;
+    std::unordered_map<std::string, std::optional<bool>> cstrTerminations;
+    std::unordered_map<std::size_t, StaticDynamicObjectState>
+        dynamicObjectStates;
+    std::size_t nextDynamicObjectId = 0;
+
+    bool operator==(const StaticSafetyState &) const = default;
+  };
+
+  struct StaticGotoContext {
+    StaticGotoContext *parent = nullptr;
+    const std::unordered_map<std::string, std::size_t> *labelIndexes = nullptr;
+    std::vector<std::optional<StaticSafetyState>> *entryStates = nullptr;
+    std::deque<std::size_t> *worklist = nullptr;
+    const std::vector<std::string> *localBindings = nullptr;
+  };
+
+  struct StaticLoopContext {
+    StaticLoopContext *parent = nullptr;
+    StaticGotoContext *exitScope = nullptr;
+    std::optional<StaticSafetyState> *breakState = nullptr;
+    std::optional<StaticSafetyState> *continueState = nullptr;
   };
 
   struct CAbiMemoryPlan {
@@ -134,6 +204,7 @@ private:
   void emit(const hir::LocalMemory &local);
   void emit(const hir::IntegerStore &store);
   void emit(const hir::FloatStore &store);
+  void emit(const hir::ViewCopyStore &store);
   void emit(const hir::StringStore &store);
   void emit(const hir::StringCopyStore &store);
   void emit(const hir::BoolStore &store);
@@ -153,12 +224,48 @@ private:
   void emit(const hir::TryCatch &tryCatch);
   void emitBreak();
   void emitContinue();
-  void collectLabels(const hir::Block &block, llvm::Function &function);
-  void collectLabels(const hir::Stmt &statement, llvm::Function &function);
+  void collectLabels(const hir::Block &block, llvm::Function &function,
+                     std::size_t scopeDepth);
+  void collectLabels(const hir::Stmt &statement, llvm::Function &function,
+                     std::size_t scopeDepth);
   void validateSafety(const hir::TranslationUnit &unit);
-  void validateSafety(const hir::Block &block);
-  void validateSafety(const hir::Stmt &statement);
+  bool validateSafety(const hir::Block &block);
+  bool validateSafety(const hir::Stmt &statement);
   void validateSafety(const hir::Expr &expression);
+  void resetStaticSafetyState();
+  StaticSafetyState staticSafetyState() const;
+  void restoreStaticSafetyState(const StaticSafetyState &state);
+  StaticSafetyState mergedStaticSafetyStates(const StaticSafetyState &left,
+                                             const StaticSafetyState &right) const;
+  void mergeStaticSafetyStates(const StaticSafetyState &left,
+                               const StaticSafetyState &right);
+  void expireStaticLocalBindings(
+      const std::vector<std::string> &bindingNames);
+  bool enqueueStaticGoto(std::string_view label,
+                         const StaticSafetyState &incoming);
+  StaticSafetyState exitStaticScopes(
+      StaticGotoContext *target, const StaticSafetyState &incoming);
+  void invalidateStaticBinding(std::string_view bindingName);
+  void invalidateStaticFactsOverlapping(
+      const std::optional<StaticAddressRange> &range,
+      std::optional<std::uint64_t> byteLength);
+  void invalidateStaticGlobalFacts();
+  std::optional<std::int64_t>
+  staticSignedInteger(const hir::Expr &expression) const;
+  std::optional<std::uint64_t>
+  staticUnsignedInteger(const hir::Expr &expression) const;
+  std::optional<bool> staticBooleanValue(const hir::Expr &expression) const;
+  std::optional<StaticAddressFact>
+  staticAddressFact(const hir::Expr &expression) const;
+  void validateStaticDynamicBase(const hir::Expr &expression,
+                                 std::string_view operation);
+  bool releaseStaticDynamicObject(const hir::Expr &expression);
+  void recordStaticAddressAssignment(std::string_view bindingName,
+                                     const hir::Expr &value);
+  void validateStaticAddressAccess(const hir::Expr &expression,
+                                   std::string_view operation);
+  std::optional<bool>
+  staticCStringTerminated(const hir::Expr &expression) const;
   std::optional<StaticAddressRange>
   staticAddressRange(const hir::Expr &expression) const;
   std::optional<StaticAddressRange>
@@ -168,6 +275,8 @@ private:
   bool targetsRegisteredInternalObject(const hir::Expr &expression) const;
   bool hasKnownStaticAddressRange(const hir::Expr &expression,
                                   std::size_t byteLength) const;
+  llvm::Align alignmentAt(std::size_t baseAlignment,
+                          std::size_t offset = 0) const;
 
   llvm::Value *emitConditionValue(const hir::Expr &expression);
   llvm::Value *emitIntegerValue(const hir::Expr &expression,
@@ -214,7 +323,8 @@ private:
   llvm::Value *emitCallValue(const hir::CallExpr &call);
   llvm::Value *emitValueForType(const hir::Expr &expression,
                                 llvm::Type *type,
-                                std::string_view name);
+                                std::string_view name,
+                                const hir::ConversionPlan *plan = nullptr);
   llvm::IntegerType *integerTypeForByteLength(std::size_t byteLength);
   llvm::Type *floatTypeForByteLength(std::size_t byteLength);
   llvm::Type *abiTypeFor(const hir::AbiType &type);
@@ -268,6 +378,9 @@ private:
   void registerStaticObject(llvm::Value *storage, std::size_t byteLength);
   void emitRuntimeFrameEnter();
   void emitRuntimeFrameExit();
+  void emitRuntimeScopeEnter();
+  void emitRuntimeScopeExit();
+  void emitRuntimeScopeExitTo(std::size_t targetDepth);
   llvm::FunctionCallee declarePrintf();
   llvm::FunctionCallee declareMalloc();
   llvm::FunctionCallee declareCalloc();
@@ -280,11 +393,19 @@ private:
   llvm::FunctionCallee declareCheckLoad();
   llvm::FunctionCallee declareCheckStore();
   llvm::FunctionCallee declareCheckViewLength();
+  llvm::FunctionCallee declareViewAnyNonZero();
+  llvm::FunctionCallee declareCheckedDivisionByZero();
+  llvm::FunctionCallee declareCheckedNegativeShift();
+  llvm::FunctionCallee declareCheckedNegativeExponent();
   llvm::FunctionCallee declareReverseBytes();
   llvm::FunctionCallee declareRegisterLocalObject();
   llvm::FunctionCallee declareRegisterStaticObject();
   llvm::FunctionCallee declareRuntimeFrameEnter();
   llvm::FunctionCallee declareRuntimeFrameExit();
+  llvm::FunctionCallee declareRuntimeScopeEnter();
+  llvm::FunctionCallee declareRuntimeScopeExit();
+  llvm::FunctionCallee declareRuntimeScopeExitTo();
+  llvm::FunctionCallee declareCheckedStringCompare();
   llvm::CallInst *emitCheckedRuntimeCall(
       llvm::FunctionCallee callee, llvm::ArrayRef<llvm::Value *> arguments,
       std::string_view name = {});
@@ -329,9 +450,22 @@ private:
       staticIntegerValues_;
   std::unordered_map<std::string, std::optional<std::uint64_t>>
       staticUnsignedIntegerValues_;
+  std::unordered_map<std::string, std::optional<StaticAddressFact>>
+      staticAddressFacts_;
+  std::unordered_map<std::string, std::optional<bool>>
+      staticCStringTerminations_;
+  std::unordered_map<std::size_t, StaticDynamicObjectState>
+      staticDynamicObjectStates_;
+  std::unordered_set<std::string> staticGlobalBindings_;
+  std::size_t nextStaticDynamicObjectId_ = 0;
+  StaticGotoContext *staticGotoContext_ = nullptr;
+  StaticLoopContext *staticLoopContext_ = nullptr;
   std::vector<LoopTargets> loopTargets_;
   std::vector<CatchTarget> catchTargets_;
   std::unordered_map<std::string, llvm::BasicBlock *> labelBlocks_;
+  std::unordered_map<std::string, std::size_t> labelScopeDepths_;
+  std::unordered_map<std::string, llvm::GlobalVariable *>
+      staticInitializationGuards_;
   std::unordered_map<std::string, CAbiMemoryPlan> cAbiMemoryPlans_;
   std::unordered_map<std::string,
                      std::vector<std::optional<hir::AbiType>>>
@@ -347,6 +481,8 @@ private:
   llvm::Value *viewAbiResultStorage_ = nullptr;
   std::size_t viewAbiResultByteLength_ = 0;
   bool runtimeFrameActive_ = false;
+  std::size_t runtimeScopeDepth_ = 0;
+  bool staticInitializationEmissionActive_ = false;
   std::optional<diagnostic::SourceRange> currentDiagnosticRange_;
   std::vector<diagnostic::Diagnostic> diagnostics_;
 };

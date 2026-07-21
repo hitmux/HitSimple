@@ -51,12 +51,56 @@ HitSimple input and uses LLVM's target machine to write a native object. Without
 `--crate-type=staticlib` accepts one or more HitSimple inputs and writes
 `libhitsimple.a` by default. It packages the generated objects together with
 the HitSimple runtime archive. Archive creation uses `HITSIMPLE_LLVM_AR` when
-set, then `llvm-ar-18`, then `llvm-ar` on `PATH`. External C, C++, and Rust
-objects or libraries are linked by their parent build step, not copied into the
-HitSimple static library.
+set, then the archive tool bundled in a full package, then
+`llvm-ar-<embedded LLVM major version>`, and finally `llvm-ar` on `PATH`.
+External C, C++, and Rust objects or libraries are linked by their parent build
+step, not copied into the HitSimple static library.
 
 These output modes do not require a `main` function and cannot be combined
 with dump, preprocessing, or `--emit-llvm` actions.
+
+## Optimize and Profile
+
+```bash
+hsc -O0 examples/hello.hs -o hello-debug
+hsc -O2 examples/hello.hs -o hello
+hsc -O3 examples/hello.hs -o hello-fast
+hsc -Os examples/hello.hs -o hello-small
+```
+
+`-O0`, `-O1`, `-O2`, `-O3`, and `-Os` select the embedded LLVM New Pass
+Manager pipeline; the default is `-O2`, and the last optimization option wins.
+`hsc` verifies generated IR before optimization, after its empty
+`HitSimpleCanonicalize` registration point, and after LLVM's default pipeline.
+The final Clang invocation receives optimized HitSimple IR in backend-only
+`-O0` mode, so it does not select a second IR optimization pipeline. Native C
+and C++ sources supplied with `--c-source` or `--cxx-source` still receive the
+requested `-O*` level.
+
+Use `--optimization-remarks=<path>` to write opt-in pipeline remarks. The
+first release emits a `HitSimpleCanonicalize` boundary remark; it is an
+execution proof, not a promise of a HitSimple-specific optimization pass.
+
+```bash
+hsc -O2 --optimization-remarks=build/optimization-remarks.txt \
+  examples/hello.hs -o hello
+```
+
+`--emit-llvm` remains a frontend inspection action and always writes
+unoptimized LLVM IR, regardless of `-O*`. The VS Code Debug Current File
+workflow continues to force `-g -O0`.
+
+Instrumentation PGO uses the same embedded pipeline and does not require an
+external `opt` executable:
+
+```bash
+hsc -O2 --pgo-instrument=program.profraw app.hs -o app-instrumented
+./app-instrumented
+llvm-profdata merge -sparse program.profraw -o program.profdata
+hsc -O2 --pgo-use=program.profdata app.hs -o app-pgo
+```
+
+PGO options are executable-build options and are mutually exclusive.
 
 ## Select a Standard-Library Provider
 
@@ -198,7 +242,7 @@ When producing an executable, `hsc` searches for Clang in this order:
 1. The `--clang <path>` command-line option.
 2. The `HITSIMPLE_CLANG` environment variable.
 3. `toolchain/bin/clang++.exe` in the Windows full package.
-4. `clang-18`.
+4. `clang-<embedded LLVM major version>`.
 5. `clang` and `clang++` on PATH.
 
 Specify it explicitly:
@@ -221,10 +265,14 @@ $env:HITSIMPLE_CLANG = 'C:\llvm-mingw\bin\clang++.exe'
 .\bin\hsc.exe examples\hello.hs -o hello.exe
 ```
 
-If no compatible toolchain is found, `hsc` returns a clear error before linking. `--emit-llvm` does not link, so it does not require Clang, even when the supplied `--clang` path is invalid.
+The selected backend Clang major version must match the LLVM major version
+embedded in `hsc`; otherwise compilation fails before native code generation.
+`--emit-llvm` does not link, so it does not require Clang, even when the
+supplied `--clang` path is invalid.
 
 Mixed builds resolve Clang++ independently through `--clangxx`,
-`HITSIMPLE_CLANGXX`, `clang++-18`, and `clang++` on `PATH`.
+`HITSIMPLE_CLANGXX`, `clang++-<embedded LLVM major version>`, and `clang++`
+on `PATH`; its major version is checked as well.
 
 `HITSIMPLE_RUNTIME_SOURCE` can still override the static runtime during development and debugging. Normal installations and release packages link `lib/hitsimple/libhitsimple_runtime.a` by default.
 
@@ -410,7 +458,7 @@ On arm64, use:
 sudo apt install ./hitsimple_0.3.4_arm64.deb
 ```
 
-Ubuntu 22.04 and Debian 12 need Clang 18 installed first. The following commands configure apt.llvm.org for the appropriate distribution codename; verify the current [apt.llvm.org](https://apt.llvm.org/) instructions and signing method before running them.
+The DEB depends exactly on `clang-18`, which matches its embedded LLVM 18; Debian 13's default Clang 19 is not compatible. Ubuntu 22.04 and Debian 12 need a Clang 18 source configured first. The following commands configure apt.llvm.org for the appropriate distribution codename; verify the current [apt.llvm.org](https://apt.llvm.org/) instructions and signing method before running them.
 
 Ubuntu 22.04:
 
@@ -457,7 +505,7 @@ bin/hsc --clang /opt/homebrew/opt/llvm@18/bin/clang path/to/hello.hs -o hello
 ./hello
 ```
 
-Use `hitsimple-0.3.4-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang 18 or later. The package is unsigned and not notarized, and no PKG is provided.
+Use `hitsimple-0.3.4-macos-x86_64.tar.gz` on Intel Macs. The extracted directory can be moved; `hsc` discovers the preprocessor, standard library, and static runtime relative to itself. macOS requires an external Clang toolchain matching the embedded LLVM major version (Clang 18 for this release). The package is unsigned and not notarized, and no PKG is provided.
 
 Like Windows, macOS uses the software binary128 backend for `f128`, covering literals, arithmetic, comparisons, numeric conversion, formatting, scanning, and the floating-point entry points in `math.hsh`. Linux continues to use the native `fp128`/glibc backend.
 

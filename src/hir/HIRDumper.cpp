@@ -21,6 +21,31 @@ std::string formatArgumentKinds(const std::vector<FormatArgKind> &kinds) {
   return result;
 }
 
+std::string resultSemantics(const Expr &expression) {
+  const auto &result = expression.result;
+  const auto templateName =
+      result.templateName.empty() ? "none" : result.templateName;
+  const auto length = result.lengthKind == ViewLengthKind::Static
+                          ? "static:" + std::to_string(result.staticByteLength)
+                          : std::string("dynamic");
+  return " category=" + std::string(toString(result.category)) +
+         " template=" + templateName + " length=" + length +
+         " integer_interpretation=" +
+         std::string(toString(result.integerInterpretation)) +
+         " lvalue=" + (result.isMutableLValue ? "true" : "false") +
+         " addressable=" + (result.isAddressable ? "true" : "false");
+}
+
+std::string addressFactsText(const std::optional<AddressFacts> &facts) {
+  if (!facts) {
+    return {};
+  }
+  return " origin=" + std::string(toString(facts->origin)) +
+         " base=" + (facts->isBaseAddress ? "true" : "false") +
+         " extent=" +
+         (facts->knownExtent ? std::to_string(*facts->knownExtent) : "unknown");
+}
+
 class HirDumper {
 public:
   explicit HirDumper(std::ostream &out) : out_(out) {}
@@ -168,7 +193,11 @@ private:
            " binding=" + store->bindingName +
            " bytes=" + std::to_string(store->targetByteLength) +
            " storage=" + std::string(toString(store->storage)) +
-           (store->offset == 0 ? "" : " offset=" + std::to_string(store->offset)));
+           (store->offset == 0 ? "" : " offset=" + std::to_string(store->offset)) +
+           (store->conversionPlan
+                ? " conversion=" +
+                      std::string(toString(store->conversionPlan->kind))
+                : ""));
       ++indent_;
       dump(*store->value);
       --indent_;
@@ -180,7 +209,11 @@ private:
            " binding=" + store->bindingName +
            " bytes=" + std::to_string(store->targetByteLength) +
            " storage=" + std::string(toString(store->storage)) +
-           (store->offset == 0 ? "" : " offset=" + std::to_string(store->offset)));
+           (store->offset == 0 ? "" : " offset=" + std::to_string(store->offset)) +
+           (store->conversionPlan
+                ? " conversion=" +
+                      std::string(toString(store->conversionPlan->kind))
+                : ""));
       ++indent_;
       dump(*store->value);
       --indent_;
@@ -211,6 +244,18 @@ private:
            (store->sourceOffset == 0
                 ? ""
                 : " sourceOffset=" + std::to_string(store->sourceOffset)));
+      return;
+    }
+
+    if (const auto *store = dynamic_cast<const ViewCopyStore *>(&statement)) {
+      line("ViewCopyStore target=" + store->target +
+           " binding=" + store->bindingName +
+           " bytes=" + std::to_string(store->targetByteLength) +
+           " storage=" + std::string(toString(store->storage)) +
+           " conversion=" + std::string(toString(store->conversionPlan.kind)));
+      ++indent_;
+      dump(*store->value);
+      --indent_;
       return;
     }
 
@@ -334,7 +379,8 @@ private:
     }
 
     if (const auto *ret = dynamic_cast<const Return *>(&statement)) {
-      line("Return");
+      line("Return conversions=" +
+           std::to_string(ret->conversionPlans.size()));
       ++indent_;
       for (const auto &value : ret->values) {
         dump(*value);
@@ -442,20 +488,32 @@ private:
     if (const auto *integer =
             dynamic_cast<const IntegerLiteral *>(&expression)) {
       line("IntegerLiteral value=" + integer->value +
-           " bytes=" + std::to_string(integer->byteLength));
+           " bytes=" + std::to_string(integer->byteLength) +
+           resultSemantics(*integer));
+      return;
+    }
+
+    if (const auto *character =
+            dynamic_cast<const CharacterLiteral *>(&expression)) {
+      line("CharacterLiteral bytes=" +
+           std::to_string(character->byteLength) +
+           " rawByteCount=" + std::to_string(character->bytes.size()) +
+           resultSemantics(*character));
       return;
     }
 
     if (const auto *string = dynamic_cast<const StringLiteral *>(&expression)) {
       line("StringLiteral value=" + string->value +
-           " bytes=" + std::to_string(string->byteLength));
+           " bytes=" + std::to_string(string->byteLength) +
+           resultSemantics(*string));
       return;
     }
 
     if (const auto *floating =
             dynamic_cast<const FloatLiteral *>(&expression)) {
       line("FloatLiteral value=" + floating->value +
-           " bytes=" + std::to_string(floating->byteLength));
+           " bytes=" + std::to_string(floating->byteLength) +
+           resultSemantics(*floating));
       return;
     }
 
@@ -464,7 +522,9 @@ private:
            " binding=" + variable->bindingName +
            " bytes=" + std::to_string(variable->byteLength) +
            " storage=" + std::string(toString(variable->storage)) +
-           (variable->offset == 0 ? "" : " offset=" + std::to_string(variable->offset)));
+           (variable->offset == 0 ? "" : " offset=" + std::to_string(variable->offset)) +
+           addressFactsText(variable->addressFacts) +
+           resultSemantics(*variable));
       return;
     }
 
@@ -474,21 +534,37 @@ private:
            " targetBytes=" + std::to_string(address->targetByteLength) +
            " storage=" + std::string(toString(address->storage)) +
            (address->offset == 0 ? "" : " offset=" + std::to_string(address->offset)) +
-           " bytes=" + std::to_string(address->byteLength));
+           " bytes=" + std::to_string(address->byteLength) +
+           addressFactsText(address->facts) +
+           resultSemantics(*address));
       return;
     }
 
     if (const auto *deref = dynamic_cast<const DerefExpr *>(&expression)) {
-      line("DerefExpr bytes=" + std::to_string(deref->byteLength));
+      line("DerefExpr bytes=" + std::to_string(deref->byteLength) +
+           resultSemantics(*deref));
       ++indent_;
       dump(*deref->address);
       --indent_;
       return;
     }
 
+    if (const auto *booleanTest =
+            dynamic_cast<const BooleanTestExpr *>(&expression)) {
+      line("BooleanTestExpr" + resultSemantics(*booleanTest));
+      ++indent_;
+      dump(*booleanTest->operand);
+      --indent_;
+      return;
+    }
+
     if (const auto *binary = dynamic_cast<const BinaryExpr *>(&expression)) {
       line("BinaryExpr op=" + binary->op +
-           " bytes=" + std::to_string(binary->byteLength));
+           " bytes=" + std::to_string(binary->byteLength) +
+           " candidate=" + std::string(toString(binary->operationKind)) +
+           addressFactsText(binary->addressFacts) +
+           " operation=" + std::string(toString(binary->operation)) +
+           resultSemantics(*binary));
       ++indent_;
       dump(*binary->left);
       dump(*binary->right);
@@ -498,7 +574,8 @@ private:
 
     if (const auto *unary = dynamic_cast<const UnaryExpr *>(&expression)) {
       line("UnaryExpr op=" + unary->op +
-           " bytes=" + std::to_string(unary->byteLength));
+           " bytes=" + std::to_string(unary->byteLength) +
+           resultSemantics(*unary));
       ++indent_;
       dump(*unary->operand);
       --indent_;
@@ -506,7 +583,8 @@ private:
     }
 
     if (const auto *ternary = dynamic_cast<const TernaryExpr *>(&expression)) {
-      line("TernaryExpr bytes=" + std::to_string(ternary->byteLength));
+      line("TernaryExpr bytes=" + std::to_string(ternary->byteLength) +
+           resultSemantics(*ternary));
       ++indent_;
       dump(*ternary->condition);
       dump(*ternary->thenExpr);
@@ -517,7 +595,8 @@ private:
 
     if (const auto *unsignedExpr =
             dynamic_cast<const UnsignedExpr *>(&expression)) {
-      line("UnsignedExpr bytes=" + std::to_string(unsignedExpr->byteLength));
+      line("UnsignedExpr bytes=" + std::to_string(unsignedExpr->byteLength) +
+           resultSemantics(*unsignedExpr));
       ++indent_;
       dump(*unsignedExpr->operand);
       --indent_;
@@ -527,7 +606,8 @@ private:
     if (const auto *cast =
             dynamic_cast<const IntegerCastExpr *>(&expression)) {
       line("IntegerCastExpr bytes=" + std::to_string(cast->byteLength) +
-           " signed=" + (cast->isSigned ? "true" : "false"));
+           " signed=" + (cast->isSigned ? "true" : "false") +
+           resultSemantics(*cast));
       ++indent_;
       dump(*cast->operand);
       --indent_;
@@ -535,9 +615,11 @@ private:
     }
 
     if (const auto *view = dynamic_cast<const TemplateViewExpr *>(&expression)) {
-      line("TemplateViewExpr template=" + view->templateName +
+      line("TemplateViewExpr template=" +
+           (view->templateName.empty() ? "none" : view->templateName) +
            " bytes=" + std::to_string(view->byteLength) +
-           " addressable=" + (view->isAddressable ? "true" : "false"));
+           " addressable=" + (view->isAddressable ? "true" : "false") +
+           resultSemantics(*view));
       ++indent_;
       dump(*view->operand);
       --indent_;
@@ -548,7 +630,7 @@ private:
             dynamic_cast<const UserTemplateOpCallExpr *>(&expression)) {
       line("UserTemplateOpCallExpr template=" + call->templateName +
            " bytes=" + std::to_string(call->byteLength) +
-           " callee=" + call->callee);
+           " callee=" + call->callee + resultSemantics(*call));
       ++indent_;
       for (const auto &argument : call->arguments) {
         dump(*argument);
@@ -561,7 +643,7 @@ private:
             dynamic_cast<const UserTemplateFormatCallExpr *>(&expression)) {
       line("UserTemplateFormatCallExpr callee=" + call->callee + " sink=" +
            std::string(toString(call->sink)) + " bytes=" +
-           std::to_string(call->byteLength));
+           std::to_string(call->byteLength) + resultSemantics(*call));
       ++indent_;
       dump(*call->value);
       if (call->file) {
@@ -574,7 +656,8 @@ private:
     if (const auto *floating =
             dynamic_cast<const FloatBinaryExpr *>(&expression)) {
       line("FloatBinaryExpr op=" + floating->op +
-           " bytes=" + std::to_string(floating->byteLength));
+           " bytes=" + std::to_string(floating->byteLength) +
+           resultSemantics(*floating));
       ++indent_;
       dump(*floating->left);
       dump(*floating->right);
@@ -585,7 +668,8 @@ private:
     if (const auto *comparison =
             dynamic_cast<const FloatCompareExpr *>(&expression)) {
       line("FloatCompareExpr op=" + comparison->op +
-           " floatBytes=" + std::to_string(comparison->operandByteLength));
+           " floatBytes=" + std::to_string(comparison->operandByteLength) +
+           resultSemantics(*comparison));
       ++indent_;
       dump(*comparison->left);
       dump(*comparison->right);
@@ -595,7 +679,8 @@ private:
 
     if (const auto *conversion =
             dynamic_cast<const ToFloatExpr *>(&expression)) {
-      line("ToFloatExpr bytes=" + std::to_string(conversion->byteLength));
+      line("ToFloatExpr bytes=" + std::to_string(conversion->byteLength) +
+           resultSemantics(*conversion));
       ++indent_;
       dump(*conversion->operand);
       --indent_;
@@ -605,7 +690,8 @@ private:
     if (const auto *conversion = dynamic_cast<const ToIntExpr *>(&expression)) {
       line("ToIntExpr floatBytes=" +
            std::to_string(conversion->floatByteLength) +
-           " bytes=" + std::to_string(conversion->byteLength));
+           " bytes=" + std::to_string(conversion->byteLength) +
+           resultSemantics(*conversion));
       ++indent_;
       dump(*conversion->operand);
       --indent_;
@@ -621,9 +707,11 @@ private:
            " returnRule=" + std::string(stdlib::toString(call->returnMode)) +
            " overload=" + std::to_string(call->overloadIndex) +
            (call->templateName.empty() ? "" : " template=" + call->templateName) +
+           addressFactsText(call->addressFacts) +
            (call->formatArgumentKinds.empty()
                 ? ""
-                : " formatArgs=" + formatArgumentKinds(call->formatArgumentKinds)));
+                : " formatArgs=" + formatArgumentKinds(call->formatArgumentKinds)) +
+           resultSemantics(*call));
       ++indent_;
       for (const auto &argument : call->arguments) {
         dump(*argument);
@@ -634,7 +722,8 @@ private:
 
     if (const auto *dynamic =
             dynamic_cast<const DynamicByteViewExpr *>(&expression)) {
-      line("DynamicByteViewExpr op=" + std::string(toString(dynamic->operation)));
+      line("DynamicByteViewExpr op=" +
+           std::string(toString(dynamic->operation)) + resultSemantics(*dynamic));
       ++indent_;
       dump(*dynamic->source);
       if (dynamic->runtimeLength) {
@@ -645,7 +734,8 @@ private:
     }
 
     if (const auto *swap = dynamic_cast<const ByteSwapExpr *>(&expression)) {
-      line("ByteSwapExpr bytes=" + std::to_string(swap->byteLength));
+      line("ByteSwapExpr bytes=" + std::to_string(swap->byteLength) +
+           resultSemantics(*swap));
       ++indent_;
       dump(*swap->source);
       --indent_;
@@ -654,7 +744,8 @@ private:
 
     if (const auto *assignment =
             dynamic_cast<const AssignmentExpr *>(&expression)) {
-      line("AssignmentExpr bytes=" + std::to_string(assignment->byteLength));
+      line("AssignmentExpr bytes=" + std::to_string(assignment->byteLength) +
+           resultSemantics(*assignment));
       ++indent_;
       for (const auto &store : assignment->stores) {
         dump(*store);

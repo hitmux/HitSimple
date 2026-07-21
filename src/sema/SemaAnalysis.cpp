@@ -1,5 +1,6 @@
 #include "SemaAnalyzer.h"
 
+#include <iterator>
 #include <utility>
 
 namespace hitsimple::sema {
@@ -30,6 +31,7 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
   implMethodIndexes_.clear();
   userTemplateBindings_.clear();
   memberTemplateOverrides_.clear();
+  addressFacts_.clear();
   standardHeaders_ = options.standardHeaders;
   cCompatibilityMode_ = options.cCompatibilityMode;
   internalStandardModule_ = options.internalStandardModule;
@@ -176,6 +178,10 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
       std::move(globals_), std::move(structLayouts), std::move(viewTemplates),
       std::move(implOps), std::move(externFunctions), std::move(functions),
       std::move(globalInit));
+  auto viewDiagnostics = hir::verifyViewSemantics(*result_.unit);
+  result_.diagnostics.insert(result_.diagnostics.end(),
+                             std::make_move_iterator(viewDiagnostics.begin()),
+                             std::make_move_iterator(viewDiagnostics.end()));
   return std::move(result_);
 }
 
@@ -247,7 +253,8 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
       continue;
     }
     currentParameters_.emplace_back(symbol.name, symbol.bindingName,
-                                    symbol.byteLength);
+                                    fixedResult(symbol.templateName,
+                                                symbol.byteLength));
   }
 
   auto body = analyze(*function.body);
@@ -330,7 +337,8 @@ bool Analyzer::lowerImplOpBodies(
         continue;
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
-                                      symbol.byteLength);
+                                      fixedResult(symbol.templateName,
+                                                  symbol.byteLength));
     }
 
     auto body = analyze(*op->body);
@@ -358,6 +366,9 @@ bool Analyzer::lowerImplOpBodies(
     lowered->linkage = hir::Linkage::Internal;
     lowered->usesViewAbi = true;
     lowered->viewResultByteLength = info.returnByteLengths.front();
+    for (std::size_t index = 0; index < lowered->parameters.size(); ++index) {
+      lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;
+    }
     functions.push_back(std::move(lowered));
   }
   return true;
@@ -410,7 +421,8 @@ bool Analyzer::lowerImplMethodBodies(
         continue;
       }
       currentParameters_.emplace_back(symbol.name, symbol.bindingName,
-                                      symbol.byteLength);
+                                      fixedResult(symbol.templateName,
+                                                  symbol.byteLength));
     }
 
     auto body = analyze(*method->body);
@@ -439,7 +451,6 @@ bool Analyzer::lowerImplMethodBodies(
     lowered->usesViewAbi = true;
     lowered->viewResultByteLength =
         info.returnByteLengths.empty() ? 0U : info.returnByteLengths.front();
-    lowered->viewParametersAreCopies = true;
     functions.push_back(std::move(lowered));
   }
   return true;

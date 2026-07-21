@@ -52,7 +52,9 @@ void LlvmEmitter::emit(const hir::While &whileStmt) {
   }
   builder_.CreateCondBr(condition, bodyBlock, afterBlock);
 
-  loopTargets_.push_back(LoopTargets{afterBlock, conditionBlock});
+  loopTargets_.push_back(
+      LoopTargets{afterBlock, conditionBlock, runtimeScopeDepth_,
+                  runtimeScopeDepth_});
   builder_.SetInsertPoint(bodyBlock);
   emit(*whileStmt.body);
   if (!builder_.GetInsertBlock()->getTerminator()) {
@@ -70,6 +72,9 @@ void LlvmEmitter::emit(const hir::For &forStmt) {
   auto *bodyBlock = llvm::BasicBlock::Create(context_, "for.body", function);
   auto *postBlock = llvm::BasicBlock::Create(context_, "for.post", function);
   auto *afterBlock = llvm::BasicBlock::Create(context_, "for.end", function);
+
+  emitRuntimeScopeEnter();
+  ++runtimeScopeDepth_;
 
   if (forStmt.init) {
     emit(*forStmt.init);
@@ -92,7 +97,8 @@ void LlvmEmitter::emit(const hir::For &forStmt) {
     builder_.CreateBr(bodyBlock);
   }
 
-  loopTargets_.push_back(LoopTargets{afterBlock, postBlock});
+  loopTargets_.push_back(LoopTargets{afterBlock, postBlock, runtimeScopeDepth_,
+                                      runtimeScopeDepth_});
   builder_.SetInsertPoint(bodyBlock);
   emit(*forStmt.body);
   if (!builder_.GetInsertBlock()->getTerminator()) {
@@ -116,6 +122,8 @@ void LlvmEmitter::emit(const hir::For &forStmt) {
   loopTargets_.pop_back();
 
   builder_.SetInsertPoint(afterBlock);
+  emitRuntimeScopeExit();
+  --runtimeScopeDepth_;
 }
 
 void LlvmEmitter::emit(const hir::Goto &gotoStmt) {
@@ -124,6 +132,13 @@ void LlvmEmitter::emit(const hir::Goto &gotoStmt) {
     addDiagnostic("unknown label '" + gotoStmt.label + "'");
     return;
   }
+  const auto targetScope = labelScopeDepths_.find(gotoStmt.label);
+  if (targetScope == labelScopeDepths_.end() ||
+      targetScope->second > runtimeScopeDepth_) {
+    addDiagnostic("invalid lexical scope for label '" + gotoStmt.label + "'");
+    return;
+  }
+  emitRuntimeScopeExitTo(targetScope->second);
   builder_.CreateBr(found->second);
 }
 
@@ -144,6 +159,7 @@ void LlvmEmitter::emit(const hir::Throw &throwStmt) {
   if (catchTargets_.empty()) {
     auto exit = declareCFunction("exit", builder_.getVoidTy(),
                                  {builder_.getInt32Ty()});
+    emitRuntimeScopeExitTo(0);
     builder_.CreateCall(exit, {builder_.getInt32(1)});
     auto *function = builder_.GetInsertBlock()->getParent();
     if (function->getReturnType()->isVoidTy()) {
@@ -171,6 +187,7 @@ void LlvmEmitter::emit(const hir::Throw &throwStmt) {
   if (builder_.GetInsertBlock()->getTerminator()) {
     return;
   }
+  emitRuntimeScopeExitTo(target.scopeDepth);
   builder_.CreateBr(target.catchBlock);
 }
 
@@ -186,14 +203,16 @@ void LlvmEmitter::emit(const hir::TryCatch &tryCatch) {
                                                   tryCatch.errorBindingName);
   locals_.emplace(tryCatch.errorBindingName,
                   Local{errorStorage, errorStorageType,
-                        tryCatch.errorByteLength, std::nullopt});
+                        tryCatch.errorByteLength, std::nullopt,
+                        std::size_t{1}});
   registerLocalObject(errorStorage, tryCatch.errorByteLength);
 
   builder_.CreateBr(tryBlock);
 
   catchTargets_.push_back(CatchTarget{catchBlock, errorStorageType,
                                       errorStorage,
-                                      tryCatch.errorByteLength});
+                                      tryCatch.errorByteLength,
+                                      runtimeScopeDepth_});
   builder_.SetInsertPoint(tryBlock);
   emit(*tryCatch.tryBlock);
   catchTargets_.pop_back();
@@ -215,6 +234,7 @@ void LlvmEmitter::emitBreak() {
     addDiagnostic("break used outside of a loop");
     return;
   }
+  emitRuntimeScopeExitTo(loopTargets_.back().breakScopeDepth);
   builder_.CreateBr(loopTargets_.back().breakBlock);
 }
 
@@ -223,43 +243,46 @@ void LlvmEmitter::emitContinue() {
     addDiagnostic("continue used outside of a loop");
     return;
   }
+  emitRuntimeScopeExitTo(loopTargets_.back().continueScopeDepth);
   builder_.CreateBr(loopTargets_.back().continueBlock);
 }
 
 void LlvmEmitter::collectLabels(const hir::Block &block,
-                                llvm::Function &function) {
+                                llvm::Function &function,
+                                std::size_t scopeDepth) {
   for (const auto &statement : block.statements) {
-    collectLabels(*statement, function);
+    collectLabels(*statement, function, scopeDepth);
   }
 }
 
 void LlvmEmitter::collectLabels(const hir::Stmt &statement,
-                                llvm::Function &function) {
+                                llvm::Function &function,
+                                std::size_t scopeDepth) {
   if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
     for (const auto &item : list->statements) {
-      collectLabels(*item, function);
+      collectLabels(*item, function, scopeDepth);
     }
     return;
   }
   if (const auto *ifStmt = dynamic_cast<const hir::If *>(&statement)) {
-    collectLabels(*ifStmt->thenBlock, function);
+    collectLabels(*ifStmt->thenBlock, function, scopeDepth + 1U);
     if (ifStmt->elseBlock) {
-      collectLabels(*ifStmt->elseBlock, function);
+      collectLabels(*ifStmt->elseBlock, function, scopeDepth + 1U);
     }
     return;
   }
   if (const auto *whileStmt = dynamic_cast<const hir::While *>(&statement)) {
-    collectLabels(*whileStmt->body, function);
+    collectLabels(*whileStmt->body, function, scopeDepth + 1U);
     return;
   }
   if (const auto *forStmt = dynamic_cast<const hir::For *>(&statement)) {
     if (forStmt->init) {
-      collectLabels(*forStmt->init, function);
+      collectLabels(*forStmt->init, function, scopeDepth + 1U);
     }
     for (const auto &post : forStmt->post) {
-      collectLabels(*post, function);
+      collectLabels(*post, function, scopeDepth + 1U);
     }
-    collectLabels(*forStmt->body, function);
+    collectLabels(*forStmt->body, function, scopeDepth + 2U);
     return;
   }
   if (const auto *label = dynamic_cast<const hir::Label *>(&statement)) {
@@ -267,13 +290,14 @@ void LlvmEmitter::collectLabels(const hir::Stmt &statement,
       auto *block =
           llvm::BasicBlock::Create(context_, "label." + label->label, &function);
       labelBlocks_.emplace(label->label, block);
+      labelScopeDepths_.emplace(label->label, scopeDepth);
     }
-    collectLabels(*label->statement, function);
+    collectLabels(*label->statement, function, scopeDepth);
     return;
   }
   if (const auto *tryCatch = dynamic_cast<const hir::TryCatch *>(&statement)) {
-    collectLabels(*tryCatch->tryBlock, function);
-    collectLabels(*tryCatch->catchBlock, function);
+    collectLabels(*tryCatch->tryBlock, function, scopeDepth + 1U);
+    collectLabels(*tryCatch->catchBlock, function, scopeDepth + 1U);
   }
 }
 

@@ -37,7 +37,7 @@ HS_TEST(Sema_LowersTypedBinaryExpressionToHir) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
 
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=%d+ bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=%d+ bytes=1") != std::string::npos);
 }
 
 HS_TEST(Sema_LowersCompoundAssignmentToReadModifyWrite) {
@@ -54,7 +54,7 @@ HS_TEST(Sema_LowersCompoundAssignmentToReadModifyWrite) {
   const std::string dump = hitsimple::hir::dumpToString(*result.unit);
   HS_EXPECT_TRUE(dump.find("IntegerStore target=x binding=x bytes=1") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("BinaryExpr op=%d+ bytes=4") != std::string::npos);
+  HS_EXPECT_TRUE(dump.find("BinaryExpr op=%d+ bytes=1") != std::string::npos);
   HS_EXPECT_TRUE(dump.find("VariableRef name=x binding=x bytes=1") !=
                  std::string::npos);
 }

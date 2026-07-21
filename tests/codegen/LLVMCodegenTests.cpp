@@ -98,6 +98,61 @@ HS_TEST(LLVMCodegen_EmitsMinimalProgramIr) {
   HS_EXPECT_TRUE(result.llvmIr.find("ret i32 0") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_PreservesPointerDerivedAddressesAndScalarLocals) {
+  auto result = emitSource("func main() {\n"
+                           "    new values[64]\n"
+                           "    new index as u64 = 4\n"
+                           "    new pointer as addr = &values[index]\n"
+                           "    [1]*pointer = 42\n"
+                           "    return [1]*pointer - 42\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("alloca i64") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("alloca ptr") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr i8") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_PreservesImmediateAddressRebindingAsPointerArithmetic) {
+  auto result = emitSource("func main() {\n"
+                           "    new values[16]\n"
+                           "    new base as addr = &values[0]\n"
+                           "    new offset as u64 = 8\n"
+                           "    new derived as addr = base? + offset?\n"
+                           "    new restored as addr = derived? - offset?\n"
+                           "    [8]*restored = 42\n"
+                           "    return [8]*restored - 42\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr i8") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_KeepsAllocationAndReallocationAsPointersUntilObserved) {
+  auto result = emitSource("func main() {\n"
+                           "    new original as addr = alloc(8)\n"
+                           "    new resized as addr = realloc(original, 16)\n"
+                           "    free(resized)\n"
+                           "    return 0\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @malloc") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @realloc") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call void @free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_UsesNativeDebugFormatForTargetTriple) {
   const std::vector<std::pair<std::string, hitsimple::codegen::DebugInfoFormat>>
       targets = {
@@ -392,7 +447,7 @@ HS_TEST(LLVMCodegen_EmitsTypedBinaryIntegerOps) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("add i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("add i8") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find(", 2") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
 }
@@ -429,7 +484,7 @@ HS_TEST(LLVMCodegen_EmitsPrintfStringPointersAsVarargPointers) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr i64") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr i64") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsFileFormattedIoBuiltins) {
@@ -490,11 +545,12 @@ HS_TEST(LLVMCodegen_ReinterpretsTemporaryTemplateViewWithoutConversion) {
 
 HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> arguments;
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::IntegerLiteral>("0", sizeof(void *)));
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::StringLiteral>("\"%f\""));
-  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
+  arguments.push_back(std::make_unique<hitsimple::hir::IntegerLiteral>(
+      "0", hitsimple::hir::viewSemanticsForTemplate("addr", sizeof(void *))));
+  arguments.push_back(std::make_unique<hitsimple::hir::StringLiteral>(
+      "\"%f\"", hitsimple::hir::viewSemanticsForTemplate("cstr", 3)));
+  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>(
+      "1.5", hitsimple::hir::viewSemanticsForTemplate("f64", 8)));
 
   std::vector<std::unique_ptr<hitsimple::hir::Stmt>> statements;
   statements.push_back(std::make_unique<hitsimple::hir::Call>(
@@ -504,7 +560,8 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
           hitsimple::hir::FormatArgKind::String}));
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> returnValues;
   returnValues.push_back(
-      std::make_unique<hitsimple::hir::IntegerLiteral>("0", 4));
+      std::make_unique<hitsimple::hir::IntegerLiteral>(
+          "0", hitsimple::hir::viewSemanticsForTemplate("i32", 4)));
   statements.push_back(
       std::make_unique<hitsimple::hir::Return>(std::move(returnValues)));
 
@@ -527,16 +584,18 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
 
 HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForPrintfCallExpr) {
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> arguments;
-  arguments.push_back(
-      std::make_unique<hitsimple::hir::StringLiteral>("\"%f\""));
-  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>("1.5", 8));
+  arguments.push_back(std::make_unique<hitsimple::hir::StringLiteral>(
+      "\"%f\"", hitsimple::hir::viewSemanticsForTemplate("cstr", 3)));
+  arguments.push_back(std::make_unique<hitsimple::hir::FloatLiteral>(
+      "1.5", hitsimple::hir::viewSemanticsForTemplate("f64", 8)));
 
   std::vector<std::unique_ptr<hitsimple::hir::Expr>> returnValues;
   returnValues.push_back(std::make_unique<hitsimple::hir::CallExpr>(
-      "printf", std::move(arguments), 4, false,
+      "printf", std::move(arguments), false,
       hitsimple::stdlib::BuiltinId::Printf,
       std::vector<hitsimple::hir::FormatArgKind>{
-          hitsimple::hir::FormatArgKind::String}));
+          hitsimple::hir::FormatArgKind::String},
+      0, "i32", hitsimple::hir::viewSemanticsForTemplate("i32", 4)));
   std::vector<std::unique_ptr<hitsimple::hir::Stmt>> statements;
   statements.push_back(
       std::make_unique<hitsimple::hir::Return>(std::move(returnValues)));
@@ -581,8 +640,7 @@ HS_TEST(LLVMCodegen_EmitsCompoundAssignmentAsLoadOpStore) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(result.llvmIr.find("load i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("sext i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("add i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("add i8") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
 }
 
@@ -732,7 +790,7 @@ HS_TEST(LLVMCodegen_EmitsStageEIntegerExpressions) {
                            "    x = 2\n"
                            "    x = (x + 2) * (x - 1) << 1\n"
                            "    x = x ** 3\n"
-                           "    x = x? >= 8 ? ~x : -'a'\n"
+                           "    x = x? >= 8 ? ~x : -('a' %4d+ 0)\n"
                            "    x = true && !false || x == 0\n"
                            "    return x\n"
                            "}\n");
@@ -935,7 +993,7 @@ HS_TEST(LLVMCodegen_EmitsStageFStringAndBoolStores) {
   HS_EXPECT_TRUE(result.llvmIr.find("store i8 101") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8 108") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("store i8 0") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("icmp ne i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("icmp ne") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("zext i1") != std::string::npos);
 }
 
@@ -1046,9 +1104,9 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
                            "    new len = strlen(\"AB\")\n"
                            "    new cmp[4] = memcmp(ptr, ptr, 2)\n"
                            "    new off = strchr(\"AB\", 'B')\n"
-                           "    new swapped[2] = byte_swap(0x1234)\n"
-                           "    new lower[1] = 'a'\n"
-                           "    new up[1] = to_upper(lower)\n"
+                           "    new swapped[2] as bytes = byte_swap(0x1234 as bytes)\n"
+                           "    new lower[1] as u8 = 'a'\n"
+                           "    new up[1] as u8 = to_upper(lower)\n"
                            "    free(ptr)\n"
                            "    return len\n"
                            "}\n");
@@ -1062,7 +1120,7 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("call ptr @strchr") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@hs_strchr_offset") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("llvm.bswap") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_reverse_bytes") != std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("@toupper") == std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("ctype.to_upper") != std::string::npos);
 }
@@ -1257,14 +1315,456 @@ HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_CheckedGuardsViewDereferencesBeforeTheirReads) {
+  const auto options = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const auto condition = emitSource("func main() {\n"
+                                    "    new pointer as addr = alloc(1)\n"
+                                    "    if ([1]*pointer) {\n"
+                                    "        return 1\n"
+                                    "    }\n"
+                                    "    return 0\n"
+                                    "}\n",
+                                    options);
+  const auto copy = emitSource("func main() {\n"
+                               "    new pointer as addr = alloc(1)\n"
+                               "    new target[1] as bytes\n"
+                               "    target = [1]*pointer\n"
+                               "    return 0\n"
+                               "}\n",
+                               options);
+
+  HS_EXPECT_TRUE(condition.diagnostics.empty());
+  const auto conditionCheck =
+      condition.llvmIr.find("ptr %deref.view.value, i64 1)");
+  const auto conditionRead = condition.llvmIr.find("cond.value");
+  HS_EXPECT_TRUE(conditionCheck != std::string::npos);
+  HS_EXPECT_TRUE(conditionRead != std::string::npos);
+  HS_EXPECT_TRUE(conditionCheck < conditionRead);
+
+  HS_EXPECT_TRUE(copy.diagnostics.empty());
+  const auto copyCheck = copy.llvmIr.find("ptr %deref.view.value, i64 1)");
+  const auto copyRead = copy.llvmIr.find("llvm.memcpy");
+  HS_EXPECT_TRUE(copyCheck != std::string::npos);
+  HS_EXPECT_TRUE(copyRead != std::string::npos);
+  HS_EXPECT_TRUE(copyCheck < copyRead);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedRejectsNullViewDereferences) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto condition = emitSource("func main() {\n"
+                                    "    new pointer as addr = 0\n"
+                                    "    if ([1]*pointer) {\n"
+                                    "        return 1\n"
+                                    "    }\n"
+                                    "    return 0\n"
+                                    "}\n",
+                                    options);
+  const auto copy = emitSource("func main() {\n"
+                               "    new pointer as addr = 0\n"
+                               "    new target[1] as bytes\n"
+                               "    target = [1]*pointer\n"
+                               "    return 0\n"
+                               "}\n",
+                               options);
+
+  HS_EXPECT_TRUE(!condition.diagnostics.empty());
+  HS_EXPECT_TRUE(condition.diagnostics.front().message.find(
+                     "null address dereference") != std::string::npos);
+  HS_EXPECT_TRUE(!copy.diagnostics.empty());
+  HS_EXPECT_TRUE(copy.diagnostics.front().message.find(
+                     "null address dereference") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedTracksDynamicAddressLifetimes) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto interiorFree = emitSource("func main() {\n"
+                                       "    new pointer = alloc(2)\n"
+                                       "    new interior as addr = pointer? + 1\n"
+                                       "    free(interior)\n"
+                                       "    return 0\n"
+                                       "}\n",
+                                       options);
+  const auto doubleFree = emitSource("func main() {\n"
+                                     "    new pointer = alloc(1)\n"
+                                     "    free(pointer)\n"
+                                     "    free(pointer)\n"
+                                     "    return 0\n"
+                                     "}\n",
+                                     options);
+  const auto useAfterFree = emitSource("func main() {\n"
+                                       "    new pointer = alloc(1)\n"
+                                       "    free(pointer)\n"
+                                       "    return [1]*pointer\n"
+                                       "}\n",
+                                       options);
+  const auto useAfterRealloc =
+      emitSource("func main() {\n"
+                 "    new pointer = alloc(1)\n"
+                 "    new alias as addr = pointer\n"
+                 "    pointer = realloc(pointer, 2)\n"
+                 "    return [1]*alias\n"
+                 "}\n",
+                 options);
+  const auto reallocStaticStorage =
+      emitSource("func main() {\n"
+                 "    new local[1] as bytes\n"
+                 "    new pointer = realloc(&local, 2)\n"
+                 "    return 0\n"
+                 "}\n",
+                 options);
+  const auto freeStaticStorage = emitSource("func main() {\n"
+                                            "    new local[1] as bytes\n"
+                                            "    free(&local)\n"
+                                            "    return 0\n"
+                                            "}\n",
+                                            options);
+
+  HS_EXPECT_TRUE(!interiorFree.diagnostics.empty());
+  HS_EXPECT_TRUE(interiorFree.diagnostics.front().message.find(
+                     "free requires a dynamic-object base address") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!doubleFree.diagnostics.empty());
+  HS_EXPECT_TRUE(doubleFree.diagnostics.front().message.find("double free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!useAfterFree.diagnostics.empty());
+  HS_EXPECT_TRUE(useAfterFree.diagnostics.front().message.find("use after free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(useAfterRealloc.diagnostics.empty());
+  HS_EXPECT_TRUE(!reallocStaticStorage.diagnostics.empty());
+  HS_EXPECT_TRUE(reallocStaticStorage.diagnostics.front().message.find(
+                     "realloc requires a dynamic-object base address") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(!freeStaticStorage.diagnostics.empty());
+  HS_EXPECT_TRUE(freeStaticStorage.diagnostics.front().message.find(
+                     "free requires a dynamic-object base address") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedTracksSignedPointerOffsetRanges) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto staticBeforeBase = emitSource("func main() {\n"
+                                          "    new bytes[1] as bytes\n"
+                                          "    return [1]*((&bytes)? - 1)\n"
+                                          "}\n",
+                                          options);
+  const auto staticAtEnd = emitSource("func main() {\n"
+                                      "    new bytes[1] as bytes\n"
+                                      "    return [1]*((&bytes)? + 1)\n"
+                                      "}\n",
+                                      options);
+  const auto dynamicBeforeBase = emitSource("func main() {\n"
+                                           "    new pointer = alloc(1)\n"
+                                           "    return [1]*(pointer? - 1)\n"
+                                           "}\n",
+                                           options);
+  const auto dynamicAtEnd = emitSource("func main() {\n"
+                                       "    new pointer = alloc(1)\n"
+                                       "    return [1]*(pointer? + 1)\n"
+                                       "}\n",
+                                       options);
+  const auto returnsToBase = emitSource("func main() {\n"
+                                        "    new bytes[1] as bytes = 0\n"
+                                        "    new pointer as addr = (&bytes)? + 1\n"
+                                        "    return [1]*(pointer? - 1)\n"
+                                        "}\n",
+                                        options);
+
+  for (const auto *result : {&staticBeforeBase, &staticAtEnd,
+                             &dynamicBeforeBase, &dynamicAtEnd}) {
+    HS_EXPECT_TRUE(!result->diagnostics.empty());
+    HS_EXPECT_TRUE(result->diagnostics.front().message.find(
+                       "memory load out of bounds") != std::string::npos);
+  }
+  HS_EXPECT_TRUE(returnsToBase.diagnostics.empty());
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesAddressFactsAfterStorageRewrite) {
+  const auto options = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const auto result = emitSource("func main() -> i32 {\n"
+                                 "    new large[8] as bytes\n"
+                                 "    new pointer as addr = &large\n"
+                                 "    set pointer as f64\n"
+                                 "    pointer = 0.0\n"
+                                 "    set pointer as addr\n"
+                                 "    return [1]*pointer\n"
+                                 "}\n",
+                                 options);
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedRestoresGlobalSafetyBaselineForFunctions) {
+  const auto staticChecked =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto checked = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const auto globalOob = emitSource("new small[1] as bytes\n"
+                                    "new pointer as addr = &small\n"
+                                    "func inspect() -> i32 {\n"
+                                    "    return [2]*pointer\n"
+                                    "}\n"
+                                    "func main() -> i32 {\n"
+                                    "    return inspect()\n"
+                                    "}\n",
+                                    staticChecked);
+  const auto globalDoubleFree = emitSource("new pointer as addr = alloc(1)\n"
+                                           "func main() -> i32 {\n"
+                                           "    free(pointer)\n"
+                                           "    free(pointer)\n"
+                                           "    return 0\n"
+                                           "}\n",
+                                           staticChecked);
+  const auto distinctGlobalAndFunctionAllocations =
+      emitSource("new globalPointer as addr = alloc(1)\n"
+                 "func main() -> i32 {\n"
+                 "    new localPointer as addr = alloc(1)\n"
+                 "    free(globalPointer)\n"
+                 "    free(localPointer)\n"
+                 "    return 0\n"
+                 "}\n",
+                 staticChecked);
+  const auto knownGlobalLoad = emitSource("new small[1] as bytes\n"
+                                          "new pointer as addr = &small\n"
+                                          "func inspect() -> i32 {\n"
+                                          "    return [1]*pointer\n"
+                                          "}\n"
+                                          "func main() -> i32 {\n"
+                                          "    return inspect()\n"
+                                          "}\n",
+                                          checked);
+
+  HS_EXPECT_TRUE(!globalOob.diagnostics.empty());
+  HS_EXPECT_TRUE(globalOob.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+  HS_EXPECT_TRUE(!globalDoubleFree.diagnostics.empty());
+  HS_EXPECT_TRUE(globalDoubleFree.diagnostics.front().message.find("double free") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(distinctGlobalAndFunctionAllocations.diagnostics.empty());
+  HS_EXPECT_TRUE(knownGlobalLoad.diagnostics.empty());
+  HS_EXPECT_TRUE(knownGlobalLoad.llvmIr.find("@hs_check_load") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedUsesIntegerDataflowForDivision) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto knownZero = emitSource("func main() {\n"
+                                   "    new divisor as i32 = 0\n"
+                                   "    return 1 / divisor\n"
+                                   "}\n",
+                                   options);
+  const auto replacedWithNonZero = emitSource("func main() {\n"
+                                              "    new divisor as i32 = 0\n"
+                                              "    divisor = 1\n"
+                                              "    return 1 / divisor\n"
+                                              "}\n",
+                                              options);
+
+  HS_EXPECT_TRUE(!knownZero.diagnostics.empty());
+  HS_EXPECT_TRUE(knownZero.diagnostics.front().message.find(
+                     "division by zero") != std::string::npos);
+  HS_EXPECT_TRUE(replacedWithNonZero.diagnostics.empty());
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedMergesControlFlowSafetyFacts) {
+  const auto options =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto deadBranch = emitSource("func main() {\n"
+                                    "    new divisor as i32 = 1\n"
+                                    "    if (false) {\n"
+                                    "        divisor = 0\n"
+                                    "    }\n"
+                                    "    return 1 / divisor\n"
+                                    "}\n",
+                                    options);
+  const auto divergentBranches = emitSource(
+      "func divide(flag as i32) -> i32 {\n"
+      "    new divisor as i32 = 1\n"
+      "    if (flag) {\n"
+      "        divisor = 0\n"
+      "    } else {\n"
+      "        divisor = 1\n"
+      "    }\n"
+      "    return 1 / divisor\n"
+      "}\n"
+      "func main() {\n"
+      "    return divide(0)\n"
+      "}\n",
+      options);
+  const auto loopWrite = emitSource("func divide(flag as i32) -> i32 {\n"
+                                    "    new divisor as i32 = 1\n"
+                                    "    while (flag) {\n"
+                                    "        divisor = 0\n"
+                                    "    }\n"
+                                    "    return 1 / divisor\n"
+                                    "}\n"
+                                    "func main() {\n"
+                                    "    return divide(0)\n"
+                                    "}\n",
+                                    options);
+
+  HS_EXPECT_TRUE(deadBranch.diagnostics.empty());
+  HS_EXPECT_TRUE(divergentBranches.diagnostics.empty());
+  HS_EXPECT_TRUE(loopWrite.diagnostics.empty());
+}
+
+HS_TEST(LLVMCodegen_StaticSafetyTracksGotoEdges) {
+  const auto staticChecked =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto skippedAssignment = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    goto done\n"
+      "    p = &large\n"
+      "    done: return [2]*p\n"
+      "}\n",
+      staticChecked);
+
+  HS_EXPECT_TRUE(!skippedAssignment.diagnostics.empty());
+  HS_EXPECT_TRUE(skippedAssignment.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+
+  const auto nestedSkippedAssignment = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (true) {\n"
+      "        goto done\n"
+      "    }\n"
+      "    p = &large\n"
+      "    done: return [2]*p\n"
+      "}\n",
+      staticChecked);
+
+  HS_EXPECT_TRUE(!nestedSkippedAssignment.diagnostics.empty());
+  HS_EXPECT_TRUE(nestedSkippedAssignment.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+
+  const auto checked = emitSource(
+      "func main(flag as bool) -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (flag) {\n"
+      "        goto done\n"
+      "    }\n"
+      "    p = &large\n"
+      "    done: return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(checked.diagnostics.empty());
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticSafetyHonorsLogicalShortCircuitEffects) {
+  const auto staticChecked =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto shortCircuitAnd = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (false && (p = &large)) {}\n"
+      "    return [2]*p\n"
+      "}\n",
+      staticChecked);
+  const auto shortCircuitOr = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (true || (p = &large)) {}\n"
+      "    return [2]*p\n"
+      "}\n",
+      staticChecked);
+  const auto unknownLeft = emitSource(
+      "func main(flag as bool) -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (flag && (p = &large)) {}\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(!shortCircuitAnd.diagnostics.empty());
+  HS_EXPECT_TRUE(shortCircuitAnd.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+  HS_EXPECT_TRUE(!shortCircuitOr.diagnostics.empty());
+  HS_EXPECT_TRUE(shortCircuitOr.diagnostics.front().message.find(
+                    "memory load out of bounds") != std::string::npos);
+  HS_EXPECT_TRUE(unknownLeft.diagnostics.empty());
+  HS_EXPECT_TRUE(unknownLeft.llvmIr.find("@hs_check_load") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesUserTemplateAssignmentTargets) {
+  const auto result = emitSource(
+      "template Box {\n"
+      "    pointer[P] as addr\n"
+      "}\n"
+      "impl Box {\n"
+      "    op = (dst as Box, src as Box) -> [P] {\n"
+      "        dst.pointer = src.pointer\n"
+      "        return dst\n"
+      "    }\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new source as Box\n"
+      "    source.pointer = &small\n"
+      "    new target as Box\n"
+      "    target.pointer = &large\n"
+      "    target = source\n"
+      "    return [2]*target.pointer\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalsAfterUserTemplateFormatExpression) {
+  const auto result = emitSource(
+      "new small[1] as bytes\n"
+      "new large[8] as bytes\n"
+      "new p as addr = &large\n"
+      "template Writer {\n"
+      "    value[1] as bytes\n"
+      "}\n"
+      "impl Writer {\n"
+      "    op format(value as Writer, out as addr) -> [4] {\n"
+      "        p = &small\n"
+      "        return 0\n"
+      "    }\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new value as Writer\n"
+      "    new n = print(value as Writer)\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
   auto result =
       emitSource("func main() {\n"
-                 "    new source[3] = 0x030201\n"
+                 "    new source[3] as bytes = 'ABC'\n"
                  "    new requested[8] = 3\n"
-                 "    new resized[3] = resize_bytes(source, requested)\n"
-                 "    new swapped[3] = byte_swap(source)\n"
-                 "    return resized + swapped\n"
+                 "    new resized[3] as bytes = resize_bytes(source, requested)\n"
+                 "    new swapped[3] as bytes = byte_swap(source)\n"
+                 "    return 0\n"
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
@@ -1281,7 +1781,7 @@ HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
                            "    new compared = memcmp(destination, source, 4)\n"
                            "    new textLength = strlen(\"ok\")\n"
                            "    free(heap)\n"
-                           "    return copied + compared + textLength\n"
+                           "    return compared\n"
                            "}\n",
                            optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
@@ -1517,6 +2017,148 @@ HS_TEST(LLVMCodegen_CheckedSkipsRuntimeChecksForStaticAddressRanges) {
   HS_EXPECT_TRUE(result.llvmIr.find("store i32 42") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_CheckedInvalidatesFactsAfterIndirectWrites) {
+  const auto checked = optionsFor(hitsimple::codegen::SafetyMode::Checked);
+  const std::vector<std::pair<std::string_view, std::string_view>> cases = {
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new small[1] as bytes\n"
+       "    new p as addr = &large\n"
+       "    [8]*&p = &small\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new p as addr = &large\n"
+       "    memset(&p, 0, 8)\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new small[1] as bytes\n"
+       "    new p as addr = &large\n"
+       "    new replacement as addr = &small\n"
+       "    new copied as addr = memcpy(&p, &replacement, 8)\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new large[8] as bytes\n"
+       "    new small[1] as bytes\n"
+       "    new p as addr = &large\n"
+       "    new replacement as addr = &small\n"
+       "    new moved as addr = memmove(&p, &replacement, 8)\n"
+       "    return [2]*p\n"
+       "}\n",
+       "@hs_check_load"},
+      {"func main() -> i32 {\n"
+       "    new divisor as i64 = 0\n"
+       "    new file as handle\n"
+       "    new read as u64 = fread(divisor, 8, 1, file)\n"
+       "    new quotient as i64 = 1 / divisor\n"
+       "    return 0\n"
+       "}\n",
+       "@hs_checked_division_by_zero"}};
+
+  for (const auto &[source, requiredIr] : cases) {
+    const auto result = emitSource(source, checked);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.llvmIr.find(requiredIr) != std::string::npos);
+  }
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalFactsAfterOrdinaryCall) {
+  const auto result = emitSource(
+      "new large[8] as bytes\n"
+      "new small[1] as bytes\n"
+      "new p as addr = &large\n"
+      "func poison() {\n"
+      "    p = &small\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    poison()\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesEscapedLocalFactsAfterOrdinaryCall) {
+  const auto result = emitSource(
+      "new small[1] as bytes\n"
+      "func poison(slot as addr) {\n"
+      "    [8]*slot = &small\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &large\n"
+      "    poison(&p)\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesRhsSemanticsForAddressOffsetWidening) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new buffer[4] as bytes\n"
+      "    new base as addr = &buffer[1]\n"
+      "    new negative8 as i8 = -1\n"
+      "    new negative16 as i16 = -1\n"
+      "    new positive8 as u8 = 1\n"
+      "    new before8 as addr = base? + negative8\n"
+      "    new before16 as addr = base? + negative16\n"
+      "    new after as addr = base? + positive8\n"
+      "    [1]*before8 = 1\n"
+      "    [1]*before16 = 2\n"
+      "    [1]*after = 3\n"
+      "    return 0\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("sext i8") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("sext i16") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("zext i8") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedRejectsDistortedIntegerCastAddressFacts) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &large\n"
+      "    new narrowed as i32 = to_i32(p)\n"
+      "    new widened as u64 = to_u64(narrowed)\n"
+      "    new restored as addr = widened\n"
+      "    return [2]*restored\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticCheckedMergesReallocFailureWithSuccess) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new p as addr = alloc(1)\n"
+      "    new alias as addr = p\n"
+      "    p = realloc(p, 2)\n"
+      "    free(alias)\n"
+      "    return 0\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+}
+
 HS_TEST(LLVMCodegen_StaticCheckedDoesNotEmitRuntimeChecks) {
   auto options = optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
   auto result = emitSource("func main() {\n"
@@ -1564,7 +2206,7 @@ HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors) {
   auto staticPointerStore =
       emitSource("func main() {\n"
                  "    new a[4]\n"
-                 "    [1]*(&a + 4) = 1\n"
+                 "    [1]*((&a)? + 4) = 1\n"
                  "    return 0\n"
                  "}\n",
                  optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
@@ -1576,7 +2218,7 @@ HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors) {
   auto staticPointerLoad =
       emitSource("func main() {\n"
                  "    new a[4]\n"
-                 "    return [1]*(&a + 4)\n"
+                 "    return [1]*((&a)? + 4)\n"
                  "}\n",
                  optionsFor(hitsimple::codegen::SafetyMode::Checked));
   HS_EXPECT_TRUE(!staticPointerLoad.diagnostics.empty());
@@ -2262,4 +2904,89 @@ HS_TEST(LLVMCodegen_EmitsAddressOfStaticAndGlobalMemory) {
                  std::string::npos);
   HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint (ptr @local to i64)") !=
                  std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesSourceSemanticsForIntegerWidening) {
+  auto result = emitSource("func widen(value as u32) -> u64 {\n"
+                           "    return value\n"
+                           "}\n"
+                           "func main() {\n"
+                           "    new source as u32 = 16\n"
+                           "    new stored as u64 = source\n"
+                           "    new returned as u64 = widen(source)\n"
+                           "    new address as addr = alloc(source)\n"
+                           "    free(address)\n"
+                           "    return stored + returned\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("zext i32") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("sext i32") == std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @malloc(i64") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_LowersBooleanTestsForCompleteStaticAndDynamicViews) {
+  auto result = emitSource("func main() {\n"
+                           "    new wide as u64 = 4294967296\n"
+                           "    new fixed[3] as bytes\n"
+                           "    fixed[2] = 1\n"
+                           "    new length as u64 = 3\n"
+                           "    if (wide) { }\n"
+                           "    if (fixed) { }\n"
+                           "    if (resize_bytes(fixed, length)) { }\n"
+                           "    return 0\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %wide") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("cond.byte.nonzero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_view_any_nonzero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("trunc i64 to i32") ==
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_UsesOnlyProvenAlignmentForPackedViews) {
+  auto result = emitSource("template Packed {\n"
+                           "    marker[1] as u8\n"
+                           "    value[8] as u64\n"
+                           "}\n"
+                           "func main() {\n"
+                           "    new packed as Packed\n"
+                           "    packed.value = 1\n"
+                           "    new copied as u64 = packed.value\n"
+                           "    return copied\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("store i64 1, ptr %packed.addr, align 1") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %packed.addr") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %packed.addr1, align 1") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedArithmeticGuardsAvoidPoison) {
+  auto result = emitSource("func arithmetic(divisor as i32, count as i32, "
+                           "exponent as i32) -> i32 {\n"
+                           "    return 1 / divisor + (1 << count) + (2 ** exponent)\n"
+                           "}\n"
+                           "func main() {\n"
+                           "    return arithmetic(1, 0, 0)\n"
+                           "}\n",
+                           optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_division_by_zero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_negative_shift") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_negative_exponent") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("div.special") != std::string::npos);
+  HS_EXPECT_TRUE(result.llvmIr.find("phi i32") != std::string::npos);
 }

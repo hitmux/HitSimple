@@ -41,7 +41,9 @@ bool isI64MinLiteral(const ast::Expr &expr) {
 
 std::unique_ptr<hir::Expr> lowerI64MinLiteral() {
   return std::make_unique<hir::UnaryExpr>(
-      "-", std::make_unique<hir::IntegerLiteral>("9223372036854775808", 8), 8);
+      "-", std::make_unique<hir::IntegerLiteral>("9223372036854775808",
+                                                   signedIntegerResult(8)),
+      signedIntegerResult(8));
 }
 
 bool unsignedIntegerFits(const ast::IntegerLiteral &integer,
@@ -65,14 +67,16 @@ lowerCompoundPointerValue(std::unique_ptr<hir::Expr> address,
                           std::string_view op,
                           bool unsignedTarget) {
   std::unique_ptr<hir::Expr> left =
-      std::make_unique<hir::DerefExpr>(std::move(address), targetByteLength);
+      std::make_unique<hir::DerefExpr>(
+          std::move(address), fixedResult({}, targetByteLength, true, true));
   if (unsignedTarget) {
     left = std::make_unique<hir::UnsignedExpr>(std::move(left),
-                                               targetByteLength);
+                                               unsignedIntegerResult(targetByteLength));
   }
   return std::make_unique<hir::BinaryExpr>(
       std::move(left), compoundBinaryOperator(op), std::move(loweredValue),
-      assignmentOp.byteLength);
+      unsignedTarget ? unsignedIntegerResult(assignmentOp.byteLength)
+                     : signedIntegerResult(assignmentOp.byteLength));
 }
 
 } // namespace
@@ -161,12 +165,13 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
         if (lastTarget != nullptr) {
           lowered.byteLength = lastTarget->byteLength;
           lowered.result = std::make_unique<hir::VariableRef>(
-              lastTarget->name, lastTarget->bindingName,
-              lastTarget->byteLength, lastTarget->storage,
-              lastTarget->templateName);
+              lastTarget->name, lastTarget->bindingName, lastTarget->storage,
+              fixedResult(lastTarget->templateName, lastTarget->byteLength,
+                          true, true));
         } else {
           lowered.byteLength = 1;
-          lowered.result = std::make_unique<hir::IntegerLiteral>("0", 1);
+          lowered.result = std::make_unique<hir::IntegerLiteral>(
+              "0", signedIntegerResult(1));
         }
         return lowered;
       }
@@ -222,11 +227,13 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
   if (lastTarget != nullptr) {
     lowered.byteLength = lastTarget->byteLength;
     lowered.result = std::make_unique<hir::VariableRef>(
-        lastTarget->name, lastTarget->bindingName, lastTarget->byteLength,
-        lastTarget->storage, lastTarget->templateName);
+        lastTarget->name, lastTarget->bindingName, lastTarget->storage,
+        fixedResult(lastTarget->templateName, lastTarget->byteLength, true,
+                    true));
   } else {
     lowered.byteLength = 1;
-    lowered.result = std::make_unique<hir::IntegerLiteral>("0", 1);
+    lowered.result = std::make_unique<hir::IntegerLiteral>(
+        "0", signedIntegerResult(1));
   }
   return lowered;
 }
@@ -246,17 +253,40 @@ Analyzer::lowerFixedViewAssignment(
                     " is not supported yet for '" + target.name + "'");
       return std::nullopt;
     }
-    auto floatingValue = analyzeFloatOperand(value, target.byteLength);
+    std::unique_ptr<hir::Expr> floatingValue;
+    const auto sourceTemplateName = operatorTemplateName(value).value_or("");
+    if (isFloatTemplate(sourceTemplateName)) {
+      auto source = analyze(value);
+      if (!source || !hir::isFloatingNumeric(source->result)) {
+        addDiagnostic("floating assignment source is not a floating View");
+        return std::nullopt;
+      }
+      if (source->result.staticByteLength == target.byteLength) {
+        floatingValue = std::move(source);
+      } else {
+        floatingValue = std::make_unique<hir::ToFloatExpr>(
+            std::move(source), false, true,
+            fixedResult(target.templateName, target.byteLength));
+      }
+    } else {
+      floatingValue = analyzeFloatOperand(value, target.byteLength);
+    }
     if (!floatingValue) {
       return std::nullopt;
     }
-    const auto sourceLength = inferByteLength(value);
+    const auto sourceLength =
+        floatingValue->result.lengthKind == hir::ViewLengthKind::Static
+            ? std::optional<std::size_t>{floatingValue->result.staticByteLength}
+            : inferByteLength(value);
     if (!sourceLength || *sourceLength == 0) {
       addDiagnostic(std::string(lengthDiagnosticSubject) +
                     " requires a fixed positive byte length");
       return std::nullopt;
     }
-    std::string sourceTemplate = operatorTemplateName(value).value_or("");
+    std::string sourceTemplate = floatingValue->result.templateName;
+    if (sourceTemplate.empty()) {
+      sourceTemplate = operatorTemplateName(value).value_or("");
+    }
     if (dynamic_cast<const ast::FloatLiteral *>(&value) != nullptr) {
       sourceTemplate = "f" + std::to_string(*sourceLength * 8U);
     }
@@ -289,9 +319,24 @@ Analyzer::lowerFixedViewAssignment(
       addDiagnostic("default user template assignment requires matching templates");
       return std::nullopt;
     }
+    if (loweredValue->result.lengthKind != hir::ViewLengthKind::Static ||
+        loweredValue->result.staticByteLength != target.byteLength) {
+      addDiagnostic("user template assignment requires matching template byte length");
+      return std::nullopt;
+    }
+    return FixedViewAssignmentLowering{std::move(loweredValue),
+                                       std::string(target.templateName),
+                                       target.byteLength, false};
   }
 
   auto sourceLength = inferByteLength(value);
+  // A pointer-derived address retains its pointer-sized View even when the
+  // source spelling used postfix `?` to form the byte offset expression.
+  // The AST-only length inference cannot recover that fact reliably.
+  if (target.templateName == "addr" &&
+      loweredValue->result.category == hir::ViewCategory::Address) {
+    sourceLength = loweredValue->result.staticByteLength;
+  }
   if (!sourceLength) {
     sourceLength = integerExpressionByteLength(*loweredValue);
   }
@@ -335,6 +380,12 @@ Analyzer::lowerFixedViewAssignment(
                   std::to_string(target.byteLength));
     return std::nullopt;
   }
+  if ((isSignedTemplate(target.templateName) ||
+       isUnsignedTemplate(target.templateName)) &&
+      loweredValue->result.category == hir::ViewCategory::Address) {
+    addDiagnostic("integer default assignment does not accept an addr View");
+    return std::nullopt;
+  }
   if (!isIntegerExpression(*loweredValue)) {
     addDiagnostic("right operand of '=' is not an integer expression");
     return std::nullopt;
@@ -342,11 +393,46 @@ Analyzer::lowerFixedViewAssignment(
 
   if (*sourceLength != target.byteLength) {
     loweredValue = std::make_unique<hir::IntegerCastExpr>(
-        std::move(loweredValue), target.byteLength, true);
+        std::move(loweredValue), true, signedIntegerResult(target.byteLength));
   }
   return FixedViewAssignmentLowering{std::move(loweredValue),
                                      std::move(sourceTemplate),
                                      target.byteLength, false};
+}
+
+std::unique_ptr<hir::Expr>
+Analyzer::preservePointerDerivedAddress(std::unique_ptr<hir::Expr> expression) {
+  if (!expression) {
+    return nullptr;
+  }
+
+  auto *binary = dynamic_cast<hir::BinaryExpr *>(expression.get());
+  if (binary == nullptr || (binary->op != "+" && binary->op != "-")) {
+    return expression;
+  }
+
+  auto *base = dynamic_cast<hir::UnsignedExpr *>(binary->left.get());
+  if (base == nullptr || base->operand == nullptr ||
+      base->operand->result.category != hir::ViewCategory::Address ||
+      !binary->right || !hir::isIntegerNumeric(binary->right->result)) {
+    return expression;
+  }
+
+  const std::string offsetOp = binary->op;
+  auto byteOffset = std::move(binary->right);
+  if (offsetOp == "-" &&
+      binary->operationKind != hir::StandardOperationKind::AddressOffset) {
+    byteOffset = std::make_unique<hir::UnaryExpr>(
+        "-", std::move(byteOffset), signedIntegerResult(pointerByteLength()));
+  }
+
+  // This transformation is only called for a default assignment directly to
+  // an addr binding.  Integer observations retain their opaque semantics;
+  // this rebind instead preserves the known pointer base for codegen.
+  return std::make_unique<hir::BinaryExpr>(
+      std::move(base->operand), offsetOp, std::move(byteOffset),
+      fixedResult("addr", pointerByteLength()),
+      hir::StandardOperationKind::AddressOffset);
 }
 
 std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
@@ -580,6 +666,17 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
                                 target->templateName};
   }
 
+  if (!loweredValue && op != "&=") {
+    loweredValue = analyze(value);
+    if (!loweredValue) {
+      return nullptr;
+    }
+  }
+
+  if (op == "=" && targetRef.templateName == "addr" && loweredValue) {
+    loweredValue = preservePointerDerivedAddress(std::move(loweredValue));
+  }
+
   const bool targetIsHandle = targetRef.templateName == "handle";
   const bool valueIsHandle = isHandleExpression(value);
   if (targetIsHandle) {
@@ -629,6 +726,41 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
         targetRef.storage, targetRef.offset, std::move(address));
   }
 
+  if (op == "=" && targetRef.templateName == "bytes") {
+    if (!loweredValue) {
+      loweredValue = analyze(value);
+      if (!loweredValue) {
+        return nullptr;
+      }
+    }
+    if (loweredValue->result.lengthKind == hir::ViewLengthKind::Static &&
+        loweredValue->result.staticByteLength != targetRef.byteLength) {
+      addDiagnostic("bytes assignment requires an equal-length source View");
+      return nullptr;
+    }
+    const auto sourceSemantics = loweredValue->result;
+    return std::make_unique<hir::ViewCopyStore>(
+        targetRef.name, targetRef.bindingName, targetRef.byteLength,
+        targetRef.storage, targetRef.offset, std::move(loweredValue),
+        hir::ConversionPlan{hir::ConversionKind::ByteCopy,
+                            sourceSemantics,
+                            fixedResult("bytes", targetRef.byteLength)});
+  }
+
+  if (op == "=" && targetRef.templateName == "bool") {
+    if (!loweredValue) {
+      loweredValue = analyze(value);
+      if (!loweredValue) {
+        return nullptr;
+      }
+    }
+    auto boolean = std::make_unique<hir::BooleanTestExpr>(
+        std::move(loweredValue), booleanResult());
+    return std::make_unique<hir::BoolStore>(
+        targetRef.name, targetRef.bindingName, targetRef.byteLength,
+        targetRef.storage, targetRef.offset, std::move(boolean));
+  }
+
   if (op == "=" && templates_.contains(targetRef.templateName)) {
     auto fixed = lowerFixedViewAssignment(
         targetRef, value, std::move(loweredValue), lengthDiagnosticSubject,
@@ -648,12 +780,21 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
       }
       std::vector<std::unique_ptr<hir::Expr>> arguments;
       arguments.push_back(std::make_unique<hir::VariableRef>(
-          targetRef.name, targetRef.bindingName, targetRef.byteLength,
-          targetRef.storage, targetRef.offset, targetRef.templateName));
+          targetRef.name, targetRef.bindingName, targetRef.storage,
+          targetRef.offset,
+          fixedResult(targetRef.templateName, targetRef.byteLength, true, true)));
       arguments.push_back(std::move(loweredValue));
       return std::make_unique<hir::UserTemplateOpCall>(
           info.symbolName, std::move(arguments), info.returnByteLengths.front());
     }
+    return std::make_unique<hir::ViewCopyStore>(
+        targetRef.name, targetRef.bindingName, targetRef.byteLength,
+        targetRef.storage, targetRef.offset, std::move(loweredValue),
+        hir::ConversionPlan{hir::ConversionKind::UserTemplateAssignment,
+                            fixedResult(targetRef.templateName,
+                                        targetRef.byteLength),
+                            fixedResult(targetRef.templateName,
+                                        targetRef.byteLength)});
   }
 
   if (op == "%s=" || (op == "=" && targetRef.templateName == "cstr")) {
@@ -688,15 +829,16 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
   }
 
   if (op == "%b=") {
-    if (!isIntegerExpression(*loweredValue)) {
-      addDiagnostic("right operand of '%b=' is not an integer expression");
+    if (!loweredValue || !hir::isBooleanTestable(loweredValue->result)) {
+      addDiagnostic("right operand of '%b=' cannot form a View");
       return nullptr;
     }
+    auto boolean = std::make_unique<hir::BooleanTestExpr>(
+        std::move(loweredValue), booleanResult());
     return std::make_unique<hir::BoolStore>(targetRef.name, targetRef.bindingName,
                                             targetRef.byteLength,
                                             targetRef.storage,
-                                            targetRef.offset,
-                                            std::move(loweredValue));
+                                            targetRef.offset, std::move(boolean));
   }
 
   if (op == "=" && !templates_.contains(targetRef.templateName)) {
@@ -707,13 +849,34 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
       return nullptr;
     }
     if (fixed->isFloating) {
-      return std::make_unique<hir::FloatStore>(
+      auto store = std::make_unique<hir::FloatStore>(
           targetRef.name, targetRef.bindingName, targetRef.byteLength,
           targetRef.storage, targetRef.offset, std::move(fixed->value));
+      store->conversionPlan = hir::ConversionPlan{
+          hir::ConversionKind::Floating,
+          store->value->result,
+          fixedResult(targetRef.templateName, targetRef.byteLength)};
+      return store;
     }
-    return std::make_unique<hir::IntegerStore>(
+    auto store = std::make_unique<hir::IntegerStore>(
         targetRef.name, targetRef.bindingName, targetRef.byteLength,
         targetRef.storage, targetRef.offset, std::move(fixed->value));
+    const auto destination =
+        fixedResult(targetRef.templateName, targetRef.byteLength);
+    store->conversionPlan = hir::ConversionPlan{
+        store->value->result.category == destination.category &&
+                store->value->result.integerInterpretation ==
+                    destination.integerInterpretation &&
+                store->value->result.staticByteLength == targetRef.byteLength &&
+                store->value->result.templateName == targetRef.templateName
+            ? hir::ConversionKind::Identity
+            : hir::ConversionKind::IntegerWidth,
+        store->value->result,
+        destination};
+    if (targetRef.templateName == "addr") {
+      recordAddressFacts(targetRef.bindingName, *store->value);
+    }
+    return store;
   }
 
   const auto floatLength = floatAssignmentByteLength(op);
@@ -742,7 +905,7 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
         targetRef.storage, targetRef.offset, std::move(floatValue));
   }
 
-  const auto assignmentOp =
+  auto assignmentOp =
       op == "=" ? std::optional<AssignmentOperator>{AssignmentOperator{
                     targetRef.byteLength, '\0'}}
                 : integerAssignmentOperator(op);
@@ -766,16 +929,24 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
                     "' is not an integer expression");
       return nullptr;
     }
+    if (op.size() > 2U && op.front() == '%' &&
+        (op[1] == 'd' || op[1] == 'u')) {
+      assignmentOp->byteLength = std::max(
+          targetRef.byteLength,
+          integerExpressionByteLength(*loweredValue).value_or(0));
+    }
     std::unique_ptr<hir::Expr> left = std::make_unique<hir::VariableRef>(
-        targetRef.name, targetRef.bindingName, targetRef.byteLength,
-        targetRef.storage, targetRef.offset, targetRef.templateName);
+        targetRef.name, targetRef.bindingName, targetRef.storage,
+        targetRef.offset,
+        fixedResult(targetRef.templateName, targetRef.byteLength, true, true));
     if (unsignedTarget) {
       left = std::make_unique<hir::UnsignedExpr>(std::move(left),
-                                                 targetRef.byteLength);
+                                                 unsignedIntegerResult(targetRef.byteLength));
     }
     auto compoundValue = std::make_unique<hir::BinaryExpr>(
         std::move(left), compoundBinaryOperator(op), std::move(loweredValue),
-        assignmentOp->byteLength);
+        unsignedTarget ? unsignedIntegerResult(assignmentOp->byteLength)
+                       : signedIntegerResult(assignmentOp->byteLength));
     return std::make_unique<hir::IntegerStore>(
         targetRef.name, targetRef.bindingName, targetRef.byteLength,
         targetRef.storage, targetRef.offset,
@@ -798,7 +969,7 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
           targetRef.name, targetRef.bindingName, targetRef.byteLength,
           targetRef.storage, targetRef.offset,
           std::make_unique<hir::IntegerLiteral>(integer->value,
-                                                targetRef.byteLength));
+              fixedResult(targetRef.templateName, targetRef.byteLength)));
     }
   }
 
@@ -897,11 +1068,13 @@ Analyzer::analyzeCompoundAssign(const ast::AssignStmt &assign,
   }
 
   auto left = std::make_unique<hir::VariableRef>(
-      target.name, target.bindingName, target.byteLength, target.storage,
-      target.templateName);
+      target.name, target.bindingName, target.storage,
+      fixedResult(target.templateName, target.byteLength, true, true));
   auto value = std::make_unique<hir::BinaryExpr>(
       std::move(left), compoundBinaryOperator(assign.op), std::move(right),
-      assignmentOp.byteLength);
+      isUnsignedTemplate(target.templateName)
+          ? unsignedIntegerResult(assignmentOp.byteLength)
+          : signedIntegerResult(assignmentOp.byteLength));
 
   return std::make_unique<hir::IntegerStore>(target.name, target.bindingName,
                                              target.byteLength, target.storage,

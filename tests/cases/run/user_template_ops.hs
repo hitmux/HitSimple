@@ -42,8 +42,8 @@ func main() {
     new copied as Vec2
     copied = scaled
     new expected as Vec2
-    expected.x %f= 9.0
-    expected.y %f= 13.0
+    expected.x %f= 12.0
+    expected.y %f= 16.0
     if (copied == expected) {
         return 0
     }

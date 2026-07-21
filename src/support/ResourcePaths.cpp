@@ -120,4 +120,16 @@ std::filesystem::path bundledClangPath() {
 #endif
 }
 
+std::filesystem::path bundledLlvmArPath() {
+#ifdef _WIN32
+  return resolvePath("HITSIMPLE_BUNDLED_LLVM_AR",
+                     "toolchain/bin/x86_64-w64-mingw32-llvm-ar.exe",
+                     "toolchain/bin/x86_64-w64-mingw32-llvm-ar.exe");
+#else
+  return resolvePath("HITSIMPLE_BUNDLED_LLVM_AR",
+                     "toolchain/bin/llvm-ar",
+                     "toolchain/bin/llvm-ar");
+#endif
+}
+
 } // namespace hitsimple::support

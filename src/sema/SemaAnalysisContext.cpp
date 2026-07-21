@@ -755,8 +755,74 @@ void Analyzer::beginScope() { scopes_.emplace_back(); }
 
 void Analyzer::endScope() {
   if (!scopes_.empty()) {
+    for (const auto &[name, symbol] : scopes_.back()) {
+      (void)name;
+      addressFacts_.erase(symbol.bindingName);
+    }
     scopes_.pop_back();
   }
+}
+
+std::optional<hir::AddressFacts>
+Analyzer::addressFactsFor(const hir::Expr &expression) const {
+  if (const auto *address = dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
+    return address->facts;
+  }
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    if (variable->addressFacts) {
+      return variable->addressFacts;
+    }
+    const auto found = addressFacts_.find(variable->bindingName);
+    return found == addressFacts_.end() ? std::nullopt : found->second;
+  }
+  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
+    return binary->addressFacts;
+  }
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
+    return call->addressFacts;
+  }
+  if (const auto *unsignedValue =
+          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
+    return addressFactsFor(*unsignedValue->operand);
+  }
+  if (const auto *cast = dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
+    return addressFactsFor(*cast->operand);
+  }
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return addressFactsFor(*view->operand);
+  }
+  return std::nullopt;
+}
+
+void Analyzer::recordAddressFacts(std::string_view bindingName,
+                                  const hir::Expr &expression) {
+  addressFacts_[std::string(bindingName)] = addressFactsFor(expression);
+}
+
+void Analyzer::clearAddressFacts(std::string_view bindingName) {
+  addressFacts_[std::string(bindingName)] = std::nullopt;
+}
+
+void Analyzer::mergeAddressFacts(
+    const std::unordered_map<std::string, std::optional<hir::AddressFacts>> &left,
+    const std::unordered_map<std::string, std::optional<hir::AddressFacts>> &right) {
+  const auto sameFacts = [](const std::optional<hir::AddressFacts> &lhs,
+                            const std::optional<hir::AddressFacts> &rhs) {
+    return lhs.has_value() == rhs.has_value() &&
+           (!lhs || (lhs->origin == rhs->origin &&
+                     lhs->knownExtent == rhs->knownExtent &&
+                     lhs->knownAlignment == rhs->knownAlignment &&
+                     lhs->isBaseAddress == rhs->isBaseAddress));
+  };
+
+  std::unordered_map<std::string, std::optional<hir::AddressFacts>> merged;
+  for (const auto &[bindingName, fact] : left) {
+    const auto other = right.find(bindingName);
+    if (other != right.end() && sameFacts(fact, other->second)) {
+      merged.emplace(bindingName, fact);
+    }
+  }
+  addressFacts_ = std::move(merged);
 }
 
 Symbol *Analyzer::lookup(std::string_view name) {
@@ -805,6 +871,9 @@ bool Analyzer::declare(std::string_view name, std::size_t byteLength,
   }
   out = Symbol{key, std::move(bindingName), byteLength, storage,
                std::move(templateName), currentRange_};
+  if (out.templateName == "addr") {
+    clearAddressFacts(out.bindingName);
+  }
   if (templates_.find(out.templateName) != templates_.end()) {
     userTemplateBindings_[out.bindingName] = out.templateName;
   }
@@ -1074,6 +1143,10 @@ bool Analyzer::collectImplOps(const ast::TranslationUnit &unit,
             templates_.contains(item.templateName));
         if (!item.templateName.empty()) {
           returnTemplateNames.push_back(item.templateName);
+        } else if (op.op == "format") {
+          // `op format` is a fixed i32 protocol result, not an instance of
+          // the owning user template.
+          returnTemplateNames.emplace_back("i32");
         } else if (op.op == "==" || op.op == "!=" || op.op == "<" ||
                    op.op == "<=" || op.op == ">" || op.op == ">=") {
           returnTemplateNames.emplace_back("bool");
@@ -1489,9 +1562,12 @@ Analyzer::lowerIndexAddress(const ast::IndexExpr &expr) {
   }
   auto base = std::make_unique<hir::AddressOfExpr>(
       reference->name, reference->bindingName, reference->byteLength,
-      reference->storage, reference->offset, pointerByteLength());
+      reference->storage, reference->offset,
+      fixedResult("addr", pointerByteLength()));
   return std::make_unique<hir::BinaryExpr>(
-      std::move(base), "+", std::move(index), pointerByteLength());
+      std::move(base), "+", std::move(index),
+      fixedResult("addr", pointerByteLength()),
+      hir::StandardOperationKind::AddressOffset);
 }
 
 std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
@@ -1543,10 +1619,13 @@ std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
 
   auto base = std::make_unique<hir::AddressOfExpr>(
       reference->name, reference->bindingName, reference->byteLength,
-      reference->storage, reference->offset, pointerByteLength());
+      reference->storage, reference->offset,
+      fixedResult("addr", pointerByteLength()));
   SliceLowering lowered;
   lowered.address = std::make_unique<hir::BinaryExpr>(
-      std::move(base), "+", std::move(start), pointerByteLength());
+      std::move(base), "+", std::move(start),
+      fixedResult("addr", pointerByteLength()),
+      hir::StandardOperationKind::AddressOffset);
   lowered.byteLength = byteLength;
   return lowered;
 }
@@ -1557,6 +1636,26 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
     return inferByteLength(*asExpr->operand);
   }
   if (const auto *binary = dynamic_cast<const ast::BinaryExpr *>(&expression)) {
+    if (const auto floatLength = floatByteLengthForOperator(binary->op)) {
+      if (*floatLength != 0U) {
+        return *floatLength;
+      }
+      const auto leftLength = inferByteLength(*binary->left);
+      const auto rightLength = inferByteLength(*binary->right);
+      if (leftLength && rightLength) {
+        return std::max(*leftLength, *rightLength);
+      }
+    }
+    if (const auto integerLength = integerByteLengthForOperator(binary->op)) {
+      if (*integerLength != 0U) {
+        return *integerLength;
+      }
+      const auto leftLength = inferByteLength(*binary->left);
+      const auto rightLength = inferByteLength(*binary->right);
+      if (leftLength && rightLength) {
+        return std::max(*leftLength, *rightLength);
+      }
+    }
     const auto leftTemplate = operatorTemplateName(*binary->left);
     const auto rightTemplate = operatorTemplateName(*binary->right);
     if (leftTemplate && rightTemplate) {

@@ -31,10 +31,8 @@ int Registry::runAll(std::ostream& out,
       continue;
     }
     ++selected;
-    out << "[RUN] " << test.name << '\n' << std::flush;
     try {
       test.run();
-      out << "[PASS] " << test.name << '\n' << std::flush;
     } catch (const Failure& failure) {
       ++failures;
       out << "[FAIL] " << test.name << ": " << failure.message() << '\n'
@@ -42,7 +40,11 @@ int Registry::runAll(std::ostream& out,
     }
   }
 
-  out << selected << " tests, " << failures << " failures\n";
+  out << selected - failures << '/' << selected << " PASS";
+  if (failures != 0) {
+    out << ", " << failures << " FAIL";
+  }
+  out << '\n';
   return failures == 0 ? 0 : 1;
 }
 

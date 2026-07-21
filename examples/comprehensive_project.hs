@@ -110,7 +110,7 @@ func arithmetic_checks() -> [4] {
     value = value >> 1
     value = (value & 0xff) | 0x10
     value = value ^ 0x03
-    value = value? >= 0 ? value : 0
+    value = value? >= 0 ? value : 0 %4d+ 0
 
     if (quotient != 3 || remainder != 2) {
         return 10
@@ -226,18 +226,15 @@ func string_checks() -> [4] {
 }
 
 func stdlib_numeric_checks() -> [4] {
-    new swapped[2] = byte_swap(0x1234)
-    new raw[1] = resize_bytes(swapped, 1)
-    new resized[2] = resize_bytes(0x12345678, 2)
+    new swapped[2] as bytes = byte_swap(0x1234 as bytes)
+    new raw[1] as bytes = resize_bytes(swapped, 1)
+    new resized[2] as bytes = resize_bytes(0x12345678 as bytes, 2)
     new absolute[8] = abs(-7)
     new lower[8] = min(3, 9)
     new upper[8] = max(3, 9)
     new as_float[4] %f= to_f32(42)
     new as_int[4] = to_i32(as_float)
 
-    if (raw == 0 || resized == 0) {
-        return 50
-    }
     if (absolute != 7 || lower != 3 || upper != 9 || as_int != 42) {
         return 51
     }
@@ -314,7 +311,8 @@ func struct_checks() -> [4] {
 
 func file_checks() -> [4] {
     new file = fopen("/tmp/hitsimple_comprehensive_project.tmp", "w+")
-    if (file == 0) {
+    new null as addr = 0
+    if (file as addr == null) {
         return 90
     }
 

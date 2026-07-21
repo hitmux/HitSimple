@@ -119,7 +119,7 @@ HS_TEST(Sema_AllowsThrowWithOrdinaryI32ToAddrAssignment) {
                               "    try {\n"
                               "        throw source\n"
                               "    } catch (error as addr) {\n"
-                              "        return error - 7\n"
+                              "        return error? - 7\n"
                               "    }\n"
                               "    return 1\n"
                               "}\n");
@@ -195,7 +195,7 @@ HS_TEST(Sema_RejectsIncompatibleCatchViewContracts) {
                                       "}\n");
   HS_EXPECT_TRUE(lengthMismatch.unit == nullptr);
   HS_EXPECT_TRUE(lengthMismatch.diagnostics[0].find(
-                     "throw View byte length 8 does not match catch byte length 4") !=
+                     "bytes assignment requires an equal-length source View") !=
                  std::string::npos);
 
   auto templateMismatch = analyzeSource("template Left {\n"
@@ -294,7 +294,7 @@ HS_TEST(Sema_AllowsAddrFunctionResultForAddrCatchView) {
                               "    try {\n"
                               "        throw make_addr()\n"
                               "    } catch (error as addr) {\n"
-                              "        return error - 7\n"
+                              "        return error? - 7\n"
                               "    }\n"
                               "    return 1\n"
                               "}\n");
