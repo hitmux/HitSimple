@@ -1611,6 +1611,152 @@ HS_TEST(LLVMCodegen_StaticCheckedMergesControlFlowSafetyFacts) {
   HS_EXPECT_TRUE(loopWrite.diagnostics.empty());
 }
 
+HS_TEST(LLVMCodegen_StaticSafetyTracksGotoEdges) {
+  const auto staticChecked =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto skippedAssignment = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    goto done\n"
+      "    p = &large\n"
+      "    done: return [2]*p\n"
+      "}\n",
+      staticChecked);
+
+  HS_EXPECT_TRUE(!skippedAssignment.diagnostics.empty());
+  HS_EXPECT_TRUE(skippedAssignment.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+
+  const auto nestedSkippedAssignment = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (true) {\n"
+      "        goto done\n"
+      "    }\n"
+      "    p = &large\n"
+      "    done: return [2]*p\n"
+      "}\n",
+      staticChecked);
+
+  HS_EXPECT_TRUE(!nestedSkippedAssignment.diagnostics.empty());
+  HS_EXPECT_TRUE(nestedSkippedAssignment.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+
+  const auto checked = emitSource(
+      "func main(flag as bool) -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (flag) {\n"
+      "        goto done\n"
+      "    }\n"
+      "    p = &large\n"
+      "    done: return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(checked.diagnostics.empty());
+  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_StaticSafetyHonorsLogicalShortCircuitEffects) {
+  const auto staticChecked =
+      optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  const auto shortCircuitAnd = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (false && (p = &large)) {}\n"
+      "    return [2]*p\n"
+      "}\n",
+      staticChecked);
+  const auto shortCircuitOr = emitSource(
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (true || (p = &large)) {}\n"
+      "    return [2]*p\n"
+      "}\n",
+      staticChecked);
+  const auto unknownLeft = emitSource(
+      "func main(flag as bool) -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new p as addr = &small\n"
+      "    if (flag && (p = &large)) {}\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(!shortCircuitAnd.diagnostics.empty());
+  HS_EXPECT_TRUE(shortCircuitAnd.diagnostics.front().message.find(
+                     "memory load out of bounds") != std::string::npos);
+  HS_EXPECT_TRUE(!shortCircuitOr.diagnostics.empty());
+  HS_EXPECT_TRUE(shortCircuitOr.diagnostics.front().message.find(
+                    "memory load out of bounds") != std::string::npos);
+  HS_EXPECT_TRUE(unknownLeft.diagnostics.empty());
+  HS_EXPECT_TRUE(unknownLeft.llvmIr.find("@hs_check_load") !=
+                 std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesUserTemplateAssignmentTargets) {
+  const auto result = emitSource(
+      "template Box {\n"
+      "    pointer[P] as addr\n"
+      "}\n"
+      "impl Box {\n"
+      "    op = (dst as Box, src as Box) -> [P] {\n"
+      "        dst.pointer = src.pointer\n"
+      "        return dst\n"
+      "    }\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new small[1] as bytes\n"
+      "    new large[8] as bytes\n"
+      "    new source as Box\n"
+      "    source.pointer = &small\n"
+      "    new target as Box\n"
+      "    target.pointer = &large\n"
+      "    target = source\n"
+      "    return [2]*target.pointer\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalsAfterUserTemplateFormatExpression) {
+  const auto result = emitSource(
+      "new small[1] as bytes\n"
+      "new large[8] as bytes\n"
+      "new p as addr = &large\n"
+      "template Writer {\n"
+      "    value[1] as bytes\n"
+      "}\n"
+      "impl Writer {\n"
+      "    op format(value as Writer, out as addr) -> [4] {\n"
+      "        p = &small\n"
+      "        return 0\n"
+      "    }\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "    new value as Writer\n"
+      "    new n = print(value as Writer)\n"
+      "    return [2]*p\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
   auto result =
       emitSource("func main() {\n"

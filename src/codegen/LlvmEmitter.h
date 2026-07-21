@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -154,6 +155,15 @@ private:
     std::unordered_map<std::size_t, StaticDynamicObjectState>
         dynamicObjectStates;
     std::size_t nextDynamicObjectId = 0;
+
+    bool operator==(const StaticSafetyState &) const = default;
+  };
+
+  struct StaticGotoContext {
+    StaticGotoContext *parent = nullptr;
+    const std::unordered_map<std::string, std::size_t> *labelIndexes = nullptr;
+    std::vector<std::optional<StaticSafetyState>> *entryStates = nullptr;
+    std::deque<std::size_t> *worklist = nullptr;
   };
 
   struct CAbiMemoryPlan {
@@ -204,14 +214,18 @@ private:
   void collectLabels(const hir::Block &block, llvm::Function &function);
   void collectLabels(const hir::Stmt &statement, llvm::Function &function);
   void validateSafety(const hir::TranslationUnit &unit);
-  void validateSafety(const hir::Block &block);
-  void validateSafety(const hir::Stmt &statement);
+  bool validateSafety(const hir::Block &block);
+  bool validateSafety(const hir::Stmt &statement);
   void validateSafety(const hir::Expr &expression);
   void resetStaticSafetyState();
   StaticSafetyState staticSafetyState() const;
   void restoreStaticSafetyState(const StaticSafetyState &state);
+  StaticSafetyState mergedStaticSafetyStates(const StaticSafetyState &left,
+                                             const StaticSafetyState &right) const;
   void mergeStaticSafetyStates(const StaticSafetyState &left,
                                const StaticSafetyState &right);
+  bool enqueueStaticGoto(std::string_view label,
+                         const StaticSafetyState &incoming);
   void invalidateStaticBinding(std::string_view bindingName);
   void invalidateStaticFactsOverlapping(
       const std::optional<StaticAddressRange> &range,
@@ -414,6 +428,7 @@ private:
       staticDynamicObjectStates_;
   std::unordered_set<std::string> staticGlobalBindings_;
   std::size_t nextStaticDynamicObjectId_ = 0;
+  StaticGotoContext *staticGotoContext_ = nullptr;
   std::vector<LoopTargets> loopTargets_;
   std::vector<CatchTarget> catchTargets_;
   std::unordered_map<std::string, llvm::BasicBlock *> labelBlocks_;

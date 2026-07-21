@@ -992,6 +992,12 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_static_checked_oob_view_deref_copy_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_oob_view_deref_copy.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
   )
+  add_hsc_shell_test(hsc_static_checked_goto_skipped_assignment_diagnostic
+    "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_goto_skipped_assignment.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_goto_unknown_path_emits_load_check
+    "$<TARGET_FILE:hsc> --checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_goto_unknown_path.hs -o module.ll && grep -Fq '@hs_check_load' module.ll"
+  )
   add_hsc_shell_test(hsc_static_checked_global_oob_diagnostic
     "! $<TARGET_FILE:hsc> --static-checked ${PROJECT_SOURCE_DIR}/tests/cases/sema/checked_global_oob_static.hs -o program >stdout 2>stderr && grep -Fq 'static safety check failed: memory load out of bounds' stderr"
   )
@@ -2001,7 +2007,7 @@ set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE ${HITSIMPLE_DEBIAN_ARCHITECTURE})
 set(CPACK_DEBIAN_FILE_NAME
   "hitsimple_${PROJECT_VERSION}_${HITSIMPLE_DEBIAN_ARCHITECTURE}.deb")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "clang-18")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "clang-${LLVM_VERSION_MAJOR}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
   "HitSimple experimental language compiler")
 set(CPACK_RPM_PACKAGE_ARCHITECTURE ${HITSIMPLE_RPM_ARCHITECTURE})
