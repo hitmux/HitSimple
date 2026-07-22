@@ -22,6 +22,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 
 
 MANIFEST_VERSION = 1
+SUPPORTED_MANIFEST_VERSIONS = {1, 2}
 DEFAULT_TIMEOUT_SECONDS = 10.0
 SAFETY_FLAGS = {
     "unchecked": "--unchecked",
@@ -39,8 +40,17 @@ class HarnessError(Exception):
 @dataclass(frozen=True)
 class ExpectedProcess:
     exit_code: int
-    stdout: str
-    stderr: str
+    stdout: Optional[str]
+    stderr: Optional[str]
+    stdout_regex: Optional[str]
+    stderr_regex: Optional[str]
+
+
+@dataclass(frozen=True)
+class ExpectedCase:
+    compile: ExpectedProcess
+    run: Optional[ExpectedProcess]
+    run_not_applicable: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -61,10 +71,10 @@ class TestCase:
     safety_modes: Sequence[str]
     optimization_levels: Sequence[str]
     timeout_seconds: float
-    compile_expect: ExpectedProcess
-    run_expect: Optional[ExpectedProcess]
+    expect_by_mode: Mapping[str, ExpectedCase]
     compile_args: Sequence[str]
     run_args: Sequence[str]
+    stdin: str
     manifest_path: Path
 
 
@@ -118,16 +128,70 @@ def _positive_timeout(value: Any, label: str) -> float:
     return float(value)
 
 
-def _expected_process(value: Any, label: str) -> ExpectedProcess:
+def _expected_process(value: Any, label: str, version: int) -> ExpectedProcess:
     data = _expect_mapping(value, label)
     exit_code = data.get("exit_code")
-    stdout = data.get("stdout")
-    stderr = data.get("stderr")
     if not isinstance(exit_code, int) or isinstance(exit_code, bool):
         raise HarnessError(label + ".exit_code must be an integer")
-    if not isinstance(stdout, str) or not isinstance(stderr, str):
-        raise HarnessError(label + ".stdout and " + label + ".stderr must be strings")
-    return ExpectedProcess(exit_code=exit_code, stdout=stdout, stderr=stderr)
+
+    expectations: dict[str, Optional[str]] = {}
+    for stream in ("stdout", "stderr"):
+        exact = data.get(stream)
+        pattern = data.get(stream + "_regex")
+        if exact is not None and pattern is not None:
+            raise HarnessError(label + "." + stream + " and " + label + "." + stream + "_regex are mutually exclusive")
+        if exact is not None and not isinstance(exact, str):
+            raise HarnessError(label + "." + stream + " must be a string")
+        if pattern is not None:
+            if version < 2:
+                raise HarnessError(label + "." + stream + "_regex requires manifest version 2")
+            if not isinstance(pattern, str) or not pattern:
+                raise HarnessError(label + "." + stream + "_regex must be a non-empty string")
+            try:
+                re.compile(pattern)
+            except re.error as error:
+                raise HarnessError(label + "." + stream + "_regex is invalid: " + str(error)) from error
+        if exact is None and pattern is None:
+            raise HarnessError(label + " must declare " + stream + " or " + stream + "_regex")
+        expectations[stream] = exact
+        expectations[stream + "_regex"] = pattern
+    return ExpectedProcess(
+        exit_code=exit_code,
+        stdout=expectations["stdout"],
+        stderr=expectations["stderr"],
+        stdout_regex=expectations["stdout_regex"],
+        stderr_regex=expectations["stderr_regex"],
+    )
+
+
+def _expected_case(value: Any, label: str, version: int) -> ExpectedCase:
+    data = _expect_mapping(value, label)
+    compile_expect = _expected_process(
+        data.get("compile", {"exit_code": 0, "stdout": "", "stderr": ""}),
+        label + ".compile",
+        version,
+    )
+    has_run = "run" in data
+    run_not_applicable = data.get("run_not_applicable")
+    if run_not_applicable is not None:
+        if version < 2:
+            raise HarnessError(label + ".run_not_applicable requires manifest version 2")
+        if not isinstance(run_not_applicable, str) or not run_not_applicable:
+            raise HarnessError(label + ".run_not_applicable must be a non-empty string")
+    if has_run and run_not_applicable is not None:
+        raise HarnessError(label + ".run and " + label + ".run_not_applicable are mutually exclusive")
+    run_expect = _expected_process(data["run"], label + ".run", version) if has_run else None
+    if compile_expect.exit_code == 0 and run_expect is None and run_not_applicable is None:
+        raise HarnessError(
+            label + " must define expect.run or expect.run_not_applicable after a successful compile"
+        )
+    if compile_expect.exit_code != 0 and (run_expect is not None or run_not_applicable is not None):
+        raise HarnessError(label + " must not define a run expectation after a failed compile")
+    return ExpectedCase(
+        compile=compile_expect,
+        run=run_expect,
+        run_not_applicable=run_not_applicable,
+    )
 
 
 def _optional_string_list(value: Any, label: str) -> Sequence[str]:
@@ -155,9 +219,10 @@ def load_manifest(manifest_path: Path) -> Sequence[TestCase]:
         raise HarnessError("invalid JSON in manifest '" + str(manifest_path) + "': " + str(error)) from error
 
     data = _expect_mapping(raw, "manifest")
-    if data.get("version") != MANIFEST_VERSION:
+    version = data.get("version")
+    if version not in SUPPORTED_MANIFEST_VERSIONS:
         raise HarnessError(
-            "manifest '" + str(manifest_path) + "' must declare version " + str(MANIFEST_VERSION)
+            "manifest '" + str(manifest_path) + "' must declare a supported version"
         )
     suite = _string(data.get("suite"), "manifest.suite")
     defaults = _expect_mapping(data.get("defaults", {}), "manifest.defaults")
@@ -211,16 +276,28 @@ def load_manifest(manifest_path: Path) -> Sequence[TestCase]:
             _merge_case_value(case_data, defaults, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS),
             label + ".timeout_seconds",
         )
-        expect = _expect_mapping(case_data.get("expect"), label + ".expect")
-        compile_expect = _expected_process(
-            expect.get("compile", {"exit_code": 0, "stdout": "", "stderr": ""}),
-            label + ".expect.compile",
-        )
-        run_expect = None
-        if "run" in expect:
-            run_expect = _expected_process(expect["run"], label + ".expect.run")
-        elif compile_expect.exit_code == 0:
-            raise HarnessError("test '" + name + "' must define expect.run after a successful compile")
+        stdin = _merge_case_value(case_data, defaults, "stdin", "")
+        if not isinstance(stdin, str):
+            raise HarnessError(label + ".stdin must be a string")
+        if version == MANIFEST_VERSION:
+            expected_case = _expected_case(case_data.get("expect"), label + ".expect", version)
+            expect_by_mode = {mode: expected_case for mode in safety_modes}
+        else:
+            raw_expect_by_mode = _expect_mapping(
+                case_data.get("expect_by_mode"), label + ".expect_by_mode"
+            )
+            expected_modes = set(safety_modes)
+            actual_modes = set(raw_expect_by_mode)
+            if actual_modes != expected_modes:
+                raise HarnessError(
+                    label + ".expect_by_mode must declare exactly the selected safety modes"
+                )
+            expect_by_mode = {
+                mode: _expected_case(
+                    raw_expect_by_mode[mode], label + ".expect_by_mode." + mode, version
+                )
+                for mode in safety_modes
+            }
 
         cases.append(
             TestCase(
@@ -231,10 +308,10 @@ def load_manifest(manifest_path: Path) -> Sequence[TestCase]:
                 safety_modes=safety_modes,
                 optimization_levels=optimization_levels,
                 timeout_seconds=timeout_seconds,
-                compile_expect=compile_expect,
-                run_expect=run_expect,
+                expect_by_mode=expect_by_mode,
                 compile_args=_optional_string_list(case_data.get("compile_args"), label + ".compile_args"),
                 run_args=_optional_string_list(case_data.get("run_args"), label + ".run_args"),
+                stdin=stdin,
                 manifest_path=manifest_path,
             )
         )
@@ -276,12 +353,14 @@ def _write_json(path: Path, value: Any) -> None:
     _write_text(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def _run_process(command: Sequence[str], cwd: Path, timeout_seconds: float) -> ProcessResult:
+def _run_process(
+    command: Sequence[str], cwd: Path, timeout_seconds: float, stdin: str = ""
+) -> ProcessResult:
     try:
         completed = subprocess.run(
             list(command),
             cwd=str(cwd),
-            stdin=subprocess.DEVNULL,
+            input=stdin.encode("utf-8"),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             timeout=timeout_seconds,
@@ -323,10 +402,14 @@ def _process_mismatch(actual: ProcessResult, expected: ExpectedProcess, phase: s
         return phase + " timed out"
     if actual.exit_code != expected.exit_code:
         return phase + " exit code: expected " + str(expected.exit_code) + ", got " + str(actual.exit_code)
-    if actual.stdout != expected.stdout:
-        return phase + " stdout did not match expectation"
-    if actual.stderr != expected.stderr:
-        return phase + " stderr did not match expectation"
+    for stream in ("stdout", "stderr"):
+        actual_value = getattr(actual, stream)
+        exact = getattr(expected, stream)
+        regex = getattr(expected, stream + "_regex")
+        if exact is not None and actual_value != exact:
+            return phase + " " + stream + " did not match expectation"
+        if regex is not None and re.fullmatch(regex, actual_value) is None:
+            return phase + " " + stream + " did not match expectation regex"
     return None
 
 
@@ -354,6 +437,7 @@ def _resolve_executable(output_path: Path) -> Path:
 
 def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> VariantResult:
     case = variant.case
+    expectation = case.expect_by_mode[variant.safety_mode]
     artifact_dir = (
         artifact_root
         / _safe_component(case.suite)
@@ -378,8 +462,9 @@ def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> Variant
             "optimization": variant.optimization_level,
             "timeout_seconds": case.timeout_seconds,
             "expect": {
-                "compile": asdict(case.compile_expect),
-                "run": asdict(case.run_expect) if case.run_expect else None,
+                "compile": asdict(expectation.compile),
+                "run": asdict(expectation.run) if expectation.run else None,
+                "run_not_applicable": expectation.run_not_applicable,
             },
         },
     )
@@ -396,7 +481,7 @@ def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> Variant
     ]
     compile_result = _run_process(compile_command, artifact_dir, case.timeout_seconds)
     _write_process_artifacts(artifact_dir, "compile", compile_result)
-    compile_failure = _process_mismatch(compile_result, case.compile_expect, "compile")
+    compile_failure = _process_mismatch(compile_result, expectation.compile, "compile")
     if compile_failure:
         return VariantResult(
             variant,
@@ -406,13 +491,18 @@ def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> Variant
             compile_result,
             None,
         )
-    if case.run_expect is None:
+    if expectation.run is None:
+        _write_json(
+            artifact_dir / "run.skipped.json",
+            {"reason": expectation.run_not_applicable},
+        )
         return VariantResult(variant, True, None, artifact_dir, compile_result, None)
 
     run_command = [str(_resolve_executable(executable)), *case.run_args]
-    run_result = _run_process(run_command, artifact_dir, case.timeout_seconds)
+    _write_text(artifact_dir / "run.stdin", case.stdin)
+    run_result = _run_process(run_command, artifact_dir, case.timeout_seconds, case.stdin)
     _write_process_artifacts(artifact_dir, "run", run_result)
-    run_failure = _process_mismatch(run_result, case.run_expect, "run")
+    run_failure = _process_mismatch(run_result, expectation.run, "run")
     return VariantResult(
         variant,
         run_failure is None,
@@ -446,7 +536,8 @@ def _validate_differential_variants(variants: Sequence[TestVariant]) -> None:
             raise HarnessError("differential requires at least two optimization levels in " + group_label)
         for variant in group:
             case = variant.case
-            if case.compile_expect.exit_code != 0 or case.run_expect is None:
+            expectation = case.expect_by_mode[variant.safety_mode]
+            if expectation.compile.exit_code != 0 or expectation.run is None:
                 raise HarnessError(
                     "differential requires a successful runtime case: " + group_label
                 )
@@ -538,6 +629,85 @@ def apply_differential_checks(results: Sequence[VariantResult]) -> Sequence[Vari
     return indexed_results
 
 
+def _safety_mode_group_key(variant: TestVariant) -> tuple[str, str, str, str]:
+    return (
+        variant.case.suite,
+        variant.case.name,
+        variant.target,
+        variant.optimization_level,
+    )
+
+
+def apply_safety_mode_checks(results: Sequence[VariantResult]) -> Sequence[VariantResult]:
+    indexed_results = list(results)
+    groups: dict[tuple[str, str, str, str], list[int]] = {}
+    for index, result in enumerate(indexed_results):
+        groups.setdefault(_safety_mode_group_key(result.variant), []).append(index)
+
+    for group_indices in groups.values():
+        by_mode = {
+            indexed_results[index].variant.safety_mode: index for index in group_indices
+        }
+        reference_index = by_mode.get("unchecked")
+        reference = indexed_results[reference_index] if reference_index is not None else None
+        report_modes = []
+        for index in group_indices:
+            result = indexed_results[index]
+            expectation = result.variant.case.expect_by_mode[result.variant.safety_mode]
+            mismatches: Sequence[str] = []
+            matches_unchecked: Optional[bool] = None
+            if (
+                reference is not None
+                and index != reference_index
+                and reference.run_result is not None
+                and result.run_result is not None
+            ):
+                mismatches = _differential_mismatches(reference.run_result, result.run_result)
+                matches_unchecked = not mismatches
+                if mismatches:
+                    indexed_results[index] = _with_failure(
+                        result,
+                        "; ".join(
+                            "safety mode unchecked vs "
+                            + result.variant.safety_mode
+                            + " "
+                            + mismatch
+                            for mismatch in mismatches
+                        ),
+                    )
+                    result = indexed_results[index]
+            report_modes.append(
+                {
+                    "safety": result.variant.safety_mode,
+                    "artifact_dir": str(result.artifact_dir),
+                    "passed": result.passed,
+                    "compile": _process_summary(result.compile_result),
+                    "run": _process_summary(result.run_result),
+                    "run_not_applicable": expectation.run_not_applicable,
+                    "matches_unchecked": matches_unchecked,
+                    "mismatches": list(mismatches),
+                }
+            )
+
+        report_path = (
+            indexed_results[group_indices[0]].artifact_dir.parents[1]
+            / (
+                "safety-mode-"
+                + _safe_component(indexed_results[group_indices[0]].variant.optimization_level)
+                + ".json"
+            )
+        )
+        _write_json(
+            report_path,
+            {
+                "version": 1,
+                "reference_safety_mode": "unchecked" if reference is not None else None,
+                "modes": report_modes,
+            },
+        )
+    return indexed_results
+
+
 def selected_variants(cases: Iterable[TestCase], targets: Sequence[str], modes: Sequence[str], levels: Sequence[str]) -> Sequence[TestVariant]:
     target_filter = set(targets or ["host"])
     mode_filter = set(modes)
@@ -582,6 +752,11 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="compare each O0 runtime result with the other selected optimization levels",
     )
+    parser.add_argument(
+        "--safety-mode",
+        action="store_true",
+        help="compare runnable safety modes with unchecked and write per-case relation reports",
+    )
     parser.add_argument("--list", action="store_true", help="list selected matrix entries without running them")
     return parser.parse_args(argv)
 
@@ -611,10 +786,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 safety_modes=case.safety_modes,
                 optimization_levels=case.optimization_levels,
                 timeout_seconds=args.timeout,
-                compile_expect=case.compile_expect,
-                run_expect=case.run_expect,
+                expect_by_mode=case.expect_by_mode,
                 compile_args=case.compile_args,
                 run_args=case.run_args,
+                stdin=case.stdin,
                 manifest_path=case.manifest_path,
             )
             for case in cases
@@ -647,6 +822,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     results = [run_variant(hsc, variant, artifact_root) for variant in variants]
     if args.differential:
         results = apply_differential_checks(results)
+    if args.safety_mode:
+        results = apply_safety_mode_checks(results)
     for result in results:
         status = "PASS" if result.passed else "FAIL"
         label = (

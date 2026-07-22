@@ -642,6 +642,17 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_harness_differential PROPERTIES
     LABELS "testing;harness;differential;phase3")
   add_test(
+    NAME hsc_harness_safety_mode
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite safety-mode
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_safety_mode PROPERTIES
+    LABELS "testing;harness;safety-mode;phase-p1")
+  add_test(
     NAME hsc_property_case_unit_tests
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/properties/test_property_cases.py
