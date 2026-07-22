@@ -1,0 +1,128 @@
+{
+  "version": 2,
+  "suite": "aarch64-semantics",
+  "defaults": {
+    "targets": [
+      "aarch64-native"
+    ],
+    "safety": [
+      "unchecked"
+    ],
+    "optimization": [
+      "O2"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "packed_member_offsets_1_2_3",
+      "source": "../../../cases/run/p3_packed_offsets.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "60\n", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "bytes_and_cstr_comparison",
+      "source": "../../../cases/run/p3_bytes_cstr_comparison.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "comparison\n", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "pointer_slice_address_rebinding",
+      "source": "../../../cases/run/pointer_slice.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "integer_view_to_addr_conversion",
+      "source": "../../../cases/run/try_catch_i32_to_addr_view.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "checked_memory_safe_path",
+      "source": "../../../cases/run/checked_memory_bridge.hs",
+      "safety": [
+        "checked"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "floating_parameter_and_multi_return",
+      "source": "../../../cases/run/floating_returns.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "f16_round_ties_to_even_boundary",
+      "source": "../../../cases/run/p3_f16_precision.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "2048\n", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "f128_sub_f64_increment",
+      "source": "../../../cases/run/p3_f128_precision.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "f128\n", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "f128_format_and_scan",
+      "source": "../../../cases/run/f128_format_scan.hs",
+      "stdin": "1.5\n",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+          "run": {"exit_code": 0, "stdout": "1.5\n", "stderr": ""}
+        }
+      }
+    },
+    {
+      "name": "c_aggregate_by_value_is_rejected",
+      "source": "../../../cases/compat/c_aggregate_by_value.c",
+      "compile_args": [
+        "--c-compat"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*C aggregate by-value ABI is only supported for x86_64 SysV ELF targets; target '.*aarch64.*'.*$"
+          }
+        }
+      }
+    }
+  ]
+}

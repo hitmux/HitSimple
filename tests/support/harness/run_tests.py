@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
 """Run manifest-defined HitSimple runtime tests with preserved artifacts.
 
-This first harness deliberately supports only execution on the local host.  The
-manifest still carries a target dimension so cross-target runners can be added
-without changing the test contract in the later T8 work.
+The harness executes `host` variants locally and accepts `aarch64-native` only
+on a Linux AArch64 host. It never treats a cross-compiled binary as native
+AArch64 execution.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 
 MANIFEST_VERSION = 1
-SUPPORTED_MANIFEST_VERSIONS = {1, 2}
+SUPPORTED_MANIFEST_VERSIONS = {1, 2, 3}
 DEFAULT_TIMEOUT_SECONDS = 10.0
 SAFETY_FLAGS = {
     "unchecked": "--unchecked",
@@ -47,10 +49,18 @@ class ExpectedProcess:
 
 
 @dataclass(frozen=True)
+class ExpectedOutputFile:
+    path: str
+    content: Optional[str]
+    sha256: Optional[str]
+
+
+@dataclass(frozen=True)
 class ExpectedCase:
     compile: ExpectedProcess
     run: Optional[ExpectedProcess]
     run_not_applicable: Optional[str]
+    output_files: Sequence[ExpectedOutputFile]
 
 
 @dataclass(frozen=True)
@@ -87,6 +97,16 @@ class TestVariant:
 
 
 @dataclass(frozen=True)
+class OutputFileResult:
+    path: str
+    exists: bool
+    sha256: Optional[str]
+    size_bytes: Optional[int]
+    content_matches: Optional[bool]
+    sha256_matches: Optional[bool]
+
+
+@dataclass(frozen=True)
 class VariantResult:
     variant: TestVariant
     passed: bool
@@ -94,6 +114,7 @@ class VariantResult:
     artifact_dir: Path
     compile_result: ProcessResult
     run_result: Optional[ProcessResult]
+    output_files: Sequence[OutputFileResult]
 
 
 def _expect_mapping(value: Any, label: str) -> Mapping[str, Any]:
@@ -164,6 +185,51 @@ def _expected_process(value: Any, label: str, version: int) -> ExpectedProcess:
     )
 
 
+def _expected_output_files(
+    value: Any, label: str, version: int
+) -> Sequence[ExpectedOutputFile]:
+    if value is None:
+        return []
+    if version < 3:
+        raise HarnessError(label + ".output_files requires manifest version 3")
+    if not isinstance(value, list) or not value:
+        raise HarnessError(label + ".output_files must be a non-empty list")
+
+    files = []
+    paths = set()
+    for index, raw_file in enumerate(value):
+        file_label = label + ".output_files[" + str(index) + "]"
+        data = _expect_mapping(raw_file, file_label)
+        raw_path = _string(data.get("path"), file_label + ".path")
+        if "\\" in raw_path:
+            raise HarnessError(file_label + ".path must use a normalized relative POSIX path")
+        path = PurePosixPath(raw_path)
+        if (
+            path.is_absolute()
+            or raw_path != path.as_posix()
+            or raw_path == "."
+            or any(component == ".." for component in path.parts)
+        ):
+            raise HarnessError(file_label + ".path must be a normalized relative path")
+        if raw_path in {"program", "program.exe"} or raw_path.startswith("source."):
+            raise HarnessError(file_label + ".path conflicts with a reserved harness artifact")
+        if raw_path in paths:
+            raise HarnessError(label + ".output_files must not contain duplicate paths")
+        paths.add(raw_path)
+
+        content = data.get("content")
+        sha256 = data.get("sha256")
+        if (content is None) == (sha256 is None):
+            raise HarnessError(file_label + " must declare exactly one of content or sha256")
+        if content is not None and not isinstance(content, str):
+            raise HarnessError(file_label + ".content must be a string")
+        if sha256 is not None:
+            if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+                raise HarnessError(file_label + ".sha256 must be a lowercase SHA-256 hex digest")
+        files.append(ExpectedOutputFile(raw_path, content, sha256))
+    return files
+
+
 def _expected_case(value: Any, label: str, version: int) -> ExpectedCase:
     data = _expect_mapping(value, label)
     compile_expect = _expected_process(
@@ -187,10 +253,14 @@ def _expected_case(value: Any, label: str, version: int) -> ExpectedCase:
         )
     if compile_expect.exit_code != 0 and (run_expect is not None or run_not_applicable is not None):
         raise HarnessError(label + " must not define a run expectation after a failed compile")
+    output_files = _expected_output_files(data.get("output_files"), label, version)
+    if output_files and run_expect is None:
+        raise HarnessError(label + ".output_files requires an executable run expectation")
     return ExpectedCase(
         compile=compile_expect,
         run=run_expect,
         run_not_applicable=run_not_applicable,
+        output_files=output_files,
     )
 
 
@@ -258,10 +328,9 @@ def load_manifest(manifest_path: Path) -> Sequence[TestCase]:
             label + ".optimization",
         )
         for target in targets:
-            if target != "host":
+            if target not in {"host", "aarch64-native"}:
                 raise HarnessError(
-                    "test '" + name + "' declares unsupported target '" + target
-                    + "'; T1 supports only the local host"
+                    "test '" + name + "' declares unsupported target '" + target + "'"
                 )
         for mode in safety_modes:
             if mode not in SAFETY_FLAGS:
@@ -435,6 +504,50 @@ def _resolve_executable(output_path: Path) -> Path:
     return output_path
 
 
+def _collect_output_files(
+    artifact_dir: Path, expected_files: Sequence[ExpectedOutputFile]
+) -> tuple[Sequence[OutputFileResult], Optional[str]]:
+    results = []
+    failures = []
+    for expected in expected_files:
+        output_path = artifact_dir / PurePosixPath(expected.path)
+        exists = output_path.is_file() and not output_path.is_symlink()
+        checksum = None
+        size_bytes = None
+        content_matches = None
+        sha256_matches = None
+        if not exists:
+            failures.append("run output file '" + expected.path + "' is missing")
+        else:
+            content = output_path.read_bytes()
+            checksum = hashlib.sha256(content).hexdigest()
+            size_bytes = len(content)
+            if expected.content is not None:
+                content_matches = content == expected.content.encode("utf-8")
+                if not content_matches:
+                    failures.append(
+                        "run output file '" + expected.path + "' content did not match expectation"
+                    )
+            if expected.sha256 is not None:
+                sha256_matches = checksum == expected.sha256
+                if not sha256_matches:
+                    failures.append(
+                        "run output file '" + expected.path + "' checksum did not match expectation"
+                    )
+        results.append(
+            OutputFileResult(
+                expected.path,
+                exists,
+                checksum,
+                size_bytes,
+                content_matches,
+                sha256_matches,
+            )
+        )
+    _write_json(artifact_dir / "run.outputs.json", [asdict(result) for result in results])
+    return results, "; ".join(failures) if failures else None
+
+
 def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> VariantResult:
     case = variant.case
     expectation = case.expect_by_mode[variant.safety_mode]
@@ -465,6 +578,7 @@ def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> Variant
                 "compile": asdict(expectation.compile),
                 "run": asdict(expectation.run) if expectation.run else None,
                 "run_not_applicable": expectation.run_not_applicable,
+                "output_files": [asdict(output) for output in expectation.output_files],
             },
         },
     )
@@ -490,19 +604,23 @@ def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> Variant
             artifact_dir,
             compile_result,
             None,
+            [],
         )
     if expectation.run is None:
         _write_json(
             artifact_dir / "run.skipped.json",
             {"reason": expectation.run_not_applicable},
         )
-        return VariantResult(variant, True, None, artifact_dir, compile_result, None)
+        return VariantResult(variant, True, None, artifact_dir, compile_result, None, [])
 
     run_command = [str(_resolve_executable(executable)), *case.run_args]
     _write_text(artifact_dir / "run.stdin", case.stdin)
     run_result = _run_process(run_command, artifact_dir, case.timeout_seconds, case.stdin)
     _write_process_artifacts(artifact_dir, "run", run_result)
     run_failure = _process_mismatch(run_result, expectation.run, "run")
+    output_files, output_failure = _collect_output_files(artifact_dir, expectation.output_files)
+    if output_failure:
+        run_failure = output_failure if run_failure is None else run_failure + "; " + output_failure
     return VariantResult(
         variant,
         run_failure is None,
@@ -510,6 +628,7 @@ def run_variant(hsc: Path, variant: TestVariant, artifact_root: Path) -> Variant
         artifact_dir,
         compile_result,
         run_result,
+        output_files,
     )
 
 
@@ -556,6 +675,25 @@ def _differential_mismatches(reference: ProcessResult, candidate: ProcessResult)
     return mismatches
 
 
+def _output_file_mismatches(
+    reference: Sequence[OutputFileResult], candidate: Sequence[OutputFileResult]
+) -> Sequence[str]:
+    mismatches = []
+    reference_by_path = {result.path: result for result in reference}
+    candidate_by_path = {result.path: result for result in candidate}
+    for path in sorted(set(reference_by_path) | set(candidate_by_path)):
+        reference_result = reference_by_path.get(path)
+        candidate_result = candidate_by_path.get(path)
+        if reference_result is None or candidate_result is None:
+            mismatches.append("run output file '" + path + "' declaration differs")
+            continue
+        if reference_result.exists != candidate_result.exists:
+            mismatches.append("run output file '" + path + "' presence differs")
+        elif reference_result.exists and reference_result.sha256 != candidate_result.sha256:
+            mismatches.append("run output file '" + path + "' checksum differs")
+    return mismatches
+
+
 def _with_failure(result: VariantResult, failure: str) -> VariantResult:
     combined_failure = failure if result.failure is None else result.failure + "; " + failure
     return VariantResult(
@@ -565,6 +703,7 @@ def _with_failure(result: VariantResult, failure: str) -> VariantResult:
         result.artifact_dir,
         result.compile_result,
         result.run_result,
+        result.output_files,
     )
 
 
@@ -599,6 +738,9 @@ def apply_differential_checks(results: Sequence[VariantResult]) -> Sequence[Vari
                     mismatches = ["run result is unavailable for comparison"]
                 else:
                     mismatches = _differential_mismatches(reference.run_result, result.run_result)
+                    mismatches = list(mismatches) + list(
+                        _output_file_mismatches(reference.output_files, result.output_files)
+                    )
                 if mismatches:
                     prefix = "differential O0 vs " + result.variant.optimization_level + " "
                     indexed_results[index] = _with_failure(
@@ -612,6 +754,7 @@ def apply_differential_checks(results: Sequence[VariantResult]) -> Sequence[Vari
                     "artifact_dir": str(result.artifact_dir),
                     "compile": _process_summary(result.compile_result),
                     "run": _process_summary(result.run_result),
+                    "output_files": [asdict(output) for output in result.output_files],
                     "matches_o0": not mismatches,
                     "mismatches": list(mismatches),
                 }
@@ -712,11 +855,20 @@ def selected_variants(cases: Iterable[TestCase], targets: Sequence[str], modes: 
     target_filter = set(targets or ["host"])
     mode_filter = set(modes)
     level_filter = set(levels)
-    unsupported_targets = target_filter - {"host"}
+    unsupported_targets = target_filter - {"host", "aarch64-native"}
     if unsupported_targets:
         raise HarnessError(
-            "T1 supports only --target host; cross-target execution is scheduled for T8"
+            "unsupported --target value: " + sorted(unsupported_targets)[0]
         )
+    if "aarch64-native" in target_filter:
+        machine = platform.machine().lower()
+        if sys.platform != "linux" or machine not in {"aarch64", "arm64"}:
+            raise HarnessError(
+                "--target aarch64-native requires a native Linux AArch64 runner; got "
+                + sys.platform
+                + "/"
+                + (machine or "unknown")
+            )
     unknown_modes = mode_filter - set(SAFETY_FLAGS)
     if unknown_modes:
         raise HarnessError("unsupported --mode value: " + sorted(unknown_modes)[0])
@@ -742,7 +894,12 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--hsc", required=True, type=Path, help="path to the hsc executable")
     parser.add_argument("--suite", action="append", default=[], help="manifest suite name, or all")
     parser.add_argument("--manifest", action="append", type=Path, default=[], help="explicit JSON manifest path")
-    parser.add_argument("--target", action="append", default=[], help="target selector; T1 supports host")
+    parser.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        help="target selector: host or aarch64-native (native Linux AArch64 only)",
+    )
     parser.add_argument("--mode", action="append", default=[], help="safety-mode selector")
     parser.add_argument("--optimization", action="append", default=[], help="optimization-level selector")
     parser.add_argument("--timeout", type=float, help="override per-case timeout in seconds")

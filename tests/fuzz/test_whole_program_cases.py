@@ -35,9 +35,30 @@ class WholeProgramCaseTests(unittest.TestCase):
 
     def test_combined_generation_has_requested_case_counts(self) -> None:
         cases = generate_cases(1, 2, 4, 5)
-        self.assertEqual(len(cases), 6)
-        self.assertEqual(sum(case.kind == "valid" for case in cases), 2)
-        self.assertEqual(sum(case.kind == "invalid" for case in cases), 4)
+        self.assertEqual(sum(case.kind == "valid" for case in cases), 7)
+        self.assertEqual(sum(case.kind == "invalid" for case in cases), 8)
+        self.assertEqual(sum(case.kind == "runtime-error" for case in cases), 1)
+
+    def test_p5_feature_cases_have_legal_invalid_and_oracle_contracts(self) -> None:
+        cases = generate_cases(1, 1, 1, 4)
+        features = {str(case.metadata.get("feature")) for case in cases if "feature" in case.metadata}
+        self.assertEqual(
+            features,
+            {
+                "signed-boundary",
+                "template-field-layout",
+                "try-catch",
+                "multi-return",
+                "checked-safe-path",
+                "checked-error-path",
+            },
+        )
+        for case in cases:
+            if case.kind == "valid" and "feature" in case.metadata:
+                self.assertIsNotNone(case.expected_stdout)
+            if case.kind == "runtime-error":
+                self.assertEqual(case.safety_mode, "checked")
+                self.assertTrue(case.expected_runtime_error)
 
     def test_repeated_invalid_rules_keep_distinct_artifact_names(self) -> None:
         cases = generate_invalid_cases(17, len(INVALID_RULES) + 2)

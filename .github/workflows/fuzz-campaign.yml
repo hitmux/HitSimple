@@ -1,0 +1,127 @@
+name: Fuzz campaigns
+
+on:
+  schedule:
+    # Four one-hour target jobs provide four sanitizer-backed fuzzer-hours daily.
+    - cron: "29 2 * * 1-6"
+    # Four six-hour target jobs provide 24 fuzzer-hours weekly within GitHub's job limit.
+    - cron: "29 2 * * 0"
+  workflow_dispatch:
+    inputs:
+      campaign:
+        description: Campaign duration to run
+        required: true
+        default: daily
+        type: choice
+        options:
+          - daily
+          - weekly
+
+permissions:
+  contents: read
+
+jobs:
+  daily:
+    if: github.event_name == 'schedule' && github.event.schedule == '29 2 * * 1-6' || github.event_name == 'workflow_dispatch' && inputs.campaign == 'daily'
+    name: Daily fuzz (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lexer, parser, sema, codegen]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison clang-18 llvm-18-dev ninja-build re2c
+
+      - name: Configure fuzzer build
+        shell: bash
+        run: |
+          cmake -S . -B build-fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DHS_ENABLE_FUZZING=ON \
+            -DHS_ENABLE_ASAN=ON \
+            -DHS_ENABLE_UBSAN=ON \
+            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          cmake --build build-fuzz --target fuzz_${{ matrix.target }} --parallel
+
+      - name: Run daily campaign
+        shell: bash
+        run: |
+          python3 tests/fuzz/run_campaign.py \
+            --build-dir build-fuzz \
+            --corpus-root tests/corpus/seeds \
+            --artifacts fuzz-artifacts \
+            --target ${{ matrix.target }} \
+            --seconds-per-target 3600
+
+      - name: Upload daily replay artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-daily-${{ matrix.target }}
+          path: |
+            fuzz-artifacts
+            build-fuzz/fuzz_${{ matrix.target }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  weekly:
+    if: github.event_name == 'schedule' && github.event.schedule == '29 2 * * 0' || github.event_name == 'workflow_dispatch' && inputs.campaign == 'weekly'
+    name: Weekly fuzz (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 390
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lexer, parser, sema, codegen]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison clang-18 llvm-18-dev ninja-build re2c
+
+      - name: Configure fuzzer build
+        shell: bash
+        run: |
+          cmake -S . -B build-fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DHS_ENABLE_FUZZING=ON \
+            -DHS_ENABLE_ASAN=ON \
+            -DHS_ENABLE_UBSAN=ON \
+            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          cmake --build build-fuzz --target fuzz_${{ matrix.target }} --parallel
+
+      - name: Run weekly campaign and deduplicate corpus
+        shell: bash
+        run: |
+          python3 tests/fuzz/run_campaign.py \
+            --build-dir build-fuzz \
+            --corpus-root tests/corpus/seeds \
+            --artifacts fuzz-artifacts \
+            --target ${{ matrix.target }} \
+            --seconds-per-target 21600 \
+            --deduplicate
+
+      - name: Upload weekly replay artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-weekly-${{ matrix.target }}
+          path: |
+            fuzz-artifacts
+            build-fuzz/fuzz_${{ matrix.target }}
+          if-no-files-found: warn
+          retention-days: 90

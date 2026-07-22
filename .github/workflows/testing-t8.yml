@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           cmake -DBUILD_DIR=build-t8 \
-            '-DTEST_REGEX=^(hsc_harness_runtime|hsc_harness_differential|hsc_property_metamorphic|hsc_whole_program_fuzzer|hsc_t8_.*)$' \
+            '-DTEST_REGEX=^(hsc_harness_(runtime|differential|output_differential|checked_differential|p3_host_semantics|aarch64_semantics)|hsc_property_metamorphic|hsc_whole_program_fuzzer|hsc_t8_.*)$' \
             -P cmake/RunQuietTests.cmake
 
       - name: Collect benchmark samples and trend report
@@ -63,6 +63,7 @@ jobs:
         with:
           name: testing-t8-aarch64
           path: |
+            build-t8/ctest-output/harness
             build-t8/ctest-output/hsc_t8_vectorization_remarks
             phase8-artifacts
           if-no-files-found: warn

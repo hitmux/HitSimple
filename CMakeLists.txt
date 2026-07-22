@@ -640,7 +640,29 @@ target_link_libraries(hsc_unit_tests
       --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
   )
   set_tests_properties(hsc_harness_differential PROPERTIES
-    LABELS "testing;harness;differential;phase3")
+    LABELS "testing;harness;differential;phase3;phase-p2")
+  add_test(
+    NAME hsc_harness_output_differential
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite output-differential
+      --differential
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_output_differential PROPERTIES
+    LABELS "testing;harness;differential;output;phase-p2")
+  add_test(
+    NAME hsc_harness_checked_differential
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite checked-differential
+      --differential
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_checked_differential PROPERTIES
+    LABELS "testing;harness;differential;checked;phase-p2")
   add_test(
     NAME hsc_harness_safety_mode
     COMMAND ${Python3_EXECUTABLE}
@@ -652,6 +674,33 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_harness_safety_mode PROPERTIES
     LABELS "testing;harness;safety-mode;phase-p1")
+  add_test(
+    NAME hsc_harness_p3_host_semantics
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite p3-host-semantics
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_p3_host_semantics PROPERTIES
+    LABELS "testing;harness;native-semantics;phase-p3")
+  add_test(
+    NAME hsc_reference_differential_case_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/reference_differential/test_reference_differential.py
+  )
+  set_tests_properties(hsc_reference_differential_case_unit_tests
+    PROPERTIES LABELS "testing;reference-differential;phase-p4")
+  add_test(
+    NAME hsc_reference_differential
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/reference_differential/run_reference_differential.py
+      --hsc $<TARGET_FILE:hsc>
+      --clang ${CLANG_EXECUTABLE}
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/reference-differential
+  )
+  set_tests_properties(hsc_reference_differential
+    PROPERTIES LABELS "testing;reference-differential;phase-p4")
   add_test(
     NAME hsc_property_case_unit_tests
     COMMAND ${Python3_EXECUTABLE}
@@ -685,6 +734,13 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_whole_program_fuzzer
     PROPERTIES LABELS "testing;fuzz;whole-program;phase7")
   add_test(
+    NAME hsc_fuzz_campaign_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/fuzz/test_fuzz_campaign.py
+  )
+  set_tests_properties(hsc_fuzz_campaign_unit_tests
+    PROPERTIES LABELS "testing;fuzz;campaign;phase-p5")
+  add_test(
     NAME hsc_t8_benchmark_trend_unit_tests
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/performance/test_check_benchmark_trend.py
@@ -715,6 +771,16 @@ target_link_libraries(hsc_unit_tests
     )
     set_tests_properties(hsc_t8_aarch64_strict_alignment
       PROPERTIES LABELS "testing;cross-target;strict-alignment;phase8")
+    add_test(
+      NAME hsc_harness_aarch64_semantics
+      COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+        --hsc $<TARGET_FILE:hsc>
+        --suite aarch64-semantics
+        --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+    )
+    set_tests_properties(hsc_harness_aarch64_semantics PROPERTIES
+      LABELS "testing;cross-target;native-semantics;phase-p3")
   endif()
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_hsc_shell_test(hsc_sanitize_address_runtime

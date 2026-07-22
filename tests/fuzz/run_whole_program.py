@@ -18,7 +18,7 @@ from WholeProgramCases import WholeProgramCase, generate_cases
 from WholeProgramReducer import ReductionResult, reduce_source
 
 
-OPTIMIZATIONS: tuple[str, ...] = ("O0", "O2", "O3")
+OPTIMIZATIONS: tuple[str, ...] = ("O0", "O1", "O2", "O3", "Os")
 DEFAULT_SEED = 20260722
 DEFAULT_VALID_CASES = 4
 DEFAULT_INVALID_CASES = 7
@@ -116,8 +116,10 @@ def _diagnostic_detail(stderr: str) -> str:
     return stderr.strip().split("\n", 1)[0][:240] or "no diagnostic output"
 
 
-def _compile_command(hsc: Path, source: Path, executable: Path, optimization: str) -> list[str]:
-    return [str(hsc), "--unchecked", "-" + optimization, str(source), "-o", str(executable)]
+def _compile_command(
+    hsc: Path, source: Path, executable: Path, optimization: str, safety_mode: str
+) -> list[str]:
+    return [str(hsc), "--" + safety_mode, "-" + optimization, str(source), "-o", str(executable)]
 
 
 def _run_valid_case(
@@ -133,7 +135,9 @@ def _run_valid_case(
         variant_root.mkdir(parents=True, exist_ok=True)
         executable = variant_root / "program"
         compile_result = _run_process(
-            _compile_command(hsc, source_path, executable, optimization), variant_root, timeout_seconds
+            _compile_command(hsc, source_path, executable, optimization, case.safety_mode),
+            variant_root,
+            timeout_seconds,
         )
         _write_process_artifacts(variant_root, "compile", compile_result)
         if compile_result.timed_out:
@@ -165,6 +169,10 @@ def _run_valid_case(
         if run_result.stderr:
             signature = "valid-run-stderr:" + _diagnostic_detail(run_result.stderr)
             failure = "generated executable wrote to stderr at -" + optimization
+            break
+        if case.expected_stdout is not None and run_result.stdout != case.expected_stdout:
+            signature = "valid-oracle-stdout:" + optimization
+            failure = "generated executable stdout did not match the case oracle at -" + optimization
             break
 
     if failure is None:
@@ -206,7 +214,9 @@ def _run_invalid_case(
 ) -> CaseResult:
     source_path = case_root / "source.hs"
     executable = case_root / "program"
-    result = _run_process(_compile_command(hsc, source_path, executable, "O0"), case_root, timeout_seconds)
+    result = _run_process(
+        _compile_command(hsc, source_path, executable, "O0", case.safety_mode), case_root, timeout_seconds
+    )
     _write_process_artifacts(case_root, "compile", result)
     if result.timed_out:
         return CaseResult(case, "invalid-compile-timeout", "invalid program compilation timed out")
@@ -229,11 +239,82 @@ def _run_invalid_case(
     return CaseResult(case, None, None)
 
 
+def _run_runtime_error_case(
+    hsc: Path, case: WholeProgramCase, case_root: Path, timeout_seconds: float
+) -> CaseResult:
+    source_path = case_root / "source.hs"
+    run_results: dict[str, ProcessResult] = {}
+    for optimization in OPTIMIZATIONS:
+        variant_root = case_root / optimization
+        variant_root.mkdir(parents=True, exist_ok=True)
+        executable = variant_root / "program"
+        compile_result = _run_process(
+            _compile_command(hsc, source_path, executable, optimization, case.safety_mode),
+            variant_root,
+            timeout_seconds,
+        )
+        _write_process_artifacts(variant_root, "compile", compile_result)
+        if compile_result.timed_out:
+            return CaseResult(case, "runtime-error-compile-timeout:" + optimization, "compile timed out")
+        if compile_result.exit_code != 0:
+            return CaseResult(case, "runtime-error-compile-exit:" + optimization, "runtime-error case did not compile")
+        run_result = _run_process([str(_resolve_executable(executable))], variant_root, timeout_seconds)
+        _write_process_artifacts(variant_root, "run", run_result)
+        run_results[optimization] = run_result
+        if run_result.timed_out:
+            return CaseResult(case, "runtime-error-run-timeout:" + optimization, "runtime-error case timed out")
+        if run_result.exit_code == 0:
+            return CaseResult(case, "runtime-error-accepted:" + optimization, "expected checked runtime error was not raised")
+        if case.expected_runtime_error and case.expected_runtime_error not in run_result.stderr:
+            return CaseResult(
+                case,
+                "runtime-error-diagnostic:" + optimization,
+                "checked runtime error did not match the case oracle",
+            )
+        if case.expected_stdout is not None and run_result.stdout != case.expected_stdout:
+            return CaseResult(case, "runtime-error-stdout:" + optimization, "runtime error wrote unexpected stdout")
+
+    reference = run_results["O0"]
+    variants: list[dict[str, object]] = []
+    mismatched_fields: list[str] = []
+    for optimization in OPTIMIZATIONS:
+        result = run_results[optimization]
+        mismatches = [
+            name
+            for name in ("timed_out", "exit_code", "stdout", "stderr")
+            if getattr(reference, name) != getattr(result, name)
+        ]
+        if optimization != "O0" and mismatches:
+            mismatched_fields.extend(optimization + ":" + item for item in mismatches)
+        variants.append(
+            {
+                "optimization": optimization,
+                "exit_code": result.exit_code,
+                "timed_out": result.timed_out,
+                "matches_o0": not mismatches,
+                "mismatches": mismatches,
+            }
+        )
+    _write_json(
+        case_root / "differential.json",
+        {"version": 1, "reference_optimization": "O0", "variants": variants},
+    )
+    if mismatched_fields:
+        return CaseResult(
+            case,
+            "runtime-error-differential:" + ",".join(mismatched_fields),
+            "checked runtime error differs across optimization levels: " + ", ".join(mismatched_fields),
+        )
+    return CaseResult(case, None, None)
+
+
 def _execute_case(
     hsc: Path, case: WholeProgramCase, case_root: Path, timeout_seconds: float
 ) -> CaseResult:
     if case.kind == "valid":
         return _run_valid_case(hsc, case, case_root, timeout_seconds)
+    if case.kind == "runtime-error":
+        return _run_runtime_error_case(hsc, case, case_root, timeout_seconds)
     return _run_invalid_case(hsc, case, case_root, timeout_seconds)
 
 
@@ -244,7 +325,10 @@ def _write_case_metadata(case_root: Path, case: WholeProgramCase, timeout_second
         {
             "name": case.name,
             "kind": case.kind,
+            "safety_mode": case.safety_mode,
             "expected_diagnostic": case.expected_diagnostic,
+            "expected_stdout": case.expected_stdout,
+            "expected_runtime_error": case.expected_runtime_error,
             "metadata": case.metadata,
             "timeout_seconds": timeout_seconds,
         },
@@ -275,6 +359,9 @@ def _reduce_failure(
             case.expected_diagnostic,
             case.metadata,
             case.removable_fragments,
+            case.safety_mode,
+            case.expected_stdout,
+            case.expected_runtime_error,
         )
         _write_case_metadata(probe_root, candidate, timeout_seconds)
         result = _execute_case(hsc, candidate, probe_root, timeout_seconds)

@@ -8,8 +8,10 @@
     "safety": "unchecked",
     "optimization": [
       "O0",
+      "O1",
       "O2",
-      "O3"
+      "O3",
+      "Os"
     ],
     "timeout_seconds": 10
   },
@@ -106,6 +108,102 @@
         "run": {
           "exit_code": 0,
           "stdout": "0\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "ir_001_packed_alignment",
+      "source": "../../../issues/ir-001.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "ir_002_signed_division_boundary",
+      "source": "../../../issues/ir-002.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "valid_ternary_view",
+      "source": "../../../cases/run/p2_ternary_view.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "1\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "template_view_reinterpretation",
+      "source": "../../../cases/run/template_view.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "pointer_slice_provenance",
+      "source": "../../../cases/run/pointer_slice.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "packed_member_offsets_1_2_3",
+      "source": "../../../cases/run/p3_packed_offsets.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "60\n",
           "stderr": ""
         }
       }

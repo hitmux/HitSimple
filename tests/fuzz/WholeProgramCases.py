@@ -45,6 +45,9 @@ class WholeProgramCase:
     expected_diagnostic: Optional[str]
     metadata: dict[str, object]
     removable_fragments: tuple[str, ...] = ()
+    safety_mode: str = "unchecked"
+    expected_stdout: Optional[str] = None
+    expected_runtime_error: Optional[str] = None
 
 
 SAFE_TEMPLATES: tuple[str, ...] = ("u32",)
@@ -364,9 +367,221 @@ def generate_invalid_cases(seed: int, count: int) -> list[WholeProgramCase]:
     return cases
 
 
+def _feature_valid_cases() -> tuple[WholeProgramCase, ...]:
+    """Generate one oracle-backed valid case for every P5 grammar extension."""
+
+    return (
+        WholeProgramCase(
+            "valid-signed-boundary",
+            "valid",
+            """$include <stdio.hsh>
+$include <stdlib.hsh>
+
+func main() {
+    new minimum as i32 = -2147483648
+    new adjusted as i32 = minimum + 1
+    new maximum as i32 = 2147483647
+    new passed as u8 = adjusted < 0 && maximum > 0 ? 1 : 0
+    printf("%d\\n", passed)
+    return 0
+}
+""",
+            None,
+            {"feature": "signed-boundary", "oracle": "1\\n", "invalid_rule": "invalid-signed-return"},
+            expected_stdout="1\n",
+        ),
+        WholeProgramCase(
+            "valid-template-field-layout",
+            "valid",
+            """$include <stdio.hsh>
+
+template GeneratedLayout {
+    code[4] as u32
+    tag[1] as u8
+}
+
+func main() {
+    new value as GeneratedLayout
+    value.code = 41
+    value.tag = 1
+    new expected_code as u32 = 41
+    new expected_tag as u8 = 1
+    new passed as u8 = value.code == expected_code && value.tag == expected_tag ? 1 : 0
+    printf("%d\\n", passed)
+    return 0
+}
+""",
+            None,
+            {"feature": "template-field-layout", "oracle": "1\\n", "invalid_rule": "invalid-template-member"},
+            expected_stdout="1\n",
+        ),
+        WholeProgramCase(
+            "valid-try-catch-user-template",
+            "valid",
+            """$include <stdio.hsh>
+
+template GeneratedFailure {
+    code[4] as i32
+}
+
+func main() {
+    new value as GeneratedFailure
+    value.code = 42
+    try {
+        throw value
+    } catch (error as GeneratedFailure) {
+        new passed as u8 = error.code == 42 ? 1 : 0
+        printf("%d\\n", passed)
+        return 0
+    }
+    return 1
+}
+""",
+            None,
+            {"feature": "try-catch", "oracle": "1\\n", "invalid_rule": "invalid-try-catch-view"},
+            expected_stdout="1\n",
+        ),
+        WholeProgramCase(
+            "valid-multi-return",
+            "valid",
+            """$include <stdio.hsh>
+
+func pair(value as u32) -> (first as u32, second as u32) {
+    return value, value + 1
+}
+
+func main() {
+    new first as u32
+    new second as u32
+    first, second = pair(40)
+    new passed as u8 = first == 40 && second == 41 ? 1 : 0
+    printf("%d\\n", passed)
+    return 0
+}
+""",
+            None,
+            {"feature": "multi-return", "oracle": "1\\n", "invalid_rule": "invalid-multi-return-target-count"},
+            expected_stdout="1\n",
+        ),
+        WholeProgramCase(
+            "valid-checked-memory-safe-path",
+            "valid",
+            """$include <stdio.hsh>
+$include <stdlib.hsh>
+$include <string.hsh>
+
+func main() {
+    new source[4] = 0x03020100
+    new destination[4]
+    new heap = calloc(1, 4)
+    new copied = memcpy(destination, source, 4)
+    new compared = memcmp(destination, source, 4)
+    free(heap)
+    new passed as u8 = compared == 0 ? 1 : 0
+    printf("%d\\n", passed)
+    return 0
+}
+""",
+            None,
+            {"feature": "checked-safe-path", "oracle": "1\\n", "invalid_rule": "runtime-checked-divide-by-zero"},
+            safety_mode="checked",
+            expected_stdout="1\n",
+        ),
+        WholeProgramCase(
+            "runtime-checked-divide-by-zero",
+            "runtime-error",
+            """func dynamic_zero() -> i32 {
+    return 0
+}
+
+func main() -> i32 {
+    new divisor as i32 = dynamic_zero()
+    return 7 / divisor
+}
+""",
+            None,
+            {"feature": "checked-error-path", "oracle": "runtime division-by-zero"},
+            safety_mode="checked",
+            expected_stdout="",
+            expected_runtime_error="hitsimple runtime error: integer division by zero",
+        ),
+    )
+
+
+def _feature_invalid_cases() -> tuple[WholeProgramCase, ...]:
+    """One stable rejection oracle accompanies each newly enabled grammar rule."""
+
+    return (
+        WholeProgramCase(
+            "invalid-signed-return",
+            "invalid",
+            """func pair() -> (first as i32, second as i32) {
+    return 1
+}
+
+func main() {
+    return 0
+}
+""",
+            "return value count does not match function signature",
+            {"rule": "signed-return-count", "feature": "signed-boundary"},
+        ),
+        WholeProgramCase(
+            "invalid-template-member",
+            "invalid",
+            """template GeneratedLayout {
+    code[4] as u32
+}
+
+func main() {
+    new value as GeneratedLayout
+    value.missing = 1
+    return 0
+}
+""",
+            "unknown member 'missing'",
+            {"rule": "unknown-template-member", "feature": "template-field-layout"},
+        ),
+        WholeProgramCase(
+            "invalid-try-catch-view",
+            "invalid",
+            """func main() {
+    try {
+        throw 7
+    } catch (error as f64) {
+        return 0
+    }
+    return 1
+}
+""",
+            "float operand is not a float expression",
+            {"rule": "invalid-try-catch-view", "feature": "try-catch"},
+        ),
+        WholeProgramCase(
+            "invalid-multi-return-target-count",
+            "invalid",
+            """func pair() -> (first as u32, second as u32) {
+    return 1, 2
+}
+
+func main() {
+    new only as u32
+    only = pair()
+    return 0
+}
+""",
+            "multi-return call result count does not match target count",
+            {"rule": "multi-return-target-count", "feature": "multi-return"},
+        ),
+    )
+
+
 def generate_cases(
     seed: int, valid_count: int, invalid_count: int, max_statements: int
 ) -> list[WholeProgramCase]:
-    return generate_valid_cases(seed, valid_count, max_statements) + generate_invalid_cases(
-        seed, invalid_count
+    return (
+        generate_valid_cases(seed, valid_count, max_statements)
+        + list(_feature_valid_cases())
+        + generate_invalid_cases(seed, invalid_count)
+        + list(_feature_invalid_cases())
     )

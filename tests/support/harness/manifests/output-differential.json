@@ -1,0 +1,70 @@
+{
+  "version": 3,
+  "suite": "output-differential",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked"
+    ],
+    "optimization": [
+      "O0",
+      "O1",
+      "O2",
+      "O3",
+      "Os"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "user_template_fprintf_exact_content",
+      "source": "../../../cases/run/user_template_format_fprintf.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "output_files": [
+            {
+              "path": "user_template_format_fprintf.out",
+              "content": "F"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "user_template_fprintf_checksum",
+      "source": "../../../cases/run/user_template_format_fprintf_expr.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "output_files": [
+            {
+              "path": "user_template_format_fprintf_expr.out",
+              "sha256": "a9f51566bd6705f7ea6ad54bb9deb449f795582d6529a0e22207b8981233ec58"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

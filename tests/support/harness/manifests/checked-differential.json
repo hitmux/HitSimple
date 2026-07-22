@@ -1,0 +1,94 @@
+{
+  "version": 2,
+  "suite": "checked-differential",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O1",
+      "O2",
+      "O3",
+      "Os"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "dynamic_divide_by_zero",
+      "source": "../../../cases/run/checked_dynamic_divide_by_zero.hs",
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: integer division by zero at .*/checked_dynamic_divide_by_zero\\.hs:7:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_negative_shift",
+      "source": "../../../cases/run/checked_dynamic_negative_shift.hs",
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: negative shift count at .*/checked_dynamic_negative_shift\\.hs:7:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_negative_exponent",
+      "source": "../../../cases/run/checked_dynamic_negative_exponent.hs",
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: negative exponent at .*/checked_dynamic_negative_exponent\\.hs:7:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_out_of_bounds_store",
+      "source": "../../../cases/run/checked_oob.hs",
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked store at .*/checked_oob\\.hs:10:5\\n$"
+          }
+        }
+      }
+    }
+  ]
+}

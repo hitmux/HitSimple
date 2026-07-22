@@ -12,7 +12,7 @@ from typing import Any, Optional, Sequence
 from property_cases import PropertyCase
 
 
-OPTIMIZATION_LEVELS: tuple[str, ...] = ("O0", "O2", "O3")
+OPTIMIZATION_LEVELS: tuple[str, ...] = ("O0", "O1", "O2", "O3", "Os")
 
 
 @dataclass(frozen=True)

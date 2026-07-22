@@ -28,7 +28,7 @@ source = pathlib.Path(arguments[-3])
 if 'compile-fail' in source.read_text(encoding='utf-8'):
     sys.stderr.write('compile failure\\n')
     raise SystemExit(7)
-program = \"#!/usr/bin/env python3\\nimport sys\\n\"
+program = \"#!/usr/bin/env python3\\nimport pathlib\\nimport sys\\n\"
 if 'sleep' in source.read_text(encoding='utf-8'):
     program += \"import time\\ntime.sleep(1)\\n\"
 if 'mode-runtime-error' in source.read_text(encoding='utf-8') and '--checked' in arguments:
@@ -37,6 +37,10 @@ elif 'safety-diverge' in source.read_text(encoding='utf-8') and '--checked' in a
     program += \"sys.stdout.write('different\\\\n')\\n\"
 elif 'optimization-diverge' in source.read_text(encoding='utf-8') and '-O2' in arguments:
     program += \"sys.stdout.write('different\\\\n')\\n\"
+elif 'file-output' in source.read_text(encoding='utf-8'):
+    content = 'different\\n' if '-O2' in arguments else 'ok\\n'
+    program += \"pathlib.Path('result.txt').write_text(\" + repr(content) + \", encoding='utf-8')\\n\"
+    program += \"sys.stdout.write('ok\\\\n')\\n\"
 else:
     program += \"sys.stdout.write('ok\\\\n')\\n\"
 output.write_text(program, encoding='utf-8')
@@ -138,6 +142,38 @@ def write_safety_manifest(
                         "name": "matrix",
                         "source": source.name,
                         "expect_by_mode": expectations,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def write_output_manifest(directory: Path, source: Path) -> Path:
+    manifest = directory / "output-differential.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "suite": "output-differential",
+                "defaults": {
+                    "targets": ["host"],
+                    "safety": ["unchecked"],
+                    "optimization": ["O0", "O2"],
+                },
+                "tests": [
+                    {
+                        "name": "output_matrix",
+                        "source": source.name,
+                        "expect_by_mode": {
+                            "unchecked": {
+                                "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+                                "run": {"exit_code": 0, "stdout": "ok\n", "stderr": ""},
+                                "output_files": [{"path": "result.txt", "content": "ok\n"}],
+                            }
+                        },
                     }
                 ],
             }
@@ -263,6 +299,59 @@ class HarnessTests(unittest.TestCase):
             )
             self.assertEqual(report["reference_optimization"], "O0")
             self.assertEqual(report["variants"][1]["mismatches"], ["run stdout differs"])
+
+    def test_output_file_differential_reports_checksum_mismatch_and_preserves_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "case.hs"
+            source.write_text("file-output", encoding="utf-8")
+            artifacts = directory / "artifacts"
+            result = self.run_harness(
+                write_fake_hsc(directory),
+                write_output_manifest(directory, source),
+                artifacts,
+                differential=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn("run output file 'result.txt' content did not match expectation", result.stdout)
+            self.assertIn("differential O0 vs O2 run output file 'result.txt' checksum differs", result.stdout)
+            output_record = json.loads(
+                (artifacts / "output-differential/output_matrix/host/unchecked/O2/run.outputs.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertTrue(output_record[0]["exists"])
+            self.assertFalse(output_record[0]["content_matches"])
+            self.assertEqual(
+                (artifacts / "output-differential/output_matrix/host/unchecked/O2/result.txt").read_text(
+                    encoding="utf-8"
+                ),
+                "different\n",
+            )
+            report = json.loads(
+                (artifacts / "output-differential/output_matrix/host/unchecked/differential.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                report["variants"][1]["mismatches"],
+                ["run output file 'result.txt' checksum differs"],
+            )
+
+    def test_output_file_manifest_rejects_parent_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "case.hs"
+            source.write_text("file-output", encoding="utf-8")
+            manifest = write_output_manifest(directory, source)
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["tests"][0]["expect_by_mode"]["unchecked"]["output_files"][0]["path"] = "../result.txt"
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            result = self.run_harness(
+                write_fake_hsc(directory), manifest, directory / "artifacts", differential=True
+            )
+            self.assertEqual(result.returncode, 2, result.stderr + result.stdout)
+            self.assertIn("must be a normalized relative path", result.stderr)
 
     def test_safety_mode_compares_runnable_modes_and_preserves_report(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
