@@ -14,7 +14,7 @@ struct MandelbrotConfig {
 };
 
 constexpr MandelbrotConfig kMandelbrotConfig{1600, 1200, 1000};
-constexpr std::uint64_t kMemoryElements = 16ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t kMemoryElements = 32ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kMemoryRounds = 56;
 constexpr std::uint64_t kSeedMultiplier = 1664525ULL;
 constexpr std::uint64_t kSeedAddend = 1013904223ULL;
@@ -54,23 +54,26 @@ std::uint64_t mandelbrot_checksum(const MandelbrotConfig config) {
 }
 
 std::uint64_t memory_checksum(std::uint64_t elements, std::uint64_t rounds) {
-    std::unique_ptr<std::uint64_t[]> data{new std::uint64_t[elements]};
+    std::unique_ptr<std::uint32_t[]> data{new std::uint32_t[elements]};
 
     for (std::uint64_t index = 0; index < elements; ++index) {
-        data[index] = index * kSeedMultiplier + kSeedAddend;
+        data[index] = static_cast<std::uint32_t>(
+            index * kSeedMultiplier + kSeedAddend);
     }
 
     for (std::uint64_t round = 0; round < rounds; ++round) {
         for (std::uint64_t index = 0; index < elements; ++index) {
-            std::uint64_t value = data[index];
-            value = (value ^ (value >> 17)) * kTransformMultiplier + kTransformAddend;
+            std::uint32_t value = data[index];
+            value = static_cast<std::uint32_t>(
+                (value ^ (value >> 17)) * kTransformMultiplier + kTransformAddend);
             data[index] = value;
         }
     }
 
     std::uint64_t checksum = 0;
     for (std::uint64_t index = 0; index < elements; ++index) {
-        checksum += data[index] ^ (index * kIndexMultiplier);
+        checksum += static_cast<std::uint32_t>(
+            data[index] ^ static_cast<std::uint32_t>(index * kIndexMultiplier));
     }
 
     return checksum;
@@ -80,7 +83,7 @@ bool run_sanity_checks() {
     return mandelbrot_iterations(0.0, 0.0, 32) == 32 &&
            mandelbrot_iterations(2.0, 0.0, 32) == 2 &&
            mandelbrot_iterations(-1.0, 0.0, 32) == 32 &&
-           memory_checksum(8, 1) == 9002283028674721401ULL;
+           memory_checksum(8, 1) == 16839030393ULL;
 }
 
 void print_checksum(std::string_view name, std::uint64_t checksum) {

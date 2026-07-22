@@ -12,8 +12,8 @@
 namespace hitsimple {
 namespace support {
 class CompilationMetrics;
-class TranslationUnitMetrics;
-class ClangSelection;
+struct TranslationUnitMetrics;
+struct ClangSelection;
 } // namespace support
 namespace codegen {
 struct CodegenOptions;
