@@ -96,6 +96,25 @@ HS_TEST(Sema_LowersTemplateMembers) {
                            "storage=local") != std::string::npos);
 }
 
+HS_TEST(Sema_LowersSizeofUserTemplate) {
+  auto result = analyzeSource("template Pair {\n"
+                              "    left[2] as u16\n"
+                              "    right[4] as u32\n"
+                              "}\n"
+                              "func main() {\n"
+                              "    new size as u64 = sizeof(Pair)\n"
+                              "    return size - 6\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("IntegerLiteral value=6 bytes=8 "
+                           "category=unsigned-integer template=u64") !=
+                 std::string::npos);
+}
+
 HS_TEST(Sema_LowersNestedMemberTemplateOverride) {
   auto result = analyzeSource("template Profile {\n"
                               "    id[4] as u32\n"

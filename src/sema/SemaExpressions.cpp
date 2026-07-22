@@ -367,10 +367,9 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
 
   if (const auto *sizeofExpr =
           dynamic_cast<const ast::SizeofExpr *>(&expression)) {
-    const auto structIt = structs_.find(sizeofExpr->name);
-    if (structIt != structs_.end()) {
+    if (const auto byteLength = templateByteLength(sizeofExpr->name)) {
       return std::make_unique<hir::IntegerLiteral>(
-          std::to_string(structIt->second.byteLength), fixedResult("u64", 8));
+          std::to_string(*byteLength), fixedResult("u64", 8));
     }
     const auto *symbol = lookup(sizeofExpr->name);
     if (symbol == nullptr) {

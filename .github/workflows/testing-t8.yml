@@ -1,0 +1,68 @@
+name: Testing T8
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  aarch64-and-performance:
+    name: AArch64 strict alignment and performance trend
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison clang-18 llvm-18-dev ninja-build re2c
+
+      - name: Configure and build
+        shell: bash
+        run: |
+          cmake -S . -B build-t8 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          cmake --build build-t8 --parallel
+
+      - name: Run AArch64 semantic and strict-alignment coverage
+        shell: bash
+        run: |
+          cmake -DBUILD_DIR=build-t8 \
+            '-DTEST_REGEX=^(hsc_harness_runtime|hsc_harness_differential|hsc_property_metamorphic|hsc_whole_program_fuzzer|hsc_t8_.*)$' \
+            -P cmake/RunQuietTests.cmake
+
+      - name: Collect benchmark samples and trend report
+        shell: bash
+        run: |
+          mkdir -p phase8-artifacts/benchmark
+          BENCHMARK_BUILD_DIR="$PWD/phase8-artifacts/benchmark" \
+          BENCHMARK_REPORT="$PWD/phase8-artifacts/benchmark/report.json" \
+          HSC="$PWD/build-t8/hsc" \
+          CXX=clang++-18 \
+          hsvsc++/hsvsc++/run_benchmark.sh 15 3 0
+          baseline_args=()
+          if [[ -f tests/performance/baselines/aarch64-linux.json ]]; then
+            baseline_args=(--baseline tests/performance/baselines/aarch64-linux.json)
+          fi
+          python3 tests/performance/check_benchmark_trend.py \
+            --current phase8-artifacts/benchmark/report.json \
+            --output phase8-artifacts/benchmark/trend.json \
+            "${baseline_args[@]}"
+
+      - name: Upload T8 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testing-t8-aarch64
+          path: |
+            build-t8/ctest-output/hsc_t8_vectorization_remarks
+            phase8-artifacts
+          if-no-files-found: warn

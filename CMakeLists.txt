@@ -20,6 +20,57 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(HITSIMPLE_ENABLE_SANITIZERS
+  "Build HitSimple with AddressSanitizer and UndefinedBehaviorSanitizer"
+  OFF
+)
+option(HS_ENABLE_FUZZING
+  "Build coverage-guided libFuzzer targets"
+  OFF
+)
+option(HS_ENABLE_ASAN
+  "Enable AddressSanitizer in libFuzzer builds"
+  OFF
+)
+option(HS_ENABLE_UBSAN
+  "Enable UndefinedBehaviorSanitizer in libFuzzer builds"
+  OFF
+)
+if(HITSIMPLE_ENABLE_SANITIZERS)
+  if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU" OR
+     NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    message(FATAL_ERROR
+      "HITSIMPLE_ENABLE_SANITIZERS requires Clang or GCC for both C and C++")
+  endif()
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
+if(HS_ENABLE_FUZZING)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "HS_ENABLE_FUZZING requires Clang as the C++ compiler")
+  endif()
+
+  set(HITSIMPLE_FUZZ_SANITIZER_FLAG "-fsanitize=fuzzer-no-link")
+  if(HS_ENABLE_ASAN)
+    string(APPEND HITSIMPLE_FUZZ_SANITIZER_FLAG ",address")
+  endif()
+  if(HS_ENABLE_UBSAN)
+    string(APPEND HITSIMPLE_FUZZ_SANITIZER_FLAG ",undefined")
+  endif()
+
+  # Instrument every C++ compiler component in this dedicated build. The
+  # fuzzer targets add libFuzzer's main at link time; ordinary C++ tools retain
+  # their normal entry points through fuzzer-no-link.
+  add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:${HITSIMPLE_FUZZ_SANITIZER_FLAG}>"
+    "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
+  )
+  add_link_options(
+    "$<$<LINK_LANGUAGE:CXX>:${HITSIMPLE_FUZZ_SANITIZER_FLAG}>"
+  )
+endif()
+
 find_package(LLVM REQUIRED CONFIG)
 find_package(BISON REQUIRED)
 find_program(RE2C_EXECUTABLE re2c REQUIRED)
@@ -281,6 +332,10 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaExpressions.cpp
   src/sema/SemaOperators.cpp
   src/sema/SemaStatements.cpp
+  src/safety/StaticSafetyAnalyzer.cpp
+  src/safety/StaticSafetyFacts.cpp
+  src/safety/StaticSafetyStateFlow.cpp
+  src/safety/StaticSafetyValidation.cpp
   src/stdlib/StandardLibraryModules.cpp
   ${HITSIMPLE_GENERATED_STDLIB_CPP}
   src/support/Cargo.cpp
@@ -323,6 +378,12 @@ else()
       $<$<COMPILE_LANGUAGE:C>:-Wextra>
     )
   endif()
+  if(HITSIMPLE_ENABLE_SANITIZERS)
+    # The compiler is sanitizer-instrumented, but this archive is linked by
+    # ordinary generated programs. Keep it free of sanitizer and Debug DWARF;
+    # --sanitize relinks these sources separately.
+    target_compile_options(hitsimple_runtime PRIVATE -fno-sanitize=all -g0)
+  endif()
 endif()
 
 target_include_directories(hitsimple_frontend
@@ -331,6 +392,7 @@ target_include_directories(hitsimple_frontend
     ${CMAKE_CURRENT_BINARY_DIR}/generated
   PRIVATE
     ${PROJECT_SOURCE_DIR}/src/parser
+    ${PROJECT_SOURCE_DIR}/src
 )
 
 target_include_directories(hitsimple_frontend
@@ -360,6 +422,11 @@ endif()
 
 add_executable(hsc
   src/main.cpp
+  src/driver/Diagnostics.cpp
+  src/driver/Driver.cpp
+  src/driver/DriverOptions.cpp
+  src/driver/FrontendPipeline.cpp
+  src/driver/NativeBuild.cpp
 )
 
 if(WIN32)
@@ -372,6 +439,7 @@ endif()
 target_include_directories(hsc
   PRIVATE
     ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
     ${LLVM_INCLUDE_DIRS}
 )
 
@@ -421,6 +489,11 @@ install(FILES
   ${PROJECT_SOURCE_DIR}/stdlib/ctype.hs
   DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/stdlib
 )
+install(FILES
+  ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c
+  ${PROJECT_SOURCE_DIR}/runtime/hitsimple_f128_native.c
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/runtime
+)
 install(FILES LICENSE README.md USAGE.md Standard.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
 )
@@ -465,6 +538,8 @@ endif()
 include(CTest)
 
 if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
   if(APPLE)
     set(HITSIMPLE_LIBRARY_SEARCH_LINK_ARGUMENT "-Wl,-undefined,error")
   else()
@@ -477,6 +552,8 @@ if(BUILD_TESTING)
     tests/codegen/LLVMCodegenTests.cpp
     tests/codegen/OptimizationPipelineTests.cpp
     tests/compat/CCompatTests.cpp
+    tests/driver/DriverOptionsTests.cpp
+    src/driver/DriverOptions.cpp
     tests/hir/HIRTests.cpp
     tests/lexer/LexerTests.cpp
     tests/parser/ParserTests.cpp
@@ -486,6 +563,7 @@ if(BUILD_TESTING)
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
     tests/sema/SemaTryCatchTests.cpp
+    tests/safety/StaticSafetyAnalyzerTests.cpp
     tests/support/ProcessTests.cpp
     tests/support/CompilationMetricsTests.cpp
     tests/support/ResourcePathsTests.cpp
@@ -496,6 +574,7 @@ if(BUILD_TESTING)
   target_include_directories(hsc_unit_tests
     PRIVATE
       ${PROJECT_SOURCE_DIR}/include
+      ${PROJECT_SOURCE_DIR}/src
       ${PROJECT_SOURCE_DIR}/tests
       ${CMAKE_CURRENT_BINARY_DIR}/generated
   )
@@ -536,6 +615,118 @@ target_link_libraries(hsc_unit_tests
   endfunction()
 
   add_test(NAME unit_tests COMMAND hsc_unit_tests)
+  add_test(
+    NAME hsc_harness_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/test_run_tests.py
+  )
+  set_tests_properties(hsc_harness_unit_tests PROPERTIES LABELS "testing;harness")
+  add_test(
+    NAME hsc_harness_runtime
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite runtime
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_runtime PROPERTIES LABELS "testing;harness;runtime")
+  add_test(
+    NAME hsc_harness_differential
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite differential
+      --differential
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_differential PROPERTIES
+    LABELS "testing;harness;differential;phase3")
+  add_test(
+    NAME hsc_harness_safety_mode
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite safety-mode
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_harness_safety_mode PROPERTIES
+    LABELS "testing;harness;safety-mode;phase-p1")
+  add_test(
+    NAME hsc_property_case_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/properties/test_property_cases.py
+  )
+  set_tests_properties(hsc_property_case_unit_tests
+    PROPERTIES LABELS "testing;properties;metamorphic;phase5")
+  add_test(
+    NAME hsc_property_metamorphic
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/properties/run_properties.py
+      --hsc $<TARGET_FILE:hsc>
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/properties
+  )
+  set_tests_properties(hsc_property_metamorphic
+    PROPERTIES LABELS "testing;properties;metamorphic;phase5")
+  add_test(
+    NAME hsc_whole_program_case_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/fuzz/test_whole_program_cases.py
+  )
+  set_tests_properties(hsc_whole_program_case_unit_tests
+    PROPERTIES LABELS "testing;fuzz;whole-program;phase7")
+  add_test(
+    NAME hsc_whole_program_fuzzer
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/fuzz/run_whole_program.py
+      --hsc $<TARGET_FILE:hsc>
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/whole-program-fuzz
+  )
+  set_tests_properties(hsc_whole_program_fuzzer
+    PROPERTIES LABELS "testing;fuzz;whole-program;phase7")
+  add_test(
+    NAME hsc_t8_benchmark_trend_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/performance/test_check_benchmark_trend.py
+  )
+  set_tests_properties(hsc_t8_benchmark_trend_unit_tests
+    PROPERTIES LABELS "testing;performance;phase8")
+  add_test(
+    NAME hsc_t8_vectorization_remarks
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/performance/collect_vectorization_remarks.py
+      --hsc $<TARGET_FILE:hsc>
+      --clang ${CLANG_EXECUTABLE}
+      --source ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/benchmark_memory.hs
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/hsc_t8_vectorization_remarks
+  )
+  set_tests_properties(hsc_t8_vectorization_remarks
+    PROPERTIES LABELS "testing;performance;vectorization;phase8")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    add_test(
+      NAME hsc_t8_aarch64_strict_alignment
+      COMMAND ${CMAKE_COMMAND}
+        -DHSC=$<TARGET_FILE:hsc>
+        -DCLANG=${CLANG_EXECUTABLE}
+        -DRUNTIME=$<TARGET_FILE:hitsimple_runtime>
+        -DSOURCE=${PROJECT_SOURCE_DIR}/tests/issues/ir-001.hs
+        -P ${PROJECT_SOURCE_DIR}/tests/support/RunStrictAlignmentTest.cmake
+    )
+    set_tests_properties(hsc_t8_aarch64_strict_alignment
+      PROPERTIES LABELS "testing;cross-target;strict-alignment;phase8")
+  endif()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_hsc_shell_test(hsc_sanitize_address_runtime
+      "$<TARGET_FILE:hsc> --sanitize=address --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_oob.hs -o asan-program && ! ./asan-program >stdout 2>stderr && grep -Fq 'ERROR: AddressSanitizer: heap-buffer-overflow' stderr"
+    )
+    add_hsc_shell_test(hsc_sanitize_undefined_runtime
+      "$<TARGET_FILE:hsc> --sanitize=undefined ${PROJECT_SOURCE_DIR}/examples/hello.hs -o ubsan-program && ./ubsan-program | grep -Fx 42"
+    )
+    set_tests_properties(hsc_sanitize_address_runtime
+                         hsc_sanitize_undefined_runtime
+                         PROPERTIES LABELS "testing;sanitizer;phase4")
+  endif()
   if(APPLE AND NOT HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
     add_executable(hitsimple_f128_runtime_tests
       tests/runtime/F128RuntimeTests.cpp
@@ -973,6 +1164,12 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_checked_scope_continue_runtime
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_scope_continue.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_checked_repeated_local_scope_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_repeated_local_scope.hs -o program && ./program && $<TARGET_FILE:hsc> --checked -O2 ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_repeated_local_scope.hs -o program-o2 && ./program-o2"
+  )
+  add_hsc_shell_test(hsc_checked_repeated_temporary_view_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_repeated_temporary_view.hs -o program && ./program"
   )
   add_hsc_shell_test(hsc_checked_cstr_compare_boundary
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_cstr_compare_boundary.hs -o program && (./program >stdout 2>stderr; test $? -eq 120) && grep -Fq 'unterminated checked string' stderr"
@@ -1996,6 +2193,48 @@ target_link_libraries(hsc_unit_tests
     set_tests_properties(hsc_issue_bench_001 PROPERTIES DISABLED TRUE)
   endif()
   set_tests_properties(hsc_issue_bench_001 PROPERTIES LABELS "phase0;bench-001")
+endif()
+
+if(HS_ENABLE_FUZZING)
+  function(add_hsc_fuzzer target source corpus)
+    add_executable(${target}
+      ${source}
+      tests/fuzz/FuzzInvariants.cpp
+    )
+    target_include_directories(${target}
+      PRIVATE
+        ${PROJECT_SOURCE_DIR}/tests/fuzz
+    )
+    target_link_libraries(${target}
+      PRIVATE
+        hitsimple_frontend
+        ${LLVM_LIBS}
+    )
+    target_compile_options(${target} PRIVATE -fsanitize=fuzzer)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+
+    if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+      target_compile_options(${target} PRIVATE /W4)
+    else()
+      target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    if(BUILD_TESTING)
+      add_test(
+        NAME ${target}_smoke
+        COMMAND $<TARGET_FILE:${target}>
+          -runs=1
+          -seed=20260722
+          ${PROJECT_SOURCE_DIR}/tests/corpus/seeds/${corpus}
+      )
+      set_tests_properties(${target}_smoke PROPERTIES LABELS "testing;fuzz;phase6")
+    endif()
+  endfunction()
+
+  add_hsc_fuzzer(fuzz_lexer tests/fuzz/LexerFuzzer.cpp lexer)
+  add_hsc_fuzzer(fuzz_parser tests/fuzz/ParserFuzzer.cpp parser)
+  add_hsc_fuzzer(fuzz_sema tests/fuzz/SemaFuzzer.cpp sema)
+  add_hsc_fuzzer(fuzz_codegen tests/fuzz/CodegenFuzzer.cpp codegen)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")

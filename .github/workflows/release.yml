@@ -160,6 +160,8 @@ jobs:
           fi
           grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr
           cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy)$' -P cmake/RunQuietTests.cmake
+          cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^hsc_t8_.*$' \
+            -P cmake/RunQuietTests.cmake
 
       - name: Verify native preprocessor macro
         shell: bash
@@ -178,7 +180,8 @@ jobs:
 
           file "$package_root/bin/hsc" | grep -F "${{ matrix.file_pattern }}"
           test -f "$package_root/lib/hitsimple/libhitsimple_runtime.a"
-          test ! -e "$package_root/share/hitsimple/runtime/hitsimple_runtime.c"
+          test -f "$package_root/share/hitsimple/runtime/hitsimple_runtime.c"
+          test -f "$package_root/share/hitsimple/runtime/hitsimple_f128_native.c"
           "$package_root/bin/hsc" --version | grep -Fx "hsc $HITSIMPLE_VERSION"
 
           smoke_root="$RUNNER_TEMP/hitsimple-package-smoke"

@@ -102,6 +102,23 @@ hsc -O2 --pgo-use=program.profdata app.hs -o app-pgo
 
 PGO options are executable-build options and are mutually exclusive.
 
+## Sanitizer Test Builds (Linux)
+
+```bash
+hsc --sanitize=address tests/cases/run/checked_oob.hs -o asan-oob
+./asan-oob
+```
+
+`--sanitize=address` and `--sanitize=undefined` are Linux-only test modes for
+native executable builds. AddressSanitizer is applied by the backend Clang to
+generated LLVM IR and the HitSimple runtime. UndefinedBehaviorSanitizer
+currently instruments the runtime and any native C/C++ inputs, because Clang
+does not add UBSan checks when consuming pre-existing LLVM IR. `undefined` makes UBSan reports terminate
+the executable. The option cannot be used with `--emit-llvm`, preprocessing,
+object output, or static-library output. Release packages include the runtime
+sources required for this test-only relink path; ordinary builds continue to
+link the runtime archive.
+
 ## Select a Standard-Library Provider
 
 ```bash

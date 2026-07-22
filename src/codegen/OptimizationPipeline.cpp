@@ -19,7 +19,6 @@
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
-
 #include <memory>
 #include <optional>
 #include <string>
@@ -201,6 +200,13 @@ runOptimizationPipeline(std::string_view llvmIr,
                                    cgsccAnalysisManager, moduleAnalysisManager);
 
   const auto level = toLlvmOptimizationLevel(options.optimization);
+  if (options.sanitizer == SanitizerInstrumentation::Address) {
+    for (auto& function : *module) {
+      if (!function.isDeclaration()) {
+        function.addFnAttr(llvm::Attribute::SanitizeAddress);
+      }
+    }
+  }
   llvm::ModulePassManager pipeline;
   pipeline.addPass(llvm::VerifierPass());
   pipeline.addPass(HitSimpleCanonicalizePass(options.emitRemarks));

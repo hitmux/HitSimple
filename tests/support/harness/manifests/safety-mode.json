@@ -1,0 +1,484 @@
+{
+  "version": 2,
+  "suite": "safety-mode",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "hello_preserves_observable_behavior",
+      "source": "../../../cases/run/hello.hs",
+      "optimization": [
+        "O0",
+        "O2"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "42\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "42\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "42\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_divide_by_zero",
+      "source": "../../../cases/run/checked_dynamic_divide_by_zero.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic division by zero is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic division by zero is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: integer division by zero at .*/checked_dynamic_divide_by_zero\\.hs:7:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_negative_shift",
+      "source": "../../../cases/run/checked_dynamic_negative_shift.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic negative shift is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic negative shift is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: negative shift count at .*/checked_dynamic_negative_shift\\.hs:7:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_negative_exponent",
+      "source": "../../../cases/run/checked_dynamic_negative_exponent.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic negative exponent is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic negative exponent is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: negative exponent at .*/checked_dynamic_negative_exponent\\.hs:7:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_out_of_bounds_store",
+      "source": "../../../cases/run/checked_oob.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic out-of-bounds access is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic out-of-bounds access is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked store at .*/checked_oob\\.hs:10:5\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_double_free",
+      "source": "../../../cases/run/checked_double_free.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic double free is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic double free is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: double free at .*/checked_double_free\\.hs:6:5\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_use_after_free",
+      "source": "../../../cases/run/checked_use_after_free.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic use after free is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic use after free is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*/checked_use_after_free\\.hs:6:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_unterminated_cstr",
+      "source": "../../../cases/run/checked_cstr_compare_boundary.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "unterminated cstr behavior is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "unterminated cstr behavior is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*/checked_cstr_compare_boundary\\.hs:8:19\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_memcpy_destination_boundary",
+      "source": "../../../cases/run/checked_memcpy_bounds.hs",
+      "stdin": "2\n",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic memcpy boundary behavior is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "dynamic memcpy boundary behavior is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid memcpy destination range at .*/checked_memcpy_bounds\\.hs:8:26\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_null_file_handle",
+      "source": "../../../cases/run/checked_null_file_handle.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "invalid file-handle behavior is undefined outside checked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "invalid file-handle behavior is undefined outside checked mode"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid file handle at .*/checked_null_file_handle\\.hs:5:12\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "static_negative_shift",
+      "source": "../../../cases/sema/checked_negative_shift_static.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "negative shift is undefined in unchecked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*static safety check failed: negative shift count.*$"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*static safety check failed: negative shift count.*$"
+          }
+        }
+      }
+    },
+    {
+      "name": "static_negative_exponent",
+      "source": "../../../cases/sema/checked_negative_exponent_static.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "negative exponent is undefined in unchecked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*static safety check failed: negative exponent.*$"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*static safety check failed: negative exponent.*$"
+          }
+        }
+      }
+    },
+    {
+      "name": "static_double_free",
+      "source": "../../../cases/sema/checked_double_free_static.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "double free is undefined in unchecked mode"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*static safety check failed: double free.*$"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*static safety check failed: double free.*$"
+          }
+        }
+      }
+    },
+    {
+      "name": "constant_divide_by_zero",
+      "source": "../../../cases/sema/checked_divide_by_zero_static.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*sema: error: division by zero in binary expression.*$"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*sema: error: division by zero in binary expression.*$"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s)^hsc: .*sema: error: division by zero in binary expression.*$"
+          }
+        }
+      }
+    }
+  ]
+}

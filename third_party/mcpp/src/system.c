@@ -3174,8 +3174,8 @@ found_name:
     }
 #endif
     if (open_include( filename, (delim == '"'), next)) {
-        /* 'fname' should not be free()ed, it is used as file->         */
-        /*      real_fname and has been registered into fnamelist[]     */
+        /* open_file() copies the name into fnamelist[]. */
+        free( fname);
         return  TRUE;
     }
 
@@ -3494,12 +3494,12 @@ search:
     else
         infile->sys_header = FALSE;
 #endif
-    cur_fullname = fullname;
+    cur_fullname = (char *) infile->full_fname;
 
     if (option_flags.z) {
         no_output++;        /* Don't output the included file       */
         if (include_nest == 2)
-            mcpp_fprintf( OUT, "#include \"%s\"\n", fullname);
+            mcpp_fprintf( OUT, "#include \"%s\"\n", cur_fullname);
             /* Output #include line instead, if it is in main source file   */
     } else if (! include_opt) {     /* Do not sharp() on -include   */
         src_line = 1;                   /* Working on line 1 now    */
@@ -3508,9 +3508,10 @@ search:
     src_line = 0;                       /* To read the first line   */
 
     if (mkdep && ((mkdep & MD_SYSHEADER) || ! infile->sys_header))
-        put_depend( fullname);          /* Output dependency line   */
+        put_depend( cur_fullname);       /* Output dependency line   */
 
 true:
+    free( fullname);
     return  TRUE;
 false:
     free( fullname);
@@ -4338,7 +4339,7 @@ static void push_or_pop(
             }
             while ((defp = *prevp) != NULL) {
                 /* Increment or decrement "push" count of all pushed defs   */
-                if ((cmp = memcmp( defp->name, identifier, s_name)) > 0)
+                if ((cmp = strcmp( defp->name, identifier)) > 0)
                     break;
                 defp->push += direction;        /* Increment or decrement   */
                 prevp = &defp->link;
@@ -4891,7 +4892,6 @@ void    at_end( void)
 #endif
 }
 
-#if MCPP_LIB
 void    clear_filelist( void)
 /*
  * Free malloced memory for filename-list and directory-list.
@@ -4909,5 +4909,3 @@ void    clear_filelist( void)
     if (standard)
         free( (void *) once_list);
 }
-#endif
-

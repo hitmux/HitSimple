@@ -27,3 +27,24 @@ HS_TEST(OptimizationPipeline_CollectsCanonicalizationRemark) {
   HS_EXPECT_TRUE(result->remarks.front().find("HitSimple canonicalization completed") !=
                  std::string::npos);
 }
+
+HS_TEST(OptimizationPipeline_RejectsInvalidLlvmIrBeforeOptimization) {
+  const std::string llvmIr =
+      "target triple = \"" + llvm::sys::getDefaultTargetTriple() + "\"\n"
+      "define i32 @main() {\n"
+      "entry:\n"
+      "  br label %exit\n"
+      "exit:\n"
+      "  %value = phi i32 [ 1, %exit ]\n"
+      "  ret i32 %value\n"
+      "}\n";
+
+  hitsimple::codegen::OptimizationPipelineOptions options;
+  std::string error;
+  const auto result =
+      hitsimple::codegen::runOptimizationPipeline(llvmIr, options, error);
+
+  HS_EXPECT_TRUE(!result.has_value());
+  HS_EXPECT_TRUE(error.find("LLVM verifier failed before optimization") !=
+                 std::string::npos);
+}

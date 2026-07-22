@@ -42,25 +42,55 @@ fi
 mkdir -p "$build_dir"
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-timestamp_log="$build_dir/benchmark-$timestamp.log"
+run_id="$timestamp-$$"
+timestamp_log="$build_dir/benchmark-$run_id.log"
+benchmark_report="${BENCHMARK_REPORT:-$build_dir/benchmark-$run_id.json}"
+samples_dir="$build_dir/benchmark-$run_id-samples"
+mkdir -p "$(dirname "$benchmark_report")" "$samples_dir"
 exec > >(tee "$timestamp_log" "$build_dir/benchmark-latest.log") 2>&1
 
 cpu_model="unknown"
 if [[ -r /proc/cpuinfo ]]; then
-    cpu_model="$(awk -F': ' '/model name/ { print $2; exit }' /proc/cpuinfo)"
+    cpu_model="$(awk -F': ' '/model name|Model|Hardware/ { print $2; exit }' /proc/cpuinfo)"
 fi
+
+cpu="${CPU:-}"
+if [[ -z "$cpu" ]]; then
+    cpu="$(taskset -pc "$$" | awk -F': ' '{ split($2, groups, ","); split(groups[1], bounds, "-"); print bounds[1] }')"
+fi
+
+if ! [[ "$cpu" =~ ^[0-9]+$ ]]; then
+    echo "无法确定可用 CPU；请使用 CPU=<编号> $0 运行。" >&2
+    exit 2
+fi
+
+cpu_governor="unknown"
+governor_path="/sys/devices/system/cpu/cpu${cpu}/cpufreq/scaling_governor"
+if [[ -r "$governor_path" ]]; then
+    cpu_governor="$(<"$governor_path")"
+fi
+
+git_commit="$(git -C "$root_dir/../.." rev-parse HEAD 2>/dev/null || printf 'unavailable')"
+hsc_version="$("$hsc" --version)"
+cxx_version="$("$cxx" --version | sed -n '1p')"
+target_triple="$("$cxx" -dumpmachine)"
 
 printf '权威基准口径: 同一主机、同一 CPU pinning、C++ 与 HitSimple 均使用 -O2；HitSimple 固定使用 --unchecked。\n'
 printf 'resolved hsc path: %s\n' "$hsc"
-"$hsc" --version
+printf '%s\n' "$hsc_version"
 printf 'resolved C++ compiler path: %s\n' "$cxx"
-"$cxx" --version | sed -n '1p'
+printf '%s\n' "$cxx_version"
+printf 'Git commit: %s\n' "$git_commit"
 printf 'HS flags: -O2 --unchecked\n'
 printf 'C++ flags: -O2 -std=c++20 -Wall -Wextra -Wpedantic -Werror\n'
 printf 'CPU model: %s\n' "$cpu_model"
-printf 'target triple: %s\n' "$("$cxx" -dumpmachine)"
+printf 'CPU governor: %s\n' "$cpu_governor"
+printf 'CPU affinity: %s\n' "$cpu"
+printf 'target triple: %s\n' "$target_triple"
 printf 'OS/kernel: %s\n' "$(uname -srmo)"
 printf 'log archive: %s\n' "$timestamp_log"
+printf 'raw samples: %s\n' "$samples_dir"
+printf 'JSON report: %s\n' "$benchmark_report"
 
 "$cxx" -O2 -std=c++20 -Wall -Wextra -Wpedantic -Werror \
     "$root_dir/benchmark.cpp" -o "$build_dir/benchmark-cpp"
@@ -89,19 +119,6 @@ if [[ "$cpp_mandelbrot_checksum" != "$hs_mandelbrot_checksum" || "$cpp_memory_ch
     printf 'memory: C++=%s HS=%s\n' "$cpp_memory_checksum" "$hs_memory_checksum" >&2
     exit 1
 fi
-
-cpu="${CPU:-}"
-if [[ -z "$cpu" ]]; then
-    cpu="$(taskset -pc "$$" | awk -F': ' '{ split($2, groups, ","); split(groups[1], bounds, "-"); print bounds[1] }')"
-fi
-
-if ! [[ "$cpu" =~ ^[0-9]+$ ]]; then
-    echo "无法确定可用 CPU；请使用 CPU=<编号> $0 运行。" >&2
-    exit 2
-fi
-
-samples_dir="$(mktemp -d "$build_dir/.benchmark.XXXXXX")"
-trap 'rm -rf "$samples_dir"' EXIT
 
 time_ns() {
     local start_ns end_ns
@@ -203,3 +220,80 @@ memory_hs_median="$(median_ns "$memory_hs_samples")"
 printf 'HS/C++ 中位数比: Mandelbrot=%sx，内存=%sx\n' \
     "$(awk -v hs="$mandelbrot_hs_median" -v cpp="$mandelbrot_cpp_median" 'BEGIN { printf "%.3f", hs / cpp }')" \
     "$(awk -v hs="$memory_hs_median" -v cpp="$memory_cpp_median" 'BEGIN { printf "%.3f", hs / cpp }')"
+
+BENCHMARK_TIMESTAMP="$timestamp" \
+BENCHMARK_GIT_COMMIT="$git_commit" \
+BENCHMARK_HSC="$hsc" \
+BENCHMARK_HSC_VERSION="$hsc_version" \
+BENCHMARK_CXX="$cxx" \
+BENCHMARK_CXX_VERSION="$cxx_version" \
+BENCHMARK_TARGET_TRIPLE="$target_triple" \
+BENCHMARK_CPU_MODEL="$cpu_model" \
+BENCHMARK_CPU_GOVERNOR="$cpu_governor" \
+BENCHMARK_CPU_AFFINITY="$cpu" \
+BENCHMARK_RUNS="$runs" \
+BENCHMARK_WARMUPS="$warmups" \
+BENCHMARK_COOLDOWN_SECONDS="$cooldown_seconds" \
+BENCHMARK_MANDELBROT_CPP="$mandelbrot_cpp_samples" \
+BENCHMARK_MANDELBROT_HS="$mandelbrot_hs_samples" \
+BENCHMARK_MEMORY_CPP="$memory_cpp_samples" \
+BENCHMARK_MEMORY_HS="$memory_hs_samples" \
+BENCHMARK_MANDELBROT_CHECKSUM="$hs_mandelbrot_checksum" \
+BENCHMARK_MEMORY_CHECKSUM="$hs_memory_checksum" \
+BENCHMARK_MANDELBROT_CPP_MEDIAN="$mandelbrot_cpp_median" \
+BENCHMARK_MANDELBROT_HS_MEDIAN="$mandelbrot_hs_median" \
+BENCHMARK_MEMORY_CPP_MEDIAN="$memory_cpp_median" \
+BENCHMARK_MEMORY_HS_MEDIAN="$memory_hs_median" \
+python3 - "$benchmark_report" <<'PY'
+import json
+import os
+import sys
+
+
+def samples(variable):
+    with open(os.environ[variable], encoding="utf-8") as handle:
+        return [int(line.strip()) for line in handle if line.strip()]
+
+
+def workload(prefix, checksum):
+    cpp_samples = samples("BENCHMARK_" + prefix + "_CPP")
+    hs_samples = samples("BENCHMARK_" + prefix + "_HS")
+    return {
+        "checksum": checksum,
+        "cpp": {
+            "median_ns": float(os.environ["BENCHMARK_" + prefix + "_CPP_MEDIAN"]),
+            "samples_ns": cpp_samples,
+        },
+        "hitsimple": {
+            "median_ns": float(os.environ["BENCHMARK_" + prefix + "_HS_MEDIAN"]),
+            "samples_ns": hs_samples,
+        },
+    }
+
+
+report = {
+    "version": 1,
+    "timestamp_utc": os.environ["BENCHMARK_TIMESTAMP"],
+    "git_commit": os.environ["BENCHMARK_GIT_COMMIT"],
+    "hsc": {"path": os.environ["BENCHMARK_HSC"], "version": os.environ["BENCHMARK_HSC_VERSION"]},
+    "cxx": {"path": os.environ["BENCHMARK_CXX"], "version": os.environ["BENCHMARK_CXX_VERSION"]},
+    "target_triple": os.environ["BENCHMARK_TARGET_TRIPLE"],
+    "safety_mode": "unchecked",
+    "optimization_level": "O2",
+    "cpu": {
+        "model": os.environ["BENCHMARK_CPU_MODEL"],
+        "governor": os.environ["BENCHMARK_CPU_GOVERNOR"],
+        "affinity": int(os.environ["BENCHMARK_CPU_AFFINITY"]),
+    },
+    "warmups": int(os.environ["BENCHMARK_WARMUPS"]),
+    "runs": int(os.environ["BENCHMARK_RUNS"]),
+    "cooldown_seconds": int(os.environ["BENCHMARK_COOLDOWN_SECONDS"]),
+    "workloads": {
+        "mandelbrot": workload("MANDELBROT", os.environ["BENCHMARK_MANDELBROT_CHECKSUM"]),
+        "memory": workload("MEMORY", os.environ["BENCHMARK_MEMORY_CHECKSUM"]),
+    },
+}
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(report, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY

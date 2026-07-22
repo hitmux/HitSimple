@@ -21,9 +21,15 @@ enum class PgoMode {
   Use,
 };
 
+enum class SanitizerInstrumentation {
+  None,
+  Address,
+};
+
 struct OptimizationPipelineOptions final {
   OptimizationLevel optimization = OptimizationLevel::O2;
   PgoMode pgoMode = PgoMode::None;
+  SanitizerInstrumentation sanitizer = SanitizerInstrumentation::None;
   std::string profilePath;
   bool emitRemarks = false;
 };

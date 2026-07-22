@@ -1,8 +1,7 @@
 #define __STDC_WANT_IEC_60559_TYPES_EXT__ 1
 
-#if defined(__clang__) && defined(__GLIBC__) && defined(__x86_64__) && \
-    defined(__SIZEOF_FLOAT128__) && defined(__HAVE_FLOAT128) && \
-    !__HAVE_FLOAT128
+#if defined(__clang__) && defined(__x86_64__) && \
+    defined(__SIZEOF_FLOAT128__)
 typedef __float128 HsFloat128;
 #else
 typedef _Float128 HsFloat128;

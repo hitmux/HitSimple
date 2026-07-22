@@ -6,6 +6,7 @@ AGENTS.md
 .hceignore
 Plan.md
 Issue.md
+Testing_Plan.md
 
 # CMake and build output
 build/
@@ -49,6 +50,11 @@ vscode/hitsimple/dist/
 *.log
 *.tmp
 *.temp
+__pycache__/
+
+# libFuzzer writes content-addressed discoveries into the seed directories.
+# Curated named seeds remain versioned; 40-character generated entries stay local.
+tests/corpus/seeds/*/????????????????????????????????????????
 
 # Cargo fixture output
 tests/cases/interop/**/target/

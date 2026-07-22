@@ -32,7 +32,7 @@ HS_TEST(Hir_ViewSemanticsDumpIncludesCompleteResult) {
       booleanTestResultSemantics());
   const auto unit = unitWithReturn(std::move(expression));
 
-  HS_EXPECT_TRUE(verifyViewSemantics(*unit).empty());
+  HS_EXPECT_TRUE(verifyHIR(*unit).empty());
   const auto dump = dumpToString(*unit);
   HS_EXPECT_TRUE(dump.find("BooleanTestExpr category=boolean template=bool "
                            "length=static:1 integer_interpretation=none "
@@ -51,7 +51,7 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsLegacyByteLengthMismatch) {
   expression->byteLength = 8;
   const auto unit = unitWithReturn(std::move(expression));
 
-  const auto diagnostics = verifyViewSemantics(*unit);
+  const auto diagnostics = verifyHIR(*unit);
   HS_EXPECT_EQ(diagnostics.size(), 1U);
   HS_EXPECT_TRUE(diagnostics.front().message.find("legacy byteLength") !=
                  std::string::npos);
@@ -66,7 +66,7 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsNonCanonicalBooleanTestResult) {
       viewSemanticsForTemplate("bool", 1, true, true));
   const auto unit = unitWithReturn(std::move(expression));
 
-  const auto diagnostics = verifyViewSemantics(*unit);
+  const auto diagnostics = verifyHIR(*unit);
   HS_EXPECT_EQ(diagnostics.size(), 1U);
   HS_EXPECT_TRUE(diagnostics.front().message.find("BooleanTestExpr result") !=
                  std::string::npos);
@@ -120,7 +120,7 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsIncompleteCallAndAddressPlans) {
       viewSemanticsForTemplate("i32", 4));
   incompleteCall->argumentPlans.clear();
   const auto callUnit = unitWithReturn(std::move(incompleteCall));
-  const auto callDiagnostics = verifyViewSemantics(*callUnit);
+  const auto callDiagnostics = verifyHIR(*callUnit);
   HS_EXPECT_EQ(callDiagnostics.size(), 1U);
   HS_EXPECT_TRUE(callDiagnostics.front().message.find("argument conversion plan") !=
                  std::string::npos);
@@ -134,7 +134,7 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsIncompleteCallAndAddressPlans) {
       addressSemantics, StandardOperationKind::AddressOffset);
   offset->addressFacts->isBaseAddress = true;
   const auto addressUnit = unitWithReturn(std::move(offset));
-  const auto addressDiagnostics = verifyViewSemantics(*addressUnit);
+  const auto addressDiagnostics = verifyHIR(*addressUnit);
   HS_EXPECT_EQ(addressDiagnostics.size(), 1U);
   HS_EXPECT_TRUE(addressDiagnostics.front().message.find("AddressOffset") !=
                  std::string::npos);
@@ -169,9 +169,57 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsCallPlanDestinationThatDiffersFromCallee
       "main", std::make_unique<Block>(std::move(mainStatements))));
   const TranslationUnit unit(std::move(functions));
 
-  const auto diagnostics = verifyViewSemantics(unit);
+  const auto diagnostics = verifyHIR(unit);
   HS_EXPECT_EQ(diagnostics.size(), 1U);
   HS_EXPECT_TRUE(diagnostics.front().message.find(
                      "destination does not match callee parameter contract") !=
+                 std::string::npos);
+}
+
+HS_TEST(Hir_VerifierRejectsStandardTemplateWithWrongByteLength) {
+  using namespace hitsimple::hir;
+  auto expression = std::make_unique<IntegerLiteral>(
+      "42", staticViewSemantics(ViewCategory::SignedInteger,
+                                  IntegerInterpretation::Signed, 8, "i32"));
+  const auto unit = unitWithReturn(std::move(expression));
+
+  const auto diagnostics = verifyHIR(*unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("standard template 'i32'") !=
+                 std::string::npos);
+}
+
+HS_TEST(Hir_VerifierRejectsComparisonWithNonBooleanResult) {
+  using namespace hitsimple::hir;
+  auto comparison = std::make_unique<BinaryExpr>(
+      std::make_unique<IntegerLiteral>("1", viewSemanticsForTemplate("i32", 4)),
+      "==",
+      std::make_unique<IntegerLiteral>("1", viewSemanticsForTemplate("i32", 4)),
+      viewSemanticsForTemplate("i32", 4),
+      StandardOperationKind::StandardInteger);
+  const auto unit = unitWithReturn(std::move(comparison));
+
+  const auto diagnostics = verifyHIR(*unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("comparison and logical") !=
+                 std::string::npos);
+}
+
+HS_TEST(Hir_VerifierRejectsIntegerCandidateWithBytesOperand) {
+  using namespace hitsimple::hir;
+  auto operation = std::make_unique<BinaryExpr>(
+      std::make_unique<VariableRef>(
+          "bytes", staticViewSemantics(ViewCategory::Bytes,
+                                        IntegerInterpretation::None, 4, "bytes")),
+      "%d+",
+      std::make_unique<IntegerLiteral>("1", viewSemanticsForTemplate("i32", 4)),
+      staticViewSemantics(ViewCategory::UntemplatedInteger,
+                          IntegerInterpretation::Signed, 4),
+      StandardOperationKind::UntemplatedInteger);
+  const auto unit = unitWithReturn(std::move(operation));
+
+  const auto diagnostics = verifyHIR(*unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("UntemplatedInteger") !=
                  std::string::npos);
 }

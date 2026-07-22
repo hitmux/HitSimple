@@ -1,0 +1,58 @@
+name: Sanitizers
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    name: ASan and UBSan
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison clang-18 llvm-18-dev ninja-build re2c
+
+      - name: Configure sanitizer build
+        shell: bash
+        run: |
+          cmake -S . -B build-sanitize -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DBUILD_TESTING=ON \
+            -DHITSIMPLE_ENABLE_SANITIZERS=ON \
+            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+
+      - name: Build sanitizer targets
+        run: cmake --build build-sanitize --parallel
+
+      - name: Run sanitizer regression suite
+        shell: bash
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          mkdir -p sanitizer-logs
+          set -o pipefail
+          cmake -DBUILD_DIR=build-sanitize -P cmake/RunQuietTests.cmake 2>&1 | \
+            tee sanitizer-logs/ctest.log
+
+      - name: Upload sanitizer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-logs
+          path: |
+            sanitizer-logs
+            build-sanitize/ctest-output
+          if-no-files-found: warn
