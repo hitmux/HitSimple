@@ -82,7 +82,7 @@ printf 'resolved C++ compiler path: %s\n' "$cxx"
 printf '%s\n' "$cxx_version"
 printf 'Git commit: %s\n' "$git_commit"
 printf 'HS flags: -O2 --unchecked\n'
-printf 'C++ flags: -O2 -std=c++20 -Wall -Wextra -Wpedantic -Werror\n'
+printf 'C++ flags: -O2 -ffp-contract=off -std=c++20 -Wall -Wextra -Wpedantic -Werror\n'
 printf 'CPU model: %s\n' "$cpu_model"
 printf 'CPU governor: %s\n' "$cpu_governor"
 printf 'CPU affinity: %s\n' "$cpu"
@@ -92,7 +92,7 @@ printf 'log archive: %s\n' "$timestamp_log"
 printf 'raw samples: %s\n' "$samples_dir"
 printf 'JSON report: %s\n' "$benchmark_report"
 
-"$cxx" -O2 -std=c++20 -Wall -Wextra -Wpedantic -Werror \
+"$cxx" -O2 -ffp-contract=off -std=c++20 -Wall -Wextra -Wpedantic -Werror \
     "$root_dir/benchmark.cpp" -o "$build_dir/benchmark-cpp"
 "$hsc" -O2 --unchecked "$root_dir/benchmark_mandelbrot.hs" -o "$build_dir/hs-mandelbrot"
 "$hsc" -O2 --unchecked "$root_dir/benchmark_memory.hs" -o "$build_dir/hs-memory"
