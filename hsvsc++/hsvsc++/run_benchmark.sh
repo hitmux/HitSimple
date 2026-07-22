@@ -49,10 +49,32 @@ samples_dir="$build_dir/benchmark-$run_id-samples"
 mkdir -p "$(dirname "$benchmark_report")" "$samples_dir"
 exec > >(tee "$timestamp_log" "$build_dir/benchmark-latest.log") 2>&1
 
-cpu_model="unknown"
+cpu_model=""
 if [[ -r /proc/cpuinfo ]]; then
-    cpu_model="$(awk -F': ' '/model name|Model|Hardware/ { print $2; exit }' /proc/cpuinfo)"
+    cpu_model="$(awk -F: '
+        $1 ~ /^[[:space:]]*(model name|Model|Hardware)[[:space:]]*$/ {
+            value = $2
+            sub(/^[[:space:]]+/, "", value)
+            if (value != "") {
+                print value
+                exit
+            }
+        }
+    ' /proc/cpuinfo)"
 fi
+if [[ -z "$cpu_model" ]] && command -v lscpu >/dev/null 2>&1; then
+    cpu_model="$(LC_ALL=C lscpu | awk -F: '
+        $1 ~ /^[[:space:]]*(Model name|Model|Hardware)[[:space:]]*$/ {
+            value = $2
+            sub(/^[[:space:]]+/, "", value)
+            if (value != "") {
+                print value
+                exit
+            }
+        }
+    ')"
+fi
+cpu_model="${cpu_model:-unknown}"
 
 cpu="${CPU:-}"
 if [[ -z "$cpu" ]]; then
