@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "suite": "differential",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": "unchecked",
+    "optimization": [
+      "O0",
+      "O2",
+      "O3"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "lit_001_u64_literal",
+      "source": "../../../issues/lit-001.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "255\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "sem_001_u64_increment",
+      "source": "../../../issues/sem-001.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "4294967296\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "sem_002_boolean_byte_reduction",
+      "source": "../../../issues/sem-002.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "true\nfixed\ndynamic\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "sem_003_u32_to_u64_zero_extension",
+      "source": "../../../issues/sem-003.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "4294967295\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "sem_004_u8_addition_width",
+      "source": "../../../issues/sem-004.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "0\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "sem_005_u64_constant_wrap",
+      "source": "../../../issues/sem-005.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "0\n",
+          "stderr": ""
+        }
+      }
+    }
+  ]
+}

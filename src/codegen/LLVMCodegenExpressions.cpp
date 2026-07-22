@@ -1217,14 +1217,11 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     if (type == nullptr || value == nullptr) {
       return {};
     }
-    auto *storage = builder_.CreateAlloca(type, nullptr, std::string(name));
+    auto *storage = createFunctionEntryAlloca(type, name);
     storage->setAlignment(llvm::Align(1));
     auto *store = builder_.CreateStore(value, storage);
     store->setAlignment(llvm::Align(1));
-    if (hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(
-          declareRegisterLocalObject(), {storage, builder_.getInt64(byteLength)});
-    }
+    registerTemporaryObject(storage, builder_.getInt64(byteLength));
     return ViewValue{storage, builder_.getInt64(byteLength), byteLength,
                      std::size_t{1}};
   };
@@ -1298,10 +1295,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), resultLength,
                                             "view.resize.bytes");
       result->setAlignment(llvm::Align(1));
-      if (hasRuntimeSafetyChecks()) {
-        (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
-                                     {result, resultLength});
-      }
+      registerTemporaryObject(result, resultLength);
       builder_.CreateMemSet(result, builder_.getInt8(0), resultLength,
                             llvm::Align(1));
       auto *sourceShorter = builder_.CreateICmpULT(source.length, resultLength,
@@ -1324,10 +1318,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), source.length,
                                           "view.swap.bytes");
     result->setAlignment(llvm::Align(1));
-    if (hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(declareRegisterLocalObject(),
-                                   {result, source.length});
-    }
+    registerTemporaryObject(result, source.length);
     (void)emitCheckedRuntimeCall(declareReverseBytes(),
                                  {result, source.data, source.length});
     return ViewValue{result, source.length, std::nullopt, std::size_t{1}};
@@ -1338,15 +1329,11 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     if (source.data == nullptr || source.length == nullptr) {
       return {};
     }
-    auto *result = builder_.CreateAlloca(builder_.getInt8Ty(),
-                                          builder_.getInt64(swap->byteLength),
-                                          "view.swap.bytes");
+    auto *result = createFunctionEntryAlloca(
+        llvm::ArrayType::get(builder_.getInt8Ty(), swap->byteLength),
+        "view.swap.bytes");
     result->setAlignment(llvm::Align(1));
-    if (hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(
-          declareRegisterLocalObject(),
-          {result, builder_.getInt64(swap->byteLength)});
-    }
+    registerTemporaryObject(result, builder_.getInt64(swap->byteLength));
     if (swap->byteLength == 1 || swap->byteLength == 2 ||
         swap->byteLength == 4 || swap->byteLength == 8 ||
         swap->byteLength == 16) {
@@ -1388,9 +1375,9 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
 
   if (const auto *character =
           dynamic_cast<const hir::CharacterLiteral *>(&expression)) {
-    auto *storage = builder_.CreateAlloca(builder_.getInt8Ty(),
-                                          builder_.getInt64(character->byteLength),
-                                          "view.character");
+    auto *storage = createFunctionEntryAlloca(
+        llvm::ArrayType::get(builder_.getInt8Ty(), character->byteLength),
+        "view.character");
     storage->setAlignment(llvm::Align(1));
     for (std::size_t index = 0; index < character->bytes.size(); ++index) {
       auto *slot = builder_.CreateInBoundsGEP(
@@ -1401,11 +1388,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
           slot);
       store->setAlignment(llvm::Align(1));
     }
-    if (hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(
-          declareRegisterLocalObject(),
-          {storage, builder_.getInt64(character->byteLength)});
-    }
+    registerTemporaryObject(storage, builder_.getInt64(character->byteLength));
     return ViewValue{storage, builder_.getInt64(character->byteLength),
                      character->byteLength, std::size_t{1}};
   }

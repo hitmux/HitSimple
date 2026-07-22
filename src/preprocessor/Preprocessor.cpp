@@ -677,8 +677,13 @@ private:
       addDiagnostic(prepared.result, diagnostic::Severity::Error,
                     "cannot start mcpp preprocessor: " + process.error);
     } else if (process.exitCode != 0 && prepared.result.diagnostics.empty()) {
+      std::string message = "mcpp preprocessing failed (exit code " +
+          std::to_string(process.exitCode) + ")";
+      if (!errors.empty()) {
+        message += ":\n" + errors;
+      }
       addDiagnostic(prepared.result, diagnostic::Severity::Error,
-                    "mcpp preprocessing failed");
+                    std::move(message));
     }
     return std::move(prepared.result);
   }

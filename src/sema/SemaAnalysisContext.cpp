@@ -620,12 +620,16 @@ Analyzer::builtinForCall(const ast::CallExpr &call) const {
 
 std::uint16_t Analyzer::builtinOverloadIndex(const ast::CallExpr &call,
                                              stdlib::BuiltinId builtin) {
-  std::vector<std::string_view> templates;
-  templates.reserve(call.arguments.size());
+  std::vector<std::string> templateNames;
+  templateNames.reserve(call.arguments.size());
   for (const auto &argument : call.arguments) {
-    const auto templateName = operatorTemplateName(*argument);
-    templates.push_back(templateName ? std::string_view(*templateName)
-                                     : std::string_view{});
+    templateNames.push_back(operatorTemplateName(*argument).value_or(""));
+  }
+
+  std::vector<std::string_view> templates;
+  templates.reserve(templateNames.size());
+  for (const auto &templateName : templateNames) {
+    templates.push_back(templateName);
   }
   return stdlib::findBuiltinOverload(builtin, templates);
 }

@@ -1341,18 +1341,16 @@ DEFBUF **   look_prev(
     const char *    np;
     DEFBUF **   prevp;
     DEFBUF *    dp;
-    size_t      s_name;
     int         hash;
 
     for (hash = 0, np = name; *np != EOS; )
         hash += *np++;
-    hash += s_name = (size_t)(np - name);
-    s_name++;
+    hash += (int)(np - name);
     prevp = & symtab[ hash & SBMASK];
     *cmp = -1;                              /* Initialize           */
 
     while ((dp = *prevp) != NULL) {
-        if ((*cmp = memcmp( dp->name, name, s_name)) >= 0)
+        if ((*cmp = strcmp( dp->name, name)) >= 0)
             break;
         prevp = &dp->link;
     }
@@ -1676,7 +1674,6 @@ void    dump_def(
     wrong_line = TRUE;               /* Line number is out of sync  */
 }
 
-#if MCPP_LIB
 void    clear_symtable( void)
 /*
  * Free all the macro definitions.
@@ -1695,5 +1692,3 @@ void    clear_symtable( void)
         *symp = NULL;
     }
 }
-#endif
-

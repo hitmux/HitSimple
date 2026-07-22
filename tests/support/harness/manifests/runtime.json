@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "suite": "runtime",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": "unchecked",
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "hello",
+      "source": "../../../cases/run/hello.hs",
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "42\n",
+          "stderr": ""
+        }
+      }
+    }
+  ]
+}

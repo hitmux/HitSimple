@@ -93,6 +93,41 @@ BinaryOperator binaryOperatorFor(std::string_view op) {
   if (op == "||") return BinaryOperator::LogicalOr;
   return BinaryOperator::Unknown;
 }
+
+std::optional<std::size_t>
+standardTemplateByteLength(std::string_view templateName) {
+  if (templateName == "i8" || templateName == "u8") return 1U;
+  if (templateName == "i16" || templateName == "u16" ||
+      templateName == "f16") {
+    return 2U;
+  }
+  if (templateName == "i32" || templateName == "u32" ||
+      templateName == "f32") {
+    return 4U;
+  }
+  if (templateName == "i64" || templateName == "u64" ||
+      templateName == "f64") {
+    return 8U;
+  }
+  if (templateName == "f128") return 16U;
+  if (templateName == "bool") return 1U;
+  return std::nullopt;
+}
+
+bool isComparisonOperation(BinaryOperator operation) {
+  return operation == BinaryOperator::Equal ||
+         operation == BinaryOperator::NotEqual ||
+         operation == BinaryOperator::Less ||
+         operation == BinaryOperator::LessEqual ||
+         operation == BinaryOperator::Greater ||
+         operation == BinaryOperator::GreaterEqual;
+}
+
+bool isBooleanResultOperation(BinaryOperator operation) {
+  return isComparisonOperation(operation) ||
+         operation == BinaryOperator::LogicalAnd ||
+         operation == BinaryOperator::LogicalOr;
+}
 } // namespace
 
 void setActiveSourceRange(std::optional<diagnostic::SourceRange> range) {
@@ -1261,7 +1296,7 @@ applyAbiOverrides(TranslationUnit &unit,
 }
 
 std::vector<diagnostic::Diagnostic>
-verifyViewSemantics(const TranslationUnit &unit) {
+verifyHIR(const TranslationUnit &unit) {
   std::vector<diagnostic::Diagnostic> diagnostics;
 
   const auto addDiagnostic = [&diagnostics](const Expr &expression,
@@ -1408,6 +1443,16 @@ verifyViewSemantics(const TranslationUnit &unit) {
       }
       break;
     }
+
+    if (const auto expectedLength =
+            standardTemplateByteLength(semantics.templateName);
+        expectedLength &&
+        (semantics.lengthKind != ViewLengthKind::Static ||
+         semantics.staticByteLength != *expectedLength)) {
+      addDiagnostic(expression,
+                    "standard template '" + semantics.templateName +
+                        "' does not match its required byte length");
+    }
   };
   const auto checkByteLength = [&addDiagnostic](const Expr &expression,
                                                 std::size_t byteLength,
@@ -1553,6 +1598,126 @@ verifyViewSemantics(const TranslationUnit &unit) {
         addDiagnostic(*value,
                       "BinaryExpr must carry a resolved binary operation");
       }
+      const bool hasCanonicalBooleanResult =
+          sameSemantics(value->result, booleanTestResultSemantics());
+      if (isBooleanResultOperation(value->operation) &&
+          !hasCanonicalBooleanResult) {
+        addDiagnostic(*value,
+                      "comparison and logical BinaryExpr results must be the canonical bool View");
+      }
+
+      const auto isIntegerOrBoolean = [](const ViewSemantics &semantics) {
+        return isIntegerNumeric(semantics) ||
+               semantics.category == ViewCategory::Boolean;
+      };
+      const auto isUntemplatedInteger = [](const ViewSemantics &semantics) {
+        return isIntegerNumeric(semantics) && semantics.templateName.empty();
+      };
+      const auto requireBooleanResult = [&]() {
+        if (!hasCanonicalBooleanResult &&
+            !isBooleanResultOperation(value->operation)) {
+          addDiagnostic(*value,
+                        "resolved comparison candidate must return the canonical bool View");
+        }
+      };
+
+      switch (value->operationKind) {
+      case StandardOperationKind::StandardInteger: {
+        if (!isIntegerOrBoolean(value->left->result) ||
+            !isIntegerOrBoolean(value->right->result)) {
+          addDiagnostic(*value,
+                        "StandardInteger candidate requires integer or bool operands");
+          break;
+        }
+        const auto *selected =
+            (value->left->result.category == ViewCategory::SignedInteger ||
+             value->left->result.category == ViewCategory::UnsignedInteger)
+                ? &value->left->result
+                : ((value->right->result.category == ViewCategory::SignedInteger ||
+                    value->right->result.category == ViewCategory::UnsignedInteger)
+                       ? &value->right->result
+                       : nullptr);
+        if (selected == nullptr) {
+          addDiagnostic(*value,
+                        "StandardInteger candidate must retain a standard integer operand");
+        } else if (isComparisonOperation(value->operation)) {
+          requireBooleanResult();
+        } else if (!sameValueSemantics(value->result, *selected)) {
+          addDiagnostic(*value,
+                        "StandardInteger candidate result does not match its selected operand View");
+        }
+        break;
+      }
+      case StandardOperationKind::UntemplatedInteger:
+        if ((!isIntegerNumeric(value->left->result) &&
+             !isAddressValue(value->left->result)) ||
+            (!isIntegerNumeric(value->right->result) &&
+             !isAddressValue(value->right->result))) {
+          addDiagnostic(*value,
+                        "UntemplatedInteger candidate requires integer operands");
+        }
+        if (isComparisonOperation(value->operation)) {
+          requireBooleanResult();
+        }
+        break;
+      case StandardOperationKind::StandardBoolean:
+        if (value->left->result.category != ViewCategory::Boolean ||
+            value->right->result.category != ViewCategory::Boolean ||
+            (value->operation != BinaryOperator::Equal &&
+             value->operation != BinaryOperator::NotEqual)) {
+          addDiagnostic(*value,
+                        "StandardBoolean candidate only permits bool == and != bool");
+        }
+        requireBooleanResult();
+        break;
+      case StandardOperationKind::StandardAddress: {
+        const auto validAddressPair =
+            (isAddressValue(value->left->result) &&
+             (isAddressValue(value->right->result) ||
+              isUntemplatedInteger(value->right->result))) ||
+            (isAddressValue(value->right->result) &&
+             isUntemplatedInteger(value->left->result));
+        if (!validAddressPair ||
+            (value->operation != BinaryOperator::Equal &&
+             value->operation != BinaryOperator::NotEqual)) {
+          addDiagnostic(*value,
+                        "StandardAddress candidate only permits addr == or != a compatible addr/integer View");
+        }
+        requireBooleanResult();
+        break;
+      }
+      case StandardOperationKind::StandardHandle:
+        if (value->left->result.category != ViewCategory::Handle ||
+            value->right->result.category != ViewCategory::Handle ||
+            (value->operation != BinaryOperator::Equal &&
+             value->operation != BinaryOperator::NotEqual)) {
+          addDiagnostic(*value,
+                        "StandardHandle candidate only permits handle == and != handle");
+        }
+        requireBooleanResult();
+        break;
+      case StandardOperationKind::StandardBytesCompare:
+        if (value->left->result.category != ViewCategory::Bytes ||
+            value->right->result.category != ViewCategory::Bytes ||
+            !isComparisonOperation(value->operation)) {
+          addDiagnostic(*value,
+                        "StandardBytesCompare candidate requires bytes comparison operands");
+        }
+        requireBooleanResult();
+        break;
+      case StandardOperationKind::StandardCStringCompare:
+        if (value->left->result.category != ViewCategory::CString ||
+            value->right->result.category != ViewCategory::CString ||
+            !isComparisonOperation(value->operation)) {
+          addDiagnostic(*value,
+                        "StandardCStringCompare candidate requires cstr comparison operands");
+        }
+        requireBooleanResult();
+        break;
+      case StandardOperationKind::Legacy:
+      case StandardOperationKind::AddressOffset:
+        break;
+      }
       if (value->operationKind == StandardOperationKind::AddressOffset) {
         if ((value->operation != BinaryOperator::Add &&
              value->operation != BinaryOperator::Subtract) ||
@@ -1579,6 +1744,11 @@ verifyViewSemantics(const TranslationUnit &unit) {
     }
     if (const auto *value = dynamic_cast<const TernaryExpr *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
+      if (!sameValueSemantics(value->thenExpr->result, value->elseExpr->result) ||
+          !sameValueSemantics(value->result, value->thenExpr->result)) {
+        addDiagnostic(*value,
+                      "TernaryExpr result and branches must have the same View semantics");
+      }
       verifyExpr(*value->condition);
       verifyExpr(*value->thenExpr);
       verifyExpr(*value->elseExpr);
@@ -1635,6 +1805,10 @@ verifyViewSemantics(const TranslationUnit &unit) {
       return;
     }
     if (const auto *value = dynamic_cast<const FloatCompareExpr *>(&expression)) {
+      if (!sameSemantics(value->result, booleanTestResultSemantics())) {
+        addDiagnostic(*value,
+                      "FloatCompareExpr result must be the canonical bool View");
+      }
       verifyExpr(*value->left);
       verifyExpr(*value->right);
       return;

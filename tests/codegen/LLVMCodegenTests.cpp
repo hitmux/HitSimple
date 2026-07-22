@@ -438,6 +438,32 @@ HS_TEST(LLVMCodegen_RejectsEmptyReturnForI8MainHir) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_RejectsInvalidDirectHirBeforeEmission) {
+  auto value = std::make_unique<hitsimple::hir::IntegerLiteral>(
+      "42", hitsimple::hir::viewSemanticsForTemplate("i32", 4));
+  value->byteLength = 8;
+
+  std::vector<std::unique_ptr<hitsimple::hir::Expr>> values;
+  values.push_back(std::move(value));
+  std::vector<std::unique_ptr<hitsimple::hir::Stmt>> statements;
+  statements.push_back(
+      std::make_unique<hitsimple::hir::Return>(std::move(values)));
+  std::vector<std::unique_ptr<hitsimple::hir::Function>> functions;
+  functions.push_back(std::make_unique<hitsimple::hir::Function>(
+      "main", std::vector<hitsimple::hir::Parameter>{},
+      std::vector<std::size_t>{4},
+      std::make_unique<hitsimple::hir::Block>(std::move(statements))));
+  hitsimple::hir::TranslationUnit unit(std::move(functions));
+
+  const auto result = hitsimple::codegen::emitLlvmIr(unit, "test.hs");
+
+  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics.front().stage, hitsimple::diagnostic::Stage::Hir);
+  HS_EXPECT_TRUE(result.diagnostics.front().message.find("legacy byteLength") !=
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_EmitsTypedBinaryIntegerOps) {
   auto result = emitSource("func main() {\n"
                            "    new x[1]\n"

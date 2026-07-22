@@ -540,13 +540,13 @@ extern char *   stpcpy( char * dest, const char * src);
                 /* Non-Standard library function*/
 #endif
 
-#if MCPP_LIB    /* Setting to use mcpp as a subroutine  */
 /* directive.c  */
 extern void     clear_symtable( void);
                 /* Free all macro definitions   */
 /* system.c     */
 extern void     clear_filelist( void);
                 /* Free filename and directory list     */
+#if MCPP_LIB    /* Setting to use mcpp as a subroutine  */
 /* The following 5 functions are to Initialize static variables.    */
 /* directive.c  */
 extern void     init_directive( void);

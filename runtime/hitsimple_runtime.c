@@ -51,6 +51,7 @@ typedef enum {
   HS_OBJECT_HEAP,
   HS_OBJECT_STATIC,
   HS_OBJECT_LOCAL,
+  HS_OBJECT_TEMPORARY,
 } HsObjectKind;
 
 typedef struct {
@@ -58,6 +59,7 @@ typedef struct {
   uint64_t size;
   uint64_t frame;
   uint64_t scope;
+  uint64_t registration_id;
   HsObjectKind kind;
   int freed;
 } HsAlloc;
@@ -162,6 +164,29 @@ static HsAlloc *hs_find_exact(void *ptr, HsObjectKind kind,
   return NULL;
 }
 
+static HsAlloc *hs_find_temporary(uint64_t frame, uint64_t scope,
+                                  uint64_t registration_id) {
+  for (int i = 0; i < HS_MAX_OBJECTS; ++i) {
+    if (hs_allocs[i].ptr != NULL &&
+        hs_allocs[i].kind == HS_OBJECT_TEMPORARY &&
+        hs_allocs[i].frame == frame && hs_allocs[i].scope == scope &&
+        hs_allocs[i].registration_id == registration_id &&
+        !hs_allocs[i].freed) {
+      return &hs_allocs[i];
+    }
+  }
+  return NULL;
+}
+
+static void hs_clear(HsAlloc *allocation) {
+  allocation->ptr = NULL;
+  allocation->size = 0;
+  allocation->frame = 0;
+  allocation->scope = 0;
+  allocation->registration_id = 0;
+  allocation->freed = 0;
+}
+
 static void hs_register(void *ptr, uint64_t size, HsObjectKind kind,
                         uint64_t frame, uint64_t scope) {
   if (ptr == NULL || size == 0) {
@@ -181,6 +206,7 @@ static void hs_register(void *ptr, uint64_t size, HsObjectKind kind,
   slot->size = size;
   slot->frame = frame;
   slot->scope = scope;
+  slot->registration_id = 0;
   slot->kind = kind;
   slot->freed = 0;
 }
@@ -200,13 +226,10 @@ void hs_frame_exit(void) {
 
   for (int i = 0; i < HS_MAX_OBJECTS; ++i) {
     if (hs_allocs[i].ptr != NULL &&
-        hs_allocs[i].kind == HS_OBJECT_LOCAL &&
+        (hs_allocs[i].kind == HS_OBJECT_LOCAL ||
+         hs_allocs[i].kind == HS_OBJECT_TEMPORARY) &&
         hs_allocs[i].frame == hs_current_frame) {
-      hs_allocs[i].ptr = NULL;
-      hs_allocs[i].size = 0;
-      hs_allocs[i].frame = 0;
-      hs_allocs[i].scope = 0;
-      hs_allocs[i].freed = 0;
+      hs_clear(&hs_allocs[i]);
     }
   }
   hs_frame_scopes[hs_current_frame] = 0;
@@ -231,13 +254,10 @@ void hs_scope_exit(void) {
   const uint64_t scope = hs_frame_scopes[hs_current_frame];
   for (int i = 0; i < HS_MAX_OBJECTS; ++i) {
     if (hs_allocs[i].ptr != NULL &&
-        hs_allocs[i].kind == HS_OBJECT_LOCAL &&
+        (hs_allocs[i].kind == HS_OBJECT_LOCAL ||
+         hs_allocs[i].kind == HS_OBJECT_TEMPORARY) &&
         hs_allocs[i].frame == hs_current_frame && hs_allocs[i].scope == scope) {
-      hs_allocs[i].ptr = NULL;
-      hs_allocs[i].size = 0;
-      hs_allocs[i].frame = 0;
-      hs_allocs[i].scope = 0;
-      hs_allocs[i].freed = 0;
+      hs_clear(&hs_allocs[i]);
     }
   }
   --hs_frame_scopes[hs_current_frame];
@@ -258,6 +278,34 @@ void hs_register_local(void *ptr, uint64_t size) {
   }
   hs_register(ptr, size, HS_OBJECT_LOCAL, hs_current_frame,
               hs_frame_scopes[hs_current_frame]);
+}
+
+void hs_register_temporary(void *ptr, uint64_t size,
+                           uint64_t registration_id) {
+  if (hs_current_frame == 0) {
+    hs_fail("temporary object registered outside a runtime frame");
+  }
+  if (ptr == NULL || size == 0) {
+    hs_fail("invalid object registration");
+  }
+
+  const uint64_t scope = hs_frame_scopes[hs_current_frame];
+  HsAlloc *existing =
+      hs_find_temporary(hs_current_frame, scope, registration_id);
+  if (existing != NULL) {
+    existing->ptr = ptr;
+    existing->size = size;
+    return;
+  }
+
+  HsAlloc *slot = hs_slot();
+  slot->ptr = ptr;
+  slot->size = size;
+  slot->frame = hs_current_frame;
+  slot->scope = scope;
+  slot->registration_id = registration_id;
+  slot->kind = HS_OBJECT_TEMPORARY;
+  slot->freed = 0;
 }
 
 void hs_register_static(void *ptr, uint64_t size) {

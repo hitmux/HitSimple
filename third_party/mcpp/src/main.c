@@ -425,15 +425,15 @@ int     main
     at_end();                       /* Do the final commands        */
 
 fatal_error_exit:
-#if MCPP_LIB
     /* Free malloced memory */
+#if MCPP_LIB
     if (mcpp_debug & MACRO_CALL) {
         if (in_file != stdin_name)
             free( in_file);
     }
+#endif
     clear_filelist();
     clear_symtable();
-#endif
 
     if (fp_in != stdin)
         fclose( fp_in);
@@ -1126,4 +1126,3 @@ static char *   esc_mbchar(
     return  str_end;
 }
 #endif  /* ! MBCHAR_IS_ESCAPE_FREE  */
-

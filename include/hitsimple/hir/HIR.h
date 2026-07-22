@@ -1049,12 +1049,20 @@ std::vector<diagnostic::Diagnostic>
 applyAbiOverrides(TranslationUnit &unit,
                   const std::vector<AbiOverride> &overrides);
 
-// Validates result semantics, legacy byte-length shadow fields, and the
-// semantic contracts of special HIR nodes. Sema invokes this before exposing
-// a TranslationUnit to code generation; callers that build HIR directly can
-// use it as the same invariant gate.
+// Validates result semantics, legacy byte-length shadow fields, resolved
+// operation candidates, and the semantic contracts of special HIR nodes.
+// Sema and code generation invoke this before exposing a TranslationUnit to
+// later stages; callers that build HIR directly can use it as the same
+// invariant gate.
 std::vector<diagnostic::Diagnostic>
-verifyViewSemantics(const TranslationUnit &unit);
+verifyHIR(const TranslationUnit &unit);
+
+// Kept as a source-compatible spelling for callers that adopted the
+// ViewSemantics-only verifier before it became the full HIR invariant gate.
+inline std::vector<diagnostic::Diagnostic>
+verifyViewSemantics(const TranslationUnit &unit) {
+  return verifyHIR(unit);
+}
 
 void dump(const TranslationUnit &unit, std::ostream &out);
 std::string dumpToString(const TranslationUnit &unit);

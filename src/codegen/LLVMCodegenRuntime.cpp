@@ -63,6 +63,16 @@ void LlvmEmitter::registerLocalObject(llvm::Value *storage,
                                {storage, builder_.getInt64(byteLength)});
 }
 
+void LlvmEmitter::registerTemporaryObject(llvm::Value *storage,
+                                          llvm::Value *byteLength) {
+  if (!hasRuntimeSafetyChecks() || storage == nullptr || byteLength == nullptr) {
+    return;
+  }
+  (void)emitCheckedRuntimeCall(
+      declareRegisterTemporaryObject(),
+      {storage, byteLength, builder_.getInt64(nextRuntimeTemporaryObjectId_++)});
+}
+
 void LlvmEmitter::registerStaticObject(llvm::Value *storage,
                                        std::size_t byteLength) {
   if (!hasRuntimeSafetyChecks() || storage == nullptr || byteLength == 0) {
@@ -337,6 +347,13 @@ llvm::FunctionCallee LlvmEmitter::declareRegisterLocalObject() {
       builder_.getVoidTy(), {builder_.getPtrTy(), builder_.getInt64Ty()},
       false);
   return module_->getOrInsertFunction("hs_register_local", type);
+}
+
+llvm::FunctionCallee LlvmEmitter::declareRegisterTemporaryObject() {
+  auto *type = llvm::FunctionType::get(
+      builder_.getVoidTy(),
+      {builder_.getPtrTy(), builder_.getInt64Ty(), builder_.getInt64Ty()}, false);
+  return module_->getOrInsertFunction("hs_register_temporary", type);
 }
 
 llvm::FunctionCallee LlvmEmitter::declareRegisterStaticObject() {
