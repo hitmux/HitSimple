@@ -608,20 +608,51 @@ int compileExecutable(
     return reportMissingLinkerDriver(clang, metrics);
   }
 
+  const auto linkStarted = metrics.now();
   std::vector<std::string> arguments;
+  arguments.reserve(objectPaths.size() + sanitizedRuntimeSourcePaths->size());
   for (const auto &objectPath : objectPaths) {
     arguments.push_back(hitsimple::support::pathToUtf8(objectPath));
   }
   if (!sanitizedRuntimeSourcePaths->empty()) {
-    for (const auto &runtimeSource : *sanitizedRuntimeSourcePaths) {
-      if (isCxxSanitizerRuntimeSource(runtimeSource)) {
-        arguments.insert(arguments.end(), {"-x", "c++"});
-        appendCxxSanitizerRuntimeArguments(arguments);
+    for (std::size_t index = 0; index < sanitizedRuntimeSourcePaths->size();
+         ++index) {
+      const auto &runtimeSource = (*sanitizedRuntimeSourcePaths)[index];
+      const auto runtimeObject =
+          temporaryPath / ("hitsimple-sanitizer-runtime-" +
+                           std::to_string(index) + ".o");
+      const bool runtimeIsCxx = isCxxSanitizerRuntimeSource(runtimeSource);
+      std::vector<std::string> runtimeArguments{"-c"};
+      if (runtimeIsCxx) {
+        runtimeArguments.insert(runtimeArguments.end(), {"-x", "c++"});
+        appendCxxSanitizerRuntimeArguments(runtimeArguments);
       }
-      arguments.push_back(hitsimple::support::pathToUtf8(runtimeSource));
-      if (isCxxSanitizerRuntimeSource(runtimeSource)) {
-        arguments.insert(arguments.end(), {"-x", "none"});
+      runtimeArguments.push_back(hitsimple::support::pathToUtf8(runtimeSource));
+      runtimeArguments.insert(runtimeArguments.end(),
+                              {"-o", hitsimple::support::pathToUtf8(runtimeObject)});
+      appendClangCodegenArguments(runtimeArguments, backendOptions);
+      if (codegenOptions.emitDebugInfo) {
+        runtimeArguments.push_back("-g");
       }
+      const auto runtimeProcess =
+          hitsimple::support::runProcess(*clang.path, runtimeArguments);
+      if (!runtimeProcess.launched) {
+        std::cerr << "hsc: cannot start sanitizer runtime compiler '"
+                  << hitsimple::support::pathToUtf8(*clang.path)
+                  << "': " << runtimeProcess.error << '\n';
+        metrics.fail(metrics.clangBackendLink(), linkStarted);
+        metrics.fail("clang_backend_link");
+        return EXIT_FAILURE;
+      }
+      if (runtimeProcess.exitCode != 0) {
+        std::cerr << "hsc: sanitizer runtime compiler failed for '"
+                  << hitsimple::support::pathToUtf8(runtimeSource)
+                  << "' (exit code " << runtimeProcess.exitCode << ")\n";
+        metrics.fail(metrics.clangBackendLink(), linkStarted);
+        metrics.fail("clang_backend_link");
+        return EXIT_FAILURE;
+      }
+      arguments.push_back(hitsimple::support::pathToUtf8(runtimeObject));
     }
   } else if (const auto runtimeSource =
                  hitsimple::support::pathEnvironmentVariable(
@@ -651,7 +682,6 @@ int compileExecutable(
     arguments.push_back("--pdb=" + hitsimple::support::pathToUtf8(*pdbPath));
   }
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
-  const auto linkStarted = metrics.now();
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);
   if (!process.launched) {
     std::cerr << "hsc: cannot start Clang '"
