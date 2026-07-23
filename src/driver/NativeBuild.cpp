@@ -124,6 +124,33 @@ void appendSanitizerRuntimePlatformArguments(
 #endif
 }
 
+#if defined(__APPLE__)
+bool emitMacDsym(const std::string &executablePath, std::string &error) {
+  auto dsymPath = hitsimple::support::pathFromUtf8(executablePath);
+  dsymPath += ".dSYM";
+  std::error_code removeError;
+  std::filesystem::remove_all(dsymPath, removeError);
+  if (removeError) {
+    error = "cannot remove stale dSYM '" +
+            hitsimple::support::pathToUtf8(dsymPath) + "': " +
+            removeError.message();
+    return false;
+  }
+  const auto process =
+      hitsimple::support::runProcess("dsymutil", {executablePath});
+  if (!process.launched) {
+    error = "cannot start dsymutil: " + process.error;
+    return false;
+  }
+  if (process.exitCode != 0) {
+    error = "dsymutil failed for '" + executablePath + "' (exit code " +
+            std::to_string(process.exitCode) + ")";
+    return false;
+  }
+  return true;
+}
+#endif
+
 int reportMissingLinkerDriver(
     const hitsimple::support::ClangSelection &selection,
     hitsimple::support::CompilationMetrics &metrics) {
@@ -710,6 +737,17 @@ int compileExecutable(
     metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
+#if defined(__APPLE__)
+  if (codegenOptions.emitDebugInfo) {
+    std::string dsymError;
+    if (!emitMacDsym(executablePath, dsymError)) {
+      std::cerr << "hsc: " << dsymError << '\n';
+      metrics.fail(metrics.clangBackendLink(), linkStarted);
+      metrics.fail("clang_backend_link");
+      return EXIT_FAILURE;
+    }
+  }
+#endif
   if (pdbPath) {
     std::error_code pdbError;
     if (!std::filesystem::is_regular_file(*pdbPath, pdbError)) {
@@ -1061,6 +1099,17 @@ int compileMixedExecutable(
     metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
+#if defined(__APPLE__)
+  if (codegenOptions.emitDebugInfo) {
+    std::string dsymError;
+    if (!emitMacDsym(executablePath, dsymError)) {
+      std::cerr << "hsc: " << dsymError << '\n';
+      metrics.fail(metrics.clangBackendLink(), linkStarted);
+      metrics.fail("clang_backend_link");
+      return EXIT_FAILURE;
+    }
+  }
+#endif
   if (pdbPath) {
     std::error_code pdbError;
     if (!std::filesystem::is_regular_file(*pdbPath, pdbError)) {
