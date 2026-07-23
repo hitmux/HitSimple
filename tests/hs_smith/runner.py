@@ -459,7 +459,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "host": {"machine": platform.machine(), "system": platform.system()},
             "hsc_version": _tool_version((str(hsc), "--version"), artifact_root, policy, sandbox),
             "clang_version": _tool_version((str(clang), "--version"), artifact_root, policy, sandbox),
-            "sandbox": {"enabled": sandbox.enabled, "network_isolated": sandbox.network_isolated, "reason": sandbox.reason},
+            "sandbox": {
+                "enabled": sandbox.enabled,
+                "network_isolated": sandbox.network_isolated,
+                "reason": sandbox.reason,
+                "existing_uid_processes": sandbox.existing_uid_processes,
+            },
             "limits": {"timeout_seconds": policy.timeout_seconds, "memory_bytes": policy.memory_bytes, "process_limit": policy.process_limit, "output_limit_bytes": policy.output_limit_bytes},
         },
     )
