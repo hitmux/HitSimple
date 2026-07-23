@@ -69,6 +69,11 @@ sanitizerRuntimeSources(const NativeBackendOptions &backendOptions,
           "and macOS; Windows is rejected until its COFF runtime packaging "
           "and CI coverage are implemented";
   return std::nullopt;
+#elif defined(__linux__) && !defined(__x86_64__)
+  error = "--sanitize native executable builds currently support only x86_64 "
+          "Linux and macOS; Linux targets without Clang fp128 runtime support "
+          "are rejected";
+  return std::nullopt;
 #else
   const auto runtimeSource = hitsimple::support::runtimeSourcePath();
   std::vector<std::filesystem::path> sources{runtimeSource};
@@ -610,9 +615,13 @@ int compileExecutable(
   if (!sanitizedRuntimeSourcePaths->empty()) {
     for (const auto &runtimeSource : *sanitizedRuntimeSourcePaths) {
       if (isCxxSanitizerRuntimeSource(runtimeSource)) {
+        arguments.insert(arguments.end(), {"-x", "c++"});
         appendCxxSanitizerRuntimeArguments(arguments);
       }
       arguments.push_back(hitsimple::support::pathToUtf8(runtimeSource));
+      if (isCxxSanitizerRuntimeSource(runtimeSource)) {
+        arguments.insert(arguments.end(), {"-x", "none"});
+      }
     }
   } else if (const auto runtimeSource =
                  hitsimple::support::pathEnvironmentVariable(
@@ -861,6 +870,7 @@ int compileMixedExecutable(
     std::vector<std::string> arguments{
         "-c", source, "-o", hitsimple::support::pathToUtf8(objectPath)};
     if (requiresCxx20) {
+      arguments.insert(arguments.end(), {"-x", "c++"});
       appendCxxSanitizerRuntimeArguments(arguments);
     }
     appendClangCodegenArguments(arguments, backendOptions);

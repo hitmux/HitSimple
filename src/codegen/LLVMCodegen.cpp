@@ -3,7 +3,6 @@
 #include "safety/StaticSafetyAnalyzer.h"
 
 #include "hitsimple/codegen/LlvmCompatibility.h"
-#include "hitsimple/codegen/NativeTarget.h"
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/BinaryFormat/Dwarf.h>
@@ -471,17 +470,6 @@ ModuleEmitResult emitLlvmModule(const hir::TranslationUnit &unit,
                                 ? llvm::sys::getDefaultTargetTriple()
                                 : options.targetTriple;
   setModuleTargetTriple(*module, targetTriple);
-
-  NativeTargetOptions nativeTargetOptions;
-  nativeTargetOptions.triple = targetTriple;
-  std::string nativeTargetError;
-  const auto nativeTarget =
-      createNativeTarget(nativeTargetOptions, nativeTargetError);
-  if (!nativeTarget) {
-    return {{}, {}, {diagnostic::Diagnostic::error(
-                        diagnostic::Stage::Codegen, std::move(nativeTargetError))}};
-  }
-  module->setDataLayout(nativeTarget->machine->createDataLayout());
 
   LlvmEmitter emitter(*context, *module, std::move(moduleName), options);
   auto diagnostics = emitter.emit(unit);

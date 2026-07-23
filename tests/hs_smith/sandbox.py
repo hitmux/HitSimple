@@ -38,7 +38,23 @@ def detect(cwd: Path) -> SandboxPlan:
     bwrap = shutil.which("bwrap")
     if not bwrap:
         return SandboxPlan(False, False, (), "bubblewrap is unavailable")
-    probe = [bwrap, "--unshare-net", "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev", "/bin/true"]
+    probe = [
+        bwrap,
+        "--unshare-user",
+        "--uid",
+        "0",
+        "--gid",
+        "0",
+        "--unshare-net",
+        "--ro-bind",
+        "/",
+        "/",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "/bin/true",
+    ]
     try:
         result = subprocess.run(probe, cwd=str(cwd), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False)
     except (OSError, subprocess.TimeoutExpired):
@@ -52,6 +68,11 @@ def detect(cwd: Path) -> SandboxPlan:
             bwrap,
             "--die-with-parent",
             "--new-session",
+            "--unshare-user",
+            "--uid",
+            "0",
+            "--gid",
+            "0",
             "--unshare-net",
             "--ro-bind",
             "/",
@@ -100,10 +121,19 @@ def preexec(policy: SandboxPolicy) -> Callable[[], None] | None:
     def apply_limits() -> None:
         import resource
 
-        resource.setrlimit(resource.RLIMIT_AS, (policy.memory_bytes, policy.memory_bytes))
-        resource.setrlimit(resource.RLIMIT_NPROC, (policy.process_limit, policy.process_limit))
-        resource.setrlimit(resource.RLIMIT_FSIZE, (policy.output_limit_bytes, policy.output_limit_bytes))
+        def set_limit(limit: int, value: int) -> None:
+            try:
+                resource.setrlimit(limit, (value, value))
+            except (ValueError, resource.error):
+                # macOS does not implement every Linux resource limit. Keep
+                # the portable timeout and supported limits active instead of
+                # preventing the regression runner from launching at all.
+                pass
+
+        set_limit(resource.RLIMIT_AS, policy.memory_bytes)
+        set_limit(resource.RLIMIT_NPROC, policy.process_limit)
+        set_limit(resource.RLIMIT_FSIZE, policy.output_limit_bytes)
         cpu_limit = max(1, math.ceil(policy.timeout_seconds) + 1)
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
+        set_limit(resource.RLIMIT_CPU, cpu_limit)
 
     return apply_limits

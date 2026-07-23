@@ -53,7 +53,7 @@ require_success("${o0_dwarf_result}" "${o0_dwarf_output}${o0_dwarf_error}")
 
 execute_process(
   COMMAND "${LLDB}" -b
-          -o "breakpoint set --file debug_info.hs --line 6"
+          -o "breakpoint set --file ${SOURCE} --line 6"
           -o run
           -o bt
           -o "frame variable value"
@@ -87,7 +87,7 @@ require_success("${o2_dwarf_result}" "${o2_dwarf_output}${o2_dwarf_error}")
 
 execute_process(
   COMMAND "${LLDB}" -b
-          -o "breakpoint set --file debug_info.hs --line 6"
+          -o "breakpoint set --file ${SOURCE} --line 6"
           -o run
           -o bt
           -- ./debug-info-o2

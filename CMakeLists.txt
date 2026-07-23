@@ -821,12 +821,14 @@ target_link_libraries(hsc_unit_tests
         ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
         --hsc $<TARGET_FILE:hsc>
         --suite aarch64-semantics
+        --target aarch64-native
         --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
     )
     set_tests_properties(hsc_harness_aarch64_semantics PROPERTIES
       LABELS "testing;cross-target;native-semantics;phase-p3")
   endif()
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
+  if((CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+      CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$") OR APPLE)
     add_hsc_shell_test(hsc_sanitize_address_heap_runtime
       "$<TARGET_FILE:hsc> --sanitize=address --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_oob.hs -o asan-program && ! ./asan-program >stdout 2>stderr && grep -Fq 'ERROR: AddressSanitizer: heap-buffer-overflow' stderr"
     )

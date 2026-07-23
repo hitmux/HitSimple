@@ -94,7 +94,7 @@ jobs:
               sudo tee /etc/apt/sources.list.d/llvm-18.list >/dev/null
           fi
           sudo apt-get update
-          sudo apt-get install -y bison cargo clang-18 dpkg-dev file gdb llvm-18-dev ninja-build re2c
+          sudo apt-get install -y bison bubblewrap cargo clang-18 dpkg-dev file gdb llvm-18-dev ninja-build re2c
 
       - name: Configure and build
         run: |
@@ -746,6 +746,7 @@ jobs:
       - name: Run Windows unit and portable CLI tests
         shell: pwsh
         run: |
+          $llvm = (Resolve-Path tools/clang+llvm-18.1.8-x86_64-pc-windows-msvc).Path
           & build-windows/hsc_unit_tests.exe
           $unitExitCode = $LASTEXITCODE
           if ($unitExitCode -ne 0) {
