@@ -41,6 +41,14 @@ struct ParsedTranslationUnit {
   std::vector<hitsimple::stdlib::StandardHeader> standardHeaders;
 };
 
+std::string serializeLlvmModule(const llvm::Module& module) {
+  std::string llvmIr;
+  llvm::raw_string_ostream output(llvmIr);
+  module.print(output, nullptr);
+  output.flush();
+  return llvmIr;
+}
+
 std::optional<ParsedTranslationUnit>
 parseInput(const std::string& inputPath, bool cCompatibilityMode) {
   auto preprocessed = hitsimple::preprocessor::preprocessFile(inputPath);
@@ -406,6 +414,7 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     bool internalStandardModule,
     hitsimple::support::CompilationMetrics& metrics) {
+  const auto metricsIndex = metrics.translationUnits().size();
   auto& unitMetrics = metrics.addTranslationUnit(inputPath);
   auto parsed = parseInput(inputPath, cCompatibilityMode, metrics, unitMetrics);
   if (!parsed) {
@@ -438,9 +447,8 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
   metrics.complete(unitMetrics.semaHir, semaStarted);
 
   const auto emissionStarted = metrics.now();
-  auto emitResult =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, inputPath,
-                                     codegenOptions);
+  auto emitResult = hitsimple::codegen::emitLlvmModule(
+      *analyzeResult.unit, inputPath, codegenOptions);
   if (!emitResult.diagnostics.empty()) {
     printDiagnostics(emitResult.diagnostics);
     metrics.fail(unitMetrics.llvmEmission, emissionStarted);
@@ -448,11 +456,10 @@ std::optional<CompiledTranslationUnit> compileTranslationUnit(
     return std::nullopt;
   }
   metrics.complete(unitMetrics.llvmEmission, emissionStarted);
-  unitMetrics.llvmIrBytes = emitResult.llvmIr.size();
 
-  return CompiledTranslationUnit{inputPath, std::move(emitResult.llvmIr), mainCount,
+  return CompiledTranslationUnit{inputPath, std::move(emitResult), mainCount,
                                  std::move(parsed->compatibilityLinkage),
-                                 sourceModules};
+                                 sourceModules, metricsIndex};
 }
 
 std::vector<std::string> collectRequiredSourceModules(
@@ -500,19 +507,26 @@ std::optional<std::vector<CompiledTranslationUnit>> compileSourceModules(
   return modules;
 }
 
-std::optional<std::string> mergeLlvmModules(
+std::optional<hitsimple::codegen::ModuleEmitResult> mergeLlvmModules(
     const std::vector<CompiledTranslationUnit>& units, std::string& error) {
   if (units.empty()) {
     error = "no LLVM modules to merge";
     return std::nullopt;
   }
-  llvm::LLVMContext context;
+  hitsimple::codegen::ModuleEmitResult result;
+  result.context = std::make_unique<llvm::LLVMContext>();
   llvm::SMDiagnostic diagnostic;
   std::unique_ptr<llvm::Module> merged;
   for (std::size_t index = 0; index < units.size(); ++index) {
-    auto buffer = llvm::MemoryBuffer::getMemBuffer(
-        units[index].llvmIr, "hitsimple-module-" + std::to_string(index));
-    auto module = llvm::parseAssembly(*buffer, diagnostic, context);
+    if (!units[index].emission.module) {
+      error = "internal error: missing LLVM module for '" +
+          units[index].inputPath + "'";
+      return std::nullopt;
+    }
+    auto buffer = llvm::MemoryBuffer::getMemBufferCopy(
+        serializeLlvmModule(*units[index].emission.module),
+        "hitsimple-module-" + std::to_string(index));
+    auto module = llvm::parseAssembly(*buffer, diagnostic, *result.context);
     if (!module) {
       std::string diagnosticText;
       llvm::raw_string_ostream stream(diagnosticText);
@@ -530,10 +544,7 @@ std::optional<std::string> mergeLlvmModules(
       return std::nullopt;
     }
   }
-  std::string result;
-  llvm::raw_string_ostream output(result);
-  merged->print(output, nullptr);
-  output.flush();
+  result.module = std::move(merged);
   return result;
 }
 
@@ -634,15 +645,19 @@ int emitLlvm(const std::string& inputPath,
   }
   units.insert(units.end(), std::make_move_iterator(sourceModules->begin()),
                std::make_move_iterator(sourceModules->end()));
+  for (const auto& unit : units) {
+    metrics.translationUnits().at(unit.metricsIndex).llvmIrBytes =
+        serializeLlvmModule(*unit.emission.module).size();
+  }
   std::string mergeError;
-  const auto llvmIr = mergeLlvmModules(units, mergeError);
-  if (!llvmIr) {
+  const auto merged = mergeLlvmModules(units, mergeError);
+  if (!merged) {
     std::cerr << "hsc: cannot merge LLVM IR: " << mergeError << '\n';
     return EXIT_FAILURE;
   }
 
   if (!outputPath) {
-    std::cout << *llvmIr;
+    std::cout << serializeLlvmModule(*merged->module);
     metrics.markSkipped(metrics.llvmIrWrite());
     metrics.markSkipped(metrics.clangBackendLink());
     return EXIT_SUCCESS;
@@ -654,7 +669,7 @@ int emitLlvm(const std::string& inputPath,
     metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
   }
-  if (!writeFile(*outputPath, *llvmIr)) {
+  if (!writeFile(*outputPath, serializeLlvmModule(*merged->module))) {
     std::cerr << "hsc: cannot write output file '" << *outputPath << "'\n";
     metrics.fail(metrics.llvmIrWrite(), writeStarted);
     metrics.fail("llvm_ir_write");
@@ -668,12 +683,10 @@ int emitLlvm(const std::string& inputPath,
 
 std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     const std::string& inputPath, const std::filesystem::path& outputPath,
-    const std::filesystem::path& llvmIrPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
     bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     bool includeSourceModules,
-    const hitsimple::support::ClangSelection& clang,
     const NativeBackendOptions& backendOptions,
     hitsimple::support::CompilationMetrics& metrics) {
   const auto metricsIndex = metrics.translationUnits().size();
@@ -710,20 +723,21 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   metrics.complete(unitMetrics.semaHir, semaStarted);
 
   const auto emissionStarted = metrics.now();
-  auto emitResult = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit,
-                                                    inputPath, codegenOptions);
+  auto emitResult = hitsimple::codegen::emitLlvmModule(
+      *analyzeResult.unit, inputPath, codegenOptions);
   if (!emitResult.diagnostics.empty()) {
     printDiagnostics(emitResult.diagnostics);
     metrics.fail(unitMetrics.llvmEmission, emissionStarted);
     metrics.fail("llvm_emission");
     return std::nullopt;
   }
-  std::string llvmIr = std::move(emitResult.llvmIr);
+  std::vector<CompiledTranslationUnit> units;
+  units.push_back(CompiledTranslationUnit{inputPath, std::move(emitResult), mainCount,
+                                          parsed->compatibilityLinkage,
+                                          sourceModules, metricsIndex});
+  std::optional<hitsimple::codegen::ModuleEmitResult> merged;
+  llvm::Module* module = units.front().emission.module.get();
   if (includeSourceModules && !sourceModules.empty()) {
-    std::vector<CompiledTranslationUnit> units;
-    units.push_back(CompiledTranslationUnit{inputPath, std::move(llvmIr), mainCount,
-                                            parsed->compatibilityLinkage,
-                                            sourceModules});
     auto modules = compileSourceModules(sourceModules, codegenOptions, metrics);
     if (!modules) {
       return std::nullopt;
@@ -731,17 +745,16 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     units.insert(units.end(), std::make_move_iterator(modules->begin()),
                  std::make_move_iterator(modules->end()));
     std::string mergeError;
-    auto merged = mergeLlvmModules(units, mergeError);
+    merged = mergeLlvmModules(units, mergeError);
     if (!merged) {
       std::cerr << "hsc: cannot merge LLVM IR: " << mergeError << '\n';
       return std::nullopt;
     }
-    llvmIr = std::move(*merged);
+    module = merged->module.get();
   }
   auto& completedUnitMetrics = metrics.translationUnits().at(metricsIndex);
-  completedUnitMetrics.llvmIrBytes = llvmIr.size();
-  if (!emitObjectWithClang(llvmIr, llvmIrPath, outputPath, clang,
-                           backendOptions)) {
+  completedUnitMetrics.llvmIrBytes = serializeLlvmModule(*module).size();
+  if (!emitOptimizedObject(*module, outputPath, backendOptions)) {
     metrics.fail(completedUnitMetrics.llvmEmission, emissionStarted);
     metrics.fail("llvm_emission");
     return std::nullopt;

@@ -6,10 +6,8 @@
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/TargetRegistry.h>
-#include <llvm/Target/TargetMachine.h>
 #include <llvm/TargetParser/Triple.h>
 
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -46,20 +44,6 @@ inline const llvm::Target* resolveTarget(std::string_view targetTriple,
 #else
   return llvm::TargetRegistry::lookupTarget(
       llvm::StringRef(targetTriple.data(), targetTriple.size()), error);
-#endif
-}
-
-inline llvm::TargetMachine*
-createGenericTargetMachine(const llvm::Target& target,
-                           std::string_view targetTriple,
-                           const llvm::TargetOptions& options) {
-#if LLVM_VERSION_MAJOR >= 21
-  return target.createTargetMachine(parseTargetTriple(targetTriple), "generic",
-                                     "", options, std::nullopt);
-#else
-  return target.createTargetMachine(
-      llvm::StringRef(targetTriple.data(), targetTriple.size()), "generic", "",
-      options, std::nullopt);
 #endif
 }
 

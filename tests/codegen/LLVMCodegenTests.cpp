@@ -4,6 +4,9 @@
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/sema/Sema.h"
 
+#include <llvm/IR/Verifier.h>
+#include <llvm/Support/raw_ostream.h>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -18,7 +21,18 @@ std::vector<hitsimple::stdlib::StandardHeader> allStandardHeaders() {
   return {headers.begin(), headers.end()};
 }
 
-hitsimple::codegen::EmitResult
+std::string llvmIr(const hitsimple::codegen::ModuleEmitResult& result) {
+  if (!result.module) {
+    return {};
+  }
+  std::string output;
+  llvm::raw_string_ostream stream(output);
+  result.module->print(stream, nullptr);
+  stream.flush();
+  return output;
+}
+
+hitsimple::codegen::ModuleEmitResult
 emitSource(std::string_view source,
            hitsimple::codegen::CodegenOptions options = {}) {
   auto parseResult = hitsimple::parser::parseSource(source, "test.hs");
@@ -31,7 +45,7 @@ emitSource(std::string_view source,
   HS_EXPECT_TRUE(analyzeResult.unit != nullptr);
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
-  return hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs",
+  return hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs",
                                         options);
 }
 
@@ -44,7 +58,7 @@ hitsimple::sema::AnalyzeResult analyzeSource(std::string_view source) {
       hitsimple::sema::AnalyzeOptions{true, allStandardHeaders()});
 }
 
-hitsimple::codegen::EmitResult
+hitsimple::codegen::ModuleEmitResult
 emitSourceWithoutStandardHeaders(std::string_view source) {
   auto parseResult = hitsimple::parser::parseSource(source, "test.hs");
   HS_EXPECT_TRUE(parseResult.unit != nullptr);
@@ -55,7 +69,7 @@ emitSourceWithoutStandardHeaders(std::string_view source) {
   HS_EXPECT_TRUE(analyzeResult.unit != nullptr);
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
 
-  return hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+  return hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
 }
 
 hitsimple::codegen::CodegenOptions
@@ -83,19 +97,37 @@ constexpr std::string_view minimalProgram = "func main() {\n"
 
 } // namespace
 
+HS_TEST(LLVMCodegen_ReturnsOwnedVerifiedModule) {
+  hitsimple::codegen::CodegenOptions options;
+  options.emitDebugInfo = true;
+  auto result = emitSource(minimalProgram, options);
+
+  HS_EXPECT_TRUE(result.ok());
+  HS_EXPECT_TRUE(result.context != nullptr);
+  HS_EXPECT_TRUE(result.module != nullptr);
+  HS_EXPECT_TRUE(&result.module->getContext() == result.context.get());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+  HS_EXPECT_TRUE(result.module->getNamedMetadata("llvm.dbg.cu") != nullptr);
+
+  auto moved = std::move(result);
+  HS_EXPECT_TRUE(moved.ok());
+  HS_EXPECT_TRUE(&moved.module->getContext() == moved.context.get());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*moved.module, &llvm::errs()));
+}
+
 HS_TEST(LLVMCodegen_EmitsMinimalProgramIr) {
   auto result = emitSource(minimalProgram);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(!result.llvmIr.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @main()") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca [1 x i8]") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 42") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @hs_format_output") !=
+  HS_EXPECT_TRUE(!llvmIr(result).empty());
+  HS_EXPECT_TRUE(llvmIr(result).find("define i32 @main()") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("alloca [1 x i8]") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 42") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i32 @hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_format_output") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret i32 0") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret i32 0") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_PreservesPointerDerivedAddressesAndScalarLocals) {
@@ -108,12 +140,12 @@ HS_TEST(LLVMCodegen_PreservesPointerDerivedAddressesAndScalarLocals) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca i64") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca ptr") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr i8") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("alloca i64") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("alloca ptr") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("getelementptr i8") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("inttoptr") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_PreservesImmediateAddressRebindingAsPointerArithmetic) {
@@ -128,10 +160,10 @@ HS_TEST(LLVMCodegen_PreservesImmediateAddressRebindingAsPointerArithmetic) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr i8") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("getelementptr i8") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("inttoptr") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_KeepsAllocationAndReallocationAsPointersUntilObserved) {
@@ -143,14 +175,14 @@ HS_TEST(LLVMCodegen_KeepsAllocationAndReallocationAsPointersUntilObserved) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @malloc") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call ptr @malloc") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @realloc") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call ptr @realloc") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @free") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @free") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ptrtoint") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("inttoptr") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_UsesNativeDebugFormatForTargetTriple) {
@@ -192,9 +224,9 @@ HS_TEST(LLVMCodegen_LowersUserTemplateOperatorWithInternalViewAbi) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("define internal void @__hitsimple.implop") !=
+      llvmIr(result).find("define internal void @__hitsimple.implop") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @__hitsimple.implop") !=
                  std::string::npos);
 }
 
@@ -216,11 +248,11 @@ HS_TEST(LLVMCodegen_LowersImplTemplateMethodWithInternalViewAbi) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find(
+      llvmIr(result).find(
           "define internal void @__hitsimple.implmethod.Counter.0") !=
       std::string::npos);
   HS_EXPECT_TRUE(
-      result.llvmIr.find("call void @__hitsimple.implmethod.Counter.0") !=
+      llvmIr(result).find("call void @__hitsimple.implmethod.Counter.0") !=
       std::string::npos);
 }
 
@@ -239,8 +271,8 @@ HS_TEST(LLVMCodegen_ReportsMissingReturnInImplMethodAsViewAbiDiagnostic) {
 
   HS_EXPECT_TRUE(analyzeResult.unit != nullptr);
   HS_EXPECT_TRUE(analyzeResult.diagnostics.empty());
-  auto result = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  auto result = hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "missing return in internal View ABI function "
@@ -265,7 +297,7 @@ HS_TEST(LLVMCodegen_MaterializesInternalViewAbiReturnToDeclaredLength) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("define internal void @__hitsimple.implop") !=
+      llvmIr(result).find("define internal void @__hitsimple.implop") !=
       std::string::npos);
 }
 
@@ -288,14 +320,14 @@ HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithStdoutSink) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop.Vec2.0") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @__hitsimple.implop.Vec2.0") !=
                  std::string::npos);
 #if defined(__APPLE__)
-  HS_EXPECT_TRUE(result.llvmIr.find("@__stdoutp") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@__stdoutp") != std::string::npos);
 #else
-  HS_EXPECT_TRUE(result.llvmIr.find("@stdout") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@stdout") != std::string::npos);
 #endif
-  HS_EXPECT_TRUE(result.llvmIr.find("print.format.") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("print.format.") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_MaterializesNegativeUserTemplateFormatResult) {
@@ -314,11 +346,11 @@ HS_TEST(LLVMCodegen_MaterializesNegativeUserTemplateFormatResult) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("-7") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("-7") != std::string::npos);
   HS_EXPECT_TRUE(
-      result.llvmIr.find("call void @__hitsimple.implop.FailFmt.0") !=
+      llvmIr(result).find("call void @__hitsimple.implop.FailFmt.0") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("format.result.value") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("format.result.value") !=
                  std::string::npos);
 }
 
@@ -340,12 +372,12 @@ HS_TEST(LLVMCodegen_MaterializesUserTemplateFprintfFormatResult) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop.Marker.0") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @__hitsimple.implop.Marker.0") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("format.file") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("format.result.value") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("format.file") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("format.result.value") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("print.format.") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("print.format.") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithFprintfSink) {
@@ -368,10 +400,10 @@ HS_TEST(LLVMCodegen_CallsBoundUserTemplateFormatWithFprintfSink) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @__hitsimple.implop.Marker.0") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @__hitsimple.implop.Marker.0") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fput.file") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("print.format.") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fput.file") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("print.format.") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_DefaultsUnannotatedMainToI32Zero) {
@@ -379,8 +411,8 @@ HS_TEST(LLVMCodegen_DefaultsUnannotatedMainToI32Zero) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @main()") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret i32 0") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("define i32 @main()") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret i32 0") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_PreservesUnannotatedOrdinaryReturnInference) {
@@ -392,7 +424,7 @@ HS_TEST(LLVMCodegen_PreservesUnannotatedOrdinaryReturnInference) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define i8 @helper()") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define i8 @helper()") !=
                  std::string::npos);
 }
 
@@ -400,7 +432,7 @@ HS_TEST(LLVMCodegen_ReportsMissingReturnForExplicitNonI32Main) {
   auto result = emitSource("func main() -> [1] {\n"
                            "}\n");
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "missing return in function 'main'") != std::string::npos);
@@ -412,8 +444,8 @@ HS_TEST(LLVMCodegen_KeepsExplicitNonI32MainReturnType) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define i8 @main()") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret i8 0") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("define i8 @main()") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret i8 0") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_RejectsEmptyReturnForI8MainHir) {
@@ -428,9 +460,9 @@ HS_TEST(LLVMCodegen_RejectsEmptyReturnForI8MainHir) {
       std::make_unique<hitsimple::hir::Block>(std::move(statements))));
   hitsimple::hir::TranslationUnit unit(std::move(functions));
 
-  const auto result = hitsimple::codegen::emitLlvmIr(unit, "test.hs");
+  const auto result = hitsimple::codegen::emitLlvmModule(unit, "test.hs");
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "function return type is not void") != std::string::npos);
@@ -455,9 +487,9 @@ HS_TEST(LLVMCodegen_RejectsInvalidDirectHirBeforeEmission) {
       std::make_unique<hitsimple::hir::Block>(std::move(statements))));
   hitsimple::hir::TranslationUnit unit(std::move(functions));
 
-  const auto result = hitsimple::codegen::emitLlvmIr(unit, "test.hs");
+  const auto result = hitsimple::codegen::emitLlvmModule(unit, "test.hs");
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_EQ(result.diagnostics.front().stage, hitsimple::diagnostic::Stage::Hir);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find("legacy byteLength") !=
@@ -473,9 +505,9 @@ HS_TEST(LLVMCodegen_EmitsTypedBinaryIntegerOps) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("add i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find(", 2") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("add i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find(", 2") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsFormattedIoBuiltins) {
@@ -488,14 +520,14 @@ HS_TEST(LLVMCodegen_EmitsFormattedIoBuiltins) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
+  HS_EXPECT_TRUE(llvmIr(result).find(
                      "declare i32 @hs_scan_input(ptr, ptr, ptr, i64, i32)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_scan_input") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hs_scan_input") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("scan.targets") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_format_output") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("scan.targets") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hs_format_output") !=
                  std::string::npos);
 }
 
@@ -508,9 +540,9 @@ HS_TEST(LLVMCodegen_EmitsPrintfStringPointersAsVarargPointers) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_format_output") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr i64") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("inttoptr i64") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsFileFormattedIoBuiltins) {
@@ -526,12 +558,12 @@ HS_TEST(LLVMCodegen_EmitsFileFormattedIoBuiltins) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find(
+  HS_EXPECT_TRUE(llvmIr(result).find(
                      "declare i32 @hs_scan_input(ptr, ptr, ptr, i64, i32)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @hs_format_output") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i32 @hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @fgetc(ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i32 @fgetc(ptr)") !=
                  std::string::npos);
 }
 
@@ -550,9 +582,9 @@ HS_TEST(LLVMCodegen_PromotesFormattedFloatVariablesForVarargs) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("load double") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("format.float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_format_output") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("load double") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("format.float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hs_format_output") !=
                  std::string::npos);
 }
 
@@ -564,9 +596,9 @@ HS_TEST(LLVMCodegen_ReinterpretsTemporaryTemplateViewWithoutConversion) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("load float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("sitofp") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("uitofp") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("sitofp") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("uitofp") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
@@ -598,9 +630,9 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForFprintfCall) {
       std::make_unique<hitsimple::hir::Block>(std::move(statements))));
   hitsimple::hir::TranslationUnit unit(std::move(functions));
 
-  const auto result = hitsimple::codegen::emitLlvmIr(unit, "test.hs");
+  const auto result = hitsimple::codegen::emitLlvmModule(unit, "test.hs");
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(
       result.diagnostics.front().message.find(
@@ -633,9 +665,9 @@ HS_TEST(LLVMCodegen_RejectsMismatchedFormatArgumentKindsForPrintfCallExpr) {
       std::make_unique<hitsimple::hir::Block>(std::move(statements))));
   hitsimple::hir::TranslationUnit unit(std::move(functions));
 
-  const auto result = hitsimple::codegen::emitLlvmIr(unit, "test.hs");
+  const auto result = hitsimple::codegen::emitLlvmModule(unit, "test.hs");
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(
       result.diagnostics.front().message.find(
@@ -651,9 +683,9 @@ HS_TEST(LLVMCodegen_EmitsTwoByteFloatIr) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("sitofp i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("to half") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store half") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("sitofp i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("to half") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store half") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsCompoundAssignmentAsLoadOpStore) {
@@ -665,9 +697,9 @@ HS_TEST(LLVMCodegen_EmitsCompoundAssignmentAsLoadOpStore) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("load i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("add i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("add i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsControlFlowBranches) {
@@ -686,12 +718,12 @@ HS_TEST(LLVMCodegen_EmitsControlFlowBranches) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("while.cond") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("while.body") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("while.end") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("if.then") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("if.else") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("br i1") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("while.cond") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("while.body") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("while.end") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("if.then") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("if.else") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("br i1") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageHForGotoAndTryCatch) {
@@ -715,11 +747,11 @@ HS_TEST(LLVMCodegen_EmitsStageHForGotoAndTryCatch) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("for.cond") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("for.post") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("label.done") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("try.body") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("try.catch") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("for.cond") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("for.post") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("label.done") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("try.body") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("try.catch") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_LowersFloatingThrowThroughCatchDelivery) {
@@ -734,9 +766,9 @@ HS_TEST(LLVMCodegen_LowersFloatingThrowThroughCatchDelivery) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("try.catch") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("try.catch") != std::string::npos);
   HS_EXPECT_TRUE(
-      result.llvmIr.find("store double %value.float, ptr %error.addr") !=
+      llvmIr(result).find("store double %value.float, ptr %error.addr") !=
       std::string::npos);
 }
 
@@ -747,10 +779,10 @@ HS_TEST(LLVMCodegen_UsesExitStatusOneForUncaughtViewThrow) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @exit(i32 1)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @exit(i32 1)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret i32 1") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("unreachable") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret i32 1") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("unreachable") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsGlobalMemoryAccess) {
@@ -761,11 +793,11 @@ HS_TEST(LLVMCodegen_EmitsGlobalMemoryAccess) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@global_count = global "
+  HS_EXPECT_TRUE(llvmIr(result).find("@global_count = global "
                                     "[4 x i8] zeroinitializer") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 7") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 7") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load i32") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_RegistersOrderedGlobalInitializers) {
@@ -781,12 +813,12 @@ HS_TEST(LLVMCodegen_RegistersOrderedGlobalInitializers) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("define internal void @__hitsimple.global.init()") !=
+      llvmIr(result).find("define internal void @__hitsimple.global.init()") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@llvm.global_ctors = appending global") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@llvm.global_ctors = appending global") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @seed()") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store double 1.500000e+00") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @seed()") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store double 1.500000e+00") !=
                  std::string::npos);
 }
 
@@ -802,12 +834,12 @@ HS_TEST(LLVMCodegen_EmitsShadowedLocalsWithDistinctStorage) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("%x = alloca [1 x i8]") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("%x = alloca [1 x i8]") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("%x.1 = alloca [2 x i8]") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("%x.1 = alloca [2 x i8]") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 2") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i16 3") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 2") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i16 3") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageEIntegerExpressions) {
@@ -822,17 +854,17 @@ HS_TEST(LLVMCodegen_EmitsStageEIntegerExpressions) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("mul i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("add i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("shl i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("pow.cond") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("pow.body") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("icmp uge i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ternary.then") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("xor i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("-97") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("logic.rhs") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("icmp eq i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("mul i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("add i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("shl i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("pow.cond") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("pow.body") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("icmp uge i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ternary.then") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("xor i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("-97") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("logic.rhs") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("icmp eq i32") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageEFloatExpressions) {
@@ -844,11 +876,11 @@ HS_TEST(LLVMCodegen_EmitsStageEFloatExpressions) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fadd float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fmul float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret i32 4") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fadd float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fmul float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret i32 4") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageEConversionFunctions) {
@@ -860,9 +892,9 @@ HS_TEST(LLVMCodegen_EmitsStageEConversionFunctions) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("sitofp i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fptosi float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i16") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("sitofp i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fptosi float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i16") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
@@ -878,17 +910,17 @@ HS_TEST(LLVMCodegen_EmitsFloatMathHelpers) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.fabs.f32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call float @llvm.fabs.f32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call double @llvm.sqrt.f64") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call double @llvm.sqrt.f64") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.pow.f32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call float @llvm.pow.f32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.sin.f32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call float @llvm.sin.f32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call float @tanf(float") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call float @tanf(float") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call double @llvm.ceil.f64") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call double @llvm.ceil.f64") !=
                  std::string::npos);
 }
 
@@ -902,9 +934,9 @@ HS_TEST(LLVMCodegen_LowersNestedFloatingStandardCalls) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call float @llvm.sqrt.f32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call float @llvm.sqrt.f32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fptosi float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fptosi float") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
@@ -925,11 +957,11 @@ HS_TEST(LLVMCodegen_UsesF16AndF128MathFallbacks) {
                  options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("fpext half") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fptrunc float") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @hs_f128_literal(ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("fpext half") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fptrunc float") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("declare fp128 @hs_f128_literal(ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @hs_f128_sin(fp128)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare fp128 @hs_f128_sin(fp128)") !=
                  std::string::npos);
 }
 
@@ -954,25 +986,25 @@ HS_TEST(LLVMCodegen_LowersWindowsF128ThroughBitPatternRuntime) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("target triple = \"" + options.targetTriple + "\"") !=
+      llvmIr(result).find("target triple = \"" + options.targetTriple + "\"") !=
       std::string::npos);
   HS_EXPECT_TRUE(
-      result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
+      llvmIr(result).find("declare void @hs_f128_literal(ptr, ptr)") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_from_i64(ptr") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @hs_f128_from_i64(ptr") !=
                  std::string::npos);
   HS_EXPECT_TRUE(
-      result.llvmIr.find("declare void @hs_f128_add(ptr, ptr, ptr)") !=
+      llvmIr(result).find("declare void @hs_f128_add(ptr, ptr, ptr)") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_sqrt(ptr") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @hs_f128_sqrt(ptr") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i8 @hs_f128_lt(ptr, ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i8 @hs_f128_lt(ptr, ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare double @hs_f128_to_f64(ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare double @hs_f128_to_f64(ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i128 @hs_f128_") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i128 @hs_f128_") ==
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("fadd fp128") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("fadd fp128") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_LowersDarwinF128ThroughBitPatternRuntime) {
@@ -992,16 +1024,16 @@ HS_TEST(LLVMCodegen_LowersDarwinF128ThroughBitPatternRuntime) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("target triple = \"" + options.targetTriple + "\"") !=
+      llvmIr(result).find("target triple = \"" + options.targetTriple + "\"") !=
       std::string::npos);
   HS_EXPECT_TRUE(
-      result.llvmIr.find("declare void @hs_f128_literal(ptr, ptr)") !=
+      llvmIr(result).find("declare void @hs_f128_literal(ptr, ptr)") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @hs_f128_sqrt(ptr") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @hs_f128_sqrt(ptr") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare double @hs_f128_to_f64(ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare double @hs_f128_to_f64(ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare fp128 @hs_f128_") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("declare fp128 @hs_f128_") ==
                  std::string::npos);
 }
 
@@ -1015,12 +1047,12 @@ HS_TEST(LLVMCodegen_EmitsStageFStringAndBoolStores) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 72") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 101") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 108") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 0") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("icmp ne") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("zext i1") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 72") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 101") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 108") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 0") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("icmp ne") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("zext i1") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsPrefixedIntegerLiterals) {
@@ -1032,9 +1064,9 @@ HS_TEST(LLVMCodegen_EmitsPrefixedIntegerLiterals) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 255") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 161") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 255") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 255") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 161") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 255") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_TruncatesIntegerStoresToNarrowTargets) {
@@ -1046,8 +1078,8 @@ HS_TEST(LLVMCodegen_TruncatesIntegerStoresToNarrowTargets) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("trunc i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("trunc i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsEscapedStringBytes) {
@@ -1057,10 +1089,10 @@ HS_TEST(LLVMCodegen_EmitsEscapedStringBytes) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 65") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 -61") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 -87") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 0") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 65") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 -61") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 -87") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 0") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsAddressRebindAndDereference) {
@@ -1073,10 +1105,10 @@ HS_TEST(LLVMCodegen_EmitsAddressRebindAndDereference) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 42") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ptrtoint") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("inttoptr") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 42") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load i32") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsIndexReadAndWrite) {
@@ -1088,9 +1120,9 @@ HS_TEST(LLVMCodegen_EmitsIndexReadAndWrite) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 65") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8 66") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 65") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8 66") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load i8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsSliceReadAndWrite) {
@@ -1103,8 +1135,8 @@ HS_TEST(LLVMCodegen_EmitsSliceReadAndWrite) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 42") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 42") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("load i32") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsDynamicMemoryBridgeCalls) {
@@ -1117,10 +1149,10 @@ HS_TEST(LLVMCodegen_EmitsDynamicMemoryBridgeCalls) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@malloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@realloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@free") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 42") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@malloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@realloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@free") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 42") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
@@ -1138,17 +1170,17 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@calloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@memset") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@strlen") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@memcmp") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare ptr @strchr(ptr, i32)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@calloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@memset") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@strlen") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@memcmp") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("declare ptr @strchr(ptr, i32)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @strchr") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_strchr_offset") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_reverse_bytes") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@toupper") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ctype.to_upper") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("call ptr @strchr") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_strchr_offset") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_reverse_bytes") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@toupper") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ctype.to_upper") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_LowersFputWithFileBeforeValue) {
@@ -1161,9 +1193,9 @@ HS_TEST(LLVMCodegen_LowersFputWithFileBeforeValue) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("declare i64 @fwrite(ptr, i64, i64, ptr)") !=
+      llvmIr(result).find("declare i64 @fwrite(ptr, i64, i64, ptr)") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i64 @fwrite(ptr") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i64 @fwrite(ptr") !=
                  std::string::npos);
 }
 
@@ -1179,8 +1211,8 @@ HS_TEST(LLVMCodegen_DoesNotLowerUserFunctionWithStandardLibraryName) {
                                        "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("llvm.bswap") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @byte_swap") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("llvm.bswap") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("define i32 @byte_swap") !=
                  std::string::npos);
 }
 
@@ -1195,9 +1227,9 @@ HS_TEST(LLVMCodegen_EmitsStandardStringCallsAndRejectsLegacyCapacity) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@strcpy") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@strncpy") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@strcat") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@strcpy") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@strncpy") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@strcat") != std::string::npos);
 
   auto legacy = analyzeSource("func main() {\n"
                               "    new dst[16]\n"
@@ -1222,9 +1254,9 @@ HS_TEST(LLVMCodegen_BorrowsPointerSizedViewsForLibraryCalls) {
                                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@strcpy") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@strlen") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("inttoptr") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@strcpy") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@strlen") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("inttoptr") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_UsesRawAddressArithmeticForMemoryOperands) {
@@ -1238,11 +1270,11 @@ HS_TEST(LLVMCodegen_UsesRawAddressArithmeticForMemoryOperands) {
                                  optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @hs.runtime.location.") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call ptr @hs.runtime.location.") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ptr %mem.dst, ptr %mem.src, i64 3)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("ptr %mem.dst, ptr %mem.src, i64 3)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @hs_memcpy(ptr %0, ptr %1") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call ptr @hs_memcpy(ptr %0, ptr %1") !=
                  std::string::npos);
 }
 
@@ -1280,7 +1312,7 @@ HS_TEST(LLVMCodegen_EmitsStandardCallocForm) {
                              "    return 0\n"
                              "}\n");
   HS_EXPECT_TRUE(standard.diagnostics.empty());
-  HS_EXPECT_TRUE(standard.llvmIr.find("@calloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(standard).find("@calloc") != std::string::npos);
 
   auto invalid = analyzeSource("func main() {\n"
                                "    new ptr = calloc(8)\n"
@@ -1301,9 +1333,9 @@ HS_TEST(LLVMCodegen_EmitsCheckedRuntimeCalls) {
                            options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_alloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_store") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_free") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_alloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_store") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_free") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedRegistersInternalObjectsAndFrames) {
@@ -1319,12 +1351,12 @@ HS_TEST(LLVMCodegen_CheckedRegistersInternalObjectsAndFrames) {
                            options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_static") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_register_static") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_local") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_frame_enter") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_frame_exit") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@llvm.global_ctors") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_register_local") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_frame_enter") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_frame_exit") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@llvm.global_ctors") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
@@ -1336,8 +1368,8 @@ HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
                            options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_register_static") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_register_static") ==
                  std::string::npos);
 }
 
@@ -1361,15 +1393,15 @@ HS_TEST(LLVMCodegen_CheckedGuardsViewDereferencesBeforeTheirReads) {
 
   HS_EXPECT_TRUE(condition.diagnostics.empty());
   const auto conditionCheck =
-      condition.llvmIr.find("ptr %deref.view.value, i64 1)");
-  const auto conditionRead = condition.llvmIr.find("cond.value");
+      llvmIr(condition).find("ptr %deref.view.value, i64 1)");
+  const auto conditionRead = llvmIr(condition).find("cond.value");
   HS_EXPECT_TRUE(conditionCheck != std::string::npos);
   HS_EXPECT_TRUE(conditionRead != std::string::npos);
   HS_EXPECT_TRUE(conditionCheck < conditionRead);
 
   HS_EXPECT_TRUE(copy.diagnostics.empty());
-  const auto copyCheck = copy.llvmIr.find("ptr %deref.view.value, i64 1)");
-  const auto copyRead = copy.llvmIr.find("llvm.memcpy");
+  const auto copyCheck = llvmIr(copy).find("ptr %deref.view.value, i64 1)");
+  const auto copyRead = llvmIr(copy).find("llvm.memcpy");
   HS_EXPECT_TRUE(copyCheck != std::string::npos);
   HS_EXPECT_TRUE(copyRead != std::string::npos);
   HS_EXPECT_TRUE(copyCheck < copyRead);
@@ -1520,7 +1552,7 @@ HS_TEST(LLVMCodegen_CheckedInvalidatesAddressFactsAfterStorageRewrite) {
                                  options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_StaticCheckedRestoresGlobalSafetyBaselineForFunctions) {
@@ -1570,7 +1602,7 @@ HS_TEST(LLVMCodegen_StaticCheckedRestoresGlobalSafetyBaselineForFunctions) {
                  std::string::npos);
   HS_EXPECT_TRUE(distinctGlobalAndFunctionAllocations.diagnostics.empty());
   HS_EXPECT_TRUE(knownGlobalLoad.diagnostics.empty());
-  HS_EXPECT_TRUE(knownGlobalLoad.llvmIr.find("@hs_check_load") !=
+  HS_EXPECT_TRUE(llvmIr(knownGlobalLoad).find("@hs_check_load") !=
                  std::string::npos);
 }
 
@@ -1686,7 +1718,7 @@ HS_TEST(LLVMCodegen_StaticSafetyTracksGotoEdges) {
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(checked.diagnostics.empty());
-  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(checked).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_StaticSafetyHonorsLogicalShortCircuitEffects) {
@@ -1727,7 +1759,7 @@ HS_TEST(LLVMCodegen_StaticSafetyHonorsLogicalShortCircuitEffects) {
   HS_EXPECT_TRUE(shortCircuitOr.diagnostics.front().message.find(
                     "memory load out of bounds") != std::string::npos);
   HS_EXPECT_TRUE(unknownLeft.diagnostics.empty());
-  HS_EXPECT_TRUE(unknownLeft.llvmIr.find("@hs_check_load") !=
+  HS_EXPECT_TRUE(llvmIr(unknownLeft).find("@hs_check_load") !=
                  std::string::npos);
 }
 
@@ -1755,7 +1787,7 @@ HS_TEST(LLVMCodegen_CheckedInvalidatesUserTemplateAssignmentTargets) {
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalsAfterUserTemplateFormatExpression) {
@@ -1780,7 +1812,7 @@ HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalsAfterUserTemplateFormatExpression) 
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
@@ -1794,8 +1826,8 @@ HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca i8, i64") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_reverse_bytes") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("alloca i8, i64") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_reverse_bytes") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
@@ -1812,10 +1844,10 @@ HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
                            optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_calloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_memcpy") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_memcmp") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_strlen") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_calloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_memcpy") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_memcmp") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_strlen") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_StaticCheckedRejectsOverlappingMemcpy) {
@@ -1858,7 +1890,7 @@ HS_TEST(LLVMCodegen_CheckedUsesFileRuntimeBridges) {
        {"@hs_fopen", "@hs_fget", "@hs_fput", "@hs_fread", "@hs_fwrite",
         "@hs_fseek", "@hs_ftell", "@hs_fflush", "@hs_feof", "@hs_ferror",
         "@hs_fclose"}) {
-    HS_EXPECT_TRUE(result.llvmIr.find(symbol) != std::string::npos);
+    HS_EXPECT_TRUE(llvmIr(result).find(symbol) != std::string::npos);
   }
 }
 
@@ -1876,23 +1908,23 @@ HS_TEST(LLVMCodegen_RuntimeSourceLocationsFollowCheckedModePolicy) {
       emitSource(source, optionsFor(hitsimple::codegen::SafetyMode::Checked));
   HS_EXPECT_TRUE(checked.diagnostics.empty());
   const auto locationCall =
-      checked.llvmIr.find("call void @hs_set_source_location");
-  const auto runtimeCall = checked.llvmIr.find("call ptr @hs_memcpy");
+      llvmIr(checked).find("call void @hs_set_source_location");
+  const auto runtimeCall = llvmIr(checked).find("call ptr @hs_memcpy");
   HS_EXPECT_TRUE(locationCall != std::string::npos);
   HS_EXPECT_TRUE(runtimeCall != std::string::npos);
   HS_EXPECT_TRUE(locationCall < runtimeCall);
-  HS_EXPECT_TRUE(checked.llvmIr.find("test.hs") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(checked).find("test.hs") != std::string::npos);
 
   const auto unchecked = emitSource(
       source, optionsFor(hitsimple::codegen::SafetyMode::Unchecked));
   HS_EXPECT_TRUE(unchecked.diagnostics.empty());
-  HS_EXPECT_TRUE(unchecked.llvmIr.find("hs_set_source_location") ==
+  HS_EXPECT_TRUE(llvmIr(unchecked).find("hs_set_source_location") ==
                  std::string::npos);
 
   const auto staticChecked = emitSource(
       source, optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
   HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
-  HS_EXPECT_TRUE(staticChecked.llvmIr.find("hs_set_source_location") ==
+  HS_EXPECT_TRUE(llvmIr(staticChecked).find("hs_set_source_location") ==
                  std::string::npos);
 }
 
@@ -1914,7 +1946,7 @@ HS_TEST(LLVMCodegen_WindowsSoftwareF128SkipsRuntimeSourceLocations) {
       "}\n",
       options);
   HS_EXPECT_TRUE(ordinary.diagnostics.empty());
-  HS_EXPECT_TRUE(ordinary.llvmIr.find("hs_set_source_location") !=
+  HS_EXPECT_TRUE(llvmIr(ordinary).find("hs_set_source_location") !=
                  std::string::npos);
 
   const auto result = emitSource(
@@ -1928,10 +1960,10 @@ HS_TEST(LLVMCodegen_WindowsSoftwareF128SkipsRuntimeSourceLocations) {
       options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_scan_input") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_format_output") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_scan_input") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_format_output") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("hs_set_source_location") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("hs_set_source_location") ==
                  std::string::npos);
 }
 
@@ -1946,9 +1978,9 @@ HS_TEST(LLVMCodegen_CheckedAbsReportsMinimumSignedValue) {
                  optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(checked.diagnostics.empty());
-  HS_EXPECT_TRUE(checked.llvmIr.find("@hs_abs_overflow") != std::string::npos);
-  HS_EXPECT_TRUE(checked.llvmIr.find("abs.ismin") != std::string::npos);
-  HS_EXPECT_TRUE(checked.llvmIr.find("abs.overflow") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(checked).find("@hs_abs_overflow") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(checked).find("abs.ismin") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(checked).find("abs.overflow") != std::string::npos);
 
   const auto staticChecked =
       emitSource("func magnitude(value as i8) -> i8 {\n"
@@ -1960,7 +1992,7 @@ HS_TEST(LLVMCodegen_CheckedAbsReportsMinimumSignedValue) {
                  optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
 
   HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
-  HS_EXPECT_TRUE(staticChecked.llvmIr.find("@hs_abs_overflow") ==
+  HS_EXPECT_TRUE(llvmIr(staticChecked).find("@hs_abs_overflow") ==
                  std::string::npos);
 }
 
@@ -1986,7 +2018,7 @@ HS_TEST(LLVMCodegen_CheckedRejectsStaticallyKnownAbsMinimum) {
                  optionsFor(hitsimple::codegen::SafetyMode::StaticChecked));
 
   HS_EXPECT_TRUE(staticChecked.diagnostics.empty());
-  HS_EXPECT_TRUE(staticChecked.llvmIr.find("@hs_abs_overflow") ==
+  HS_EXPECT_TRUE(llvmIr(staticChecked).find("@hs_abs_overflow") ==
                  std::string::npos);
 }
 
@@ -2017,8 +2049,8 @@ HS_TEST(LLVMCodegen_UsesTypedRuntimeDescriptorsForNativeFormatting) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_format_output") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @printf(ptr, ...)") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_format_output") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i32 @printf(ptr, ...)") ==
                  std::string::npos);
 }
 
@@ -2038,9 +2070,9 @@ HS_TEST(LLVMCodegen_CheckedSkipsRuntimeChecksForStaticAddressRanges) {
                            options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_store") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 42") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_store") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 42") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedInvalidatesFactsAfterIndirectWrites) {
@@ -2091,7 +2123,7 @@ HS_TEST(LLVMCodegen_CheckedInvalidatesFactsAfterIndirectWrites) {
   for (const auto &[source, requiredIr] : cases) {
     const auto result = emitSource(source, checked);
     HS_EXPECT_TRUE(result.diagnostics.empty());
-    HS_EXPECT_TRUE(result.llvmIr.find(requiredIr) != std::string::npos);
+    HS_EXPECT_TRUE(llvmIr(result).find(requiredIr) != std::string::npos);
   }
 }
 
@@ -2110,7 +2142,7 @@ HS_TEST(LLVMCodegen_CheckedInvalidatesGlobalFactsAfterOrdinaryCall) {
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedInvalidatesEscapedLocalFactsAfterOrdinaryCall) {
@@ -2128,7 +2160,7 @@ HS_TEST(LLVMCodegen_CheckedInvalidatesEscapedLocalFactsAfterOrdinaryCall) {
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_UsesRhsSemanticsForAddressOffsetWidening) {
@@ -2150,9 +2182,9 @@ HS_TEST(LLVMCodegen_UsesRhsSemanticsForAddressOffsetWidening) {
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("sext i8") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("sext i16") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("zext i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("sext i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("sext i16") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("zext i8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_CheckedRejectsDistortedIntegerCastAddressFacts) {
@@ -2168,7 +2200,7 @@ HS_TEST(LLVMCodegen_CheckedRejectsDistortedIntegerCastAddressFacts) {
       optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_load") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_StaticCheckedMergesReallocFailureWithSuccess) {
@@ -2197,13 +2229,13 @@ HS_TEST(LLVMCodegen_StaticCheckedDoesNotEmitRuntimeChecks) {
                            options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@malloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@realloc") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@free") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_alloc") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_realloc") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_check_store") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_free") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@malloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@realloc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@free") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_alloc") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_realloc") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_store") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_free") == std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors) {
@@ -2263,10 +2295,10 @@ HS_TEST(LLVMCodegen_EmitsStageFAssignmentExpressionAndStringCopy) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 7") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("str.copy.active") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("str.copy.byte") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 7") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("str.copy.active") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("str.copy.byte") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret i32") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageGFunctionsAndCalls) {
@@ -2280,10 +2312,10 @@ HS_TEST(LLVMCodegen_EmitsStageGFunctionsAndCalls) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @add_one(i32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define i32 @add_one(i32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @add_one") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @main()") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @add_one") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("define i32 @main()") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStageGMultiReturnCallStore) {
@@ -2297,11 +2329,11 @@ HS_TEST(LLVMCodegen_EmitsStageGMultiReturnCallStore) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define { i32, i32 } @pair(i32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define { i32, i32 } @pair(i32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call { i32, i32 } @pair") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call { i32, i32 } @pair") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("extractvalue { i32, i32 }") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("extractvalue { i32, i32 }") !=
                  std::string::npos);
 }
 
@@ -2318,9 +2350,9 @@ HS_TEST(LLVMCodegen_PreservesTypedFloatingMultiReturnAbi) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("define { double, double } @pair(double") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define { double, double } @pair(double") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call { double, double } @pair(double") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call { double, double } @pair(double") !=
                  std::string::npos);
 }
 
@@ -2337,10 +2369,10 @@ HS_TEST(LLVMCodegen_EmitsStageIStructMemberOffsets) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca [16 x i8]") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr inbounds [16 x i8], ptr %p, "
+  HS_EXPECT_TRUE(llvmIr(result).find("alloca [16 x i8]") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("getelementptr inbounds [16 x i8], ptr %p, "
                                     "i32 0, i32 12") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsMemberStringCopyOffsets) {
@@ -2356,8 +2388,8 @@ HS_TEST(LLVMCodegen_EmitsMemberStringCopyOffsets) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("str.copy.byte") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("getelementptr inbounds [16 x i8], ptr %p, "
+  HS_EXPECT_TRUE(llvmIr(result).find("str.copy.byte") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("getelementptr inbounds [16 x i8], ptr %p, "
                                     "i32 0, i32 8") != std::string::npos);
 }
 
@@ -2371,9 +2403,9 @@ HS_TEST(LLVMCodegen_EmitsIntegerComparisonAndBooleanStores) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("icmp slt i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("zext i1") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i8") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("icmp slt i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("zext i1") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i8") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsExternalFunctionDeclarationAndCall) {
@@ -2384,11 +2416,11 @@ HS_TEST(LLVMCodegen_EmitsExternalFunctionDeclarationAndCall) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@host_counter = external global "
+  HS_EXPECT_TRUE(llvmIr(result).find("@host_counter = external global "
                                     "[4 x i8]") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i32 @host_inc(i32)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i32 @host_inc(i32)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @host_inc") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @host_inc") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsExplicitCAbiImportsAndExports) {
@@ -2404,13 +2436,13 @@ HS_TEST(LLVMCodegen_EmitsExplicitCAbiImportsAndExports) {
                  "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("declare double @native_scale(double)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare double @native_scale(double)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare void @sink(ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare void @sink(ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("define i32 @hsc_increment(i32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define i32 @hsc_increment(i32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hsc_increment(i32 41)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hsc_increment(i32 41)") !=
                  std::string::npos);
 }
 
@@ -2442,12 +2474,12 @@ HS_TEST(LLVMCodegen_AppliesInternalLinkageOverridesToDefinitions) {
       hitsimple::hir::applyLinkageOverrides(*analyzeResult.unit, overrides);
   HS_EXPECT_TRUE(diagnostics.empty());
 
-  auto result = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+  auto result = hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@file_local = internal global "
+  HS_EXPECT_TRUE(llvmIr(result).find("@file_local = internal global "
                                     "[4 x i8] zeroinitializer") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("define internal i32 @file_helper()") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define internal i32 @file_helper()") !=
                  std::string::npos);
 }
 
@@ -2511,13 +2543,13 @@ HS_TEST(LLVMCodegen_AppliesAbiOverridesToCCompatibleSymbols) {
       hitsimple::hir::applyAbiOverrides(*analyzeResult.unit, overrides);
   HS_EXPECT_TRUE(diagnostics.empty());
 
-  auto result = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+  auto result = hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@errno = external global i32") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@errno = external global i32") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("define double @host_identity(double") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("define double @host_identity(double") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ret double") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("ret double") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_RejectsAggregateCAbiForNonSysVElfTarget) {
@@ -2553,9 +2585,9 @@ HS_TEST(LLVMCodegen_RejectsAggregateCAbiForNonSysVElfTarget) {
   hitsimple::codegen::CodegenOptions options;
   options.targetTriple = "x86_64-apple-darwin";
   const auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs", options);
+      hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs", options);
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "C aggregate by-value ABI is only supported for x86_64 "
@@ -2597,9 +2629,9 @@ HS_TEST(LLVMCodegen_RejectsAggregateCAbiForX32Target) {
   hitsimple::codegen::CodegenOptions options;
   options.targetTriple = "x86_64-unknown-linux-gnux32";
   const auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs", options);
+      hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs", options);
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "C aggregate by-value ABI is only supported for x86_64 "
@@ -2642,9 +2674,9 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForX32Target) {
   hitsimple::codegen::CodegenOptions options;
   options.targetTriple = "x86_64-unknown-linux-gnux32";
   const auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs", options);
+      hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs", options);
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "C aggregate by-value ABI is only supported for x86_64 "
@@ -2687,9 +2719,9 @@ HS_TEST(LLVMCodegen_RejectsIndirectAggregateCAbiForDarwinTarget) {
   hitsimple::codegen::CodegenOptions options;
   options.targetTriple = "x86_64-apple-darwin";
   const auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs", options);
+      hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs", options);
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "C aggregate by-value ABI is only supported for x86_64 "
@@ -2734,13 +2766,13 @@ HS_TEST(LLVMCodegen_EmitsAggregateCAbiForExplicitX8664SysVElfTarget) {
   hitsimple::codegen::CodegenOptions options;
   options.targetTriple = "x86_64-pc-linux-gnu";
   const auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs", options);
+      hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs", options);
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(
-      result.llvmIr.find("target triple = \"x86_64-pc-linux-gnu\"") !=
+      llvmIr(result).find("target triple = \"x86_64-pc-linux-gnu\"") !=
       std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("declare i64 @host_pass(i64)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare i64 @host_pass(i64)") !=
                  std::string::npos);
 }
 
@@ -2775,9 +2807,9 @@ HS_TEST(LLVMCodegen_RejectsMultipleReturnsForCCompatibilitySignature) {
   HS_EXPECT_TRUE(overrideDiagnostics.empty());
 
   const auto result =
-      hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+      hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
 
-  HS_EXPECT_TRUE(result.llvmIr.empty());
+  HS_EXPECT_TRUE(llvmIr(result).empty());
   HS_EXPECT_TRUE(!result.diagnostics.empty());
   HS_EXPECT_TRUE(result.diagnostics.front().message.find(
                      "C compatibility functions cannot use multiple return "
@@ -2810,11 +2842,11 @@ HS_TEST(LLVMCodegen_UsesFloatAndPointerAbiAtExternCallSites) {
       hitsimple::hir::applyAbiOverrides(*analyzeResult.unit, overrides);
   HS_EXPECT_TRUE(diagnostics.empty());
 
-  auto result = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+  auto result = hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("declare void @host_sink(double, ptr)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare void @host_sink(double, ptr)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call void @host_sink(double 1.250000e+00, "
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @host_sink(double 1.250000e+00, "
                                     "ptr null)") != std::string::npos);
 }
 
@@ -2843,13 +2875,13 @@ HS_TEST(LLVMCodegen_UsesFloatingExternReturnInFloatAssignment) {
       hitsimple::hir::applyAbiOverrides(*analyzeResult.unit, overrides);
   HS_EXPECT_TRUE(diagnostics.empty());
 
-  auto result = hitsimple::codegen::emitLlvmIr(*analyzeResult.unit, "test.hs");
+  auto result = hitsimple::codegen::emitLlvmModule(*analyzeResult.unit, "test.hs");
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("declare double @host_value()") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("declare double @host_value()") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call double @host_value()") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call double @host_value()") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store double") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store double") != std::string::npos);
 }
 
 HS_TEST(Hir_AbiOverridesRejectMismatchedSignaturesAtomically) {
@@ -2888,10 +2920,10 @@ HS_TEST(LLVMCodegen_EmitsStaticLocalBackingStorage) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@counter = internal global "
+  HS_EXPECT_TRUE(llvmIr(result).find("@counter = internal global "
                                     "[4 x i8] zeroinitializer") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("add i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("add i32") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsStructArrayMemberAddressing) {
@@ -2906,9 +2938,9 @@ HS_TEST(LLVMCodegen_EmitsStructArrayMemberAddressing) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("alloca [24 x i8]") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("i32 20") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("store i32 9") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("alloca [24 x i8]") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("i32 20") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("store i32 9") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_EmitsAddressOfStaticAndGlobalMemory) {
@@ -2923,12 +2955,12 @@ HS_TEST(LLVMCodegen_EmitsAddressOfStaticAndGlobalMemory) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@global = global") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@local = internal global") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@global = global") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@local = internal global") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint (ptr @global to i64)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("ptrtoint (ptr @global to i64)") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("ptrtoint (ptr @local to i64)") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("ptrtoint (ptr @local to i64)") !=
                  std::string::npos);
 }
 
@@ -2946,9 +2978,9 @@ HS_TEST(LLVMCodegen_UsesSourceSemanticsForIntegerWidening) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("zext i32") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("sext i32") == std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call ptr @malloc(i64") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("zext i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("sext i32") == std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("call ptr @malloc(i64") !=
                  std::string::npos);
 }
 
@@ -2965,13 +2997,13 @@ HS_TEST(LLVMCodegen_LowersBooleanTestsForCompleteStaticAndDynamicViews) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %wide") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("load i64, ptr %wide") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("cond.byte.nonzero") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("cond.byte.nonzero") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("call i32 @hs_view_any_nonzero") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("call i32 @hs_view_any_nonzero") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("trunc i64 to i32") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("trunc i64 to i32") ==
                  std::string::npos);
 }
 
@@ -2988,11 +3020,11 @@ HS_TEST(LLVMCodegen_UsesOnlyProvenAlignmentForPackedViews) {
                            "}\n");
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("store i64 1, ptr %packed.addr, align 1") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("store i64 1, ptr %packed.addr, align 1") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %packed.addr") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("load i64, ptr %packed.addr") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("load i64, ptr %packed.addr1, align 1") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("load i64, ptr %packed.addr1, align 1") !=
                  std::string::npos);
 }
 
@@ -3007,12 +3039,12 @@ HS_TEST(LLVMCodegen_CheckedArithmeticGuardsAvoidPoison) {
                            optionsFor(hitsimple::codegen::SafetyMode::Checked));
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_division_by_zero") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_checked_division_by_zero") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_negative_shift") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_checked_negative_shift") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("@hs_checked_negative_exponent") !=
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_checked_negative_exponent") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("div.special") != std::string::npos);
-  HS_EXPECT_TRUE(result.llvmIr.find("phi i32") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("div.special") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("phi i32") != std::string::npos);
 }

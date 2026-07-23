@@ -4,7 +4,7 @@ function(require_success result output)
   endif()
 endfunction()
 
-foreach(variable HSC LLVM_DWARFDUMP GDB SOURCE)
+foreach(variable HSC LLVM_DWARFDUMP LLDB SOURCE)
   if(NOT DEFINED ${variable} OR "${${variable}}" STREQUAL "")
     message(FATAL_ERROR "missing required ${variable} test argument")
   endif()
@@ -27,13 +27,13 @@ require_success("${object_dwarf_result}"
                 "${object_dwarf_output}${object_dwarf_error}")
 
 execute_process(
-  COMMAND readelf --debug-dump=info debug-info.o
-  RESULT_VARIABLE object_readelf_result
-  OUTPUT_VARIABLE object_readelf_output
-  ERROR_VARIABLE object_readelf_error)
-require_success("${object_readelf_result}"
-                "${object_readelf_output}${object_readelf_error}")
-if(NOT "${object_readelf_output}" MATCHES "DW_TAG_variable")
+  COMMAND "${LLVM_DWARFDUMP}" --debug-info debug-info.o
+  RESULT_VARIABLE object_info_result
+  OUTPUT_VARIABLE object_info_output
+  ERROR_VARIABLE object_info_error)
+require_success("${object_info_result}"
+                "${object_info_output}${object_info_error}")
+if(NOT "${object_info_output}" MATCHES "DW_TAG_variable")
   message(FATAL_ERROR "debug-info.o is missing a DW_TAG_variable entry")
 endif()
 
@@ -52,22 +52,22 @@ execute_process(
 require_success("${o0_dwarf_result}" "${o0_dwarf_output}${o0_dwarf_error}")
 
 execute_process(
-  COMMAND "${GDB}" -q -batch -ex "break debug_info.hs:6" -ex run -ex bt
-          -ex "info locals" --args ./debug-info-o0
-  RESULT_VARIABLE o0_gdb_result
-  OUTPUT_VARIABLE o0_gdb_output
-  ERROR_VARIABLE o0_gdb_error)
-set(o0_gdb_log "${o0_gdb_output}${o0_gdb_error}")
-file(WRITE gdb-o0.out "${o0_gdb_log}")
-
-if("${o0_gdb_log}" MATCHES "ptrace: Operation not permitted")
-  message(FATAL_ERROR "SKIP: ptrace is unavailable in this test environment")
-endif()
-require_success("${o0_gdb_result}" "${o0_gdb_log}")
+  COMMAND "${LLDB}" -b
+          -o "breakpoint set --file debug_info.hs --line 6"
+          -o run
+          -o bt
+          -o "frame variable value"
+          -- ./debug-info-o0
+  RESULT_VARIABLE o0_lldb_result
+  OUTPUT_VARIABLE o0_lldb_output
+  ERROR_VARIABLE o0_lldb_error)
+set(o0_lldb_log "${o0_lldb_output}${o0_lldb_error}")
+file(WRITE lldb-o0.out "${o0_lldb_log}")
+require_success("${o0_lldb_result}" "${o0_lldb_log}")
 
 foreach(expected "helper" "main" "value =")
-  if(NOT "${o0_gdb_log}" MATCHES "${expected}")
-    message(FATAL_ERROR "O0 GDB output is missing '${expected}':\n${o0_gdb_log}")
+  if(NOT "${o0_lldb_log}" MATCHES "${expected}")
+    message(FATAL_ERROR "O0 LLDB output is missing '${expected}':\n${o0_lldb_log}")
   endif()
 endforeach()
 
@@ -86,21 +86,20 @@ execute_process(
 require_success("${o2_dwarf_result}" "${o2_dwarf_output}${o2_dwarf_error}")
 
 execute_process(
-  COMMAND "${GDB}" -q -batch -ex "break debug_info.hs:6" -ex run -ex bt
-          --args ./debug-info-o2
-  RESULT_VARIABLE o2_gdb_result
-  OUTPUT_VARIABLE o2_gdb_output
-  ERROR_VARIABLE o2_gdb_error)
-set(o2_gdb_log "${o2_gdb_output}${o2_gdb_error}")
-file(WRITE gdb-o2.out "${o2_gdb_log}")
-
-if("${o2_gdb_log}" MATCHES "ptrace: Operation not permitted")
-  message(FATAL_ERROR "SKIP: ptrace is unavailable in this test environment")
-endif()
-require_success("${o2_gdb_result}" "${o2_gdb_log}")
+  COMMAND "${LLDB}" -b
+          -o "breakpoint set --file debug_info.hs --line 6"
+          -o run
+          -o bt
+          -- ./debug-info-o2
+  RESULT_VARIABLE o2_lldb_result
+  OUTPUT_VARIABLE o2_lldb_output
+  ERROR_VARIABLE o2_lldb_error)
+set(o2_lldb_log "${o2_lldb_output}${o2_lldb_error}")
+file(WRITE lldb-o2.out "${o2_lldb_log}")
+require_success("${o2_lldb_result}" "${o2_lldb_log}")
 
 foreach(expected "helper" "main")
-  if(NOT "${o2_gdb_log}" MATCHES "${expected}")
-    message(FATAL_ERROR "O2 GDB output is missing '${expected}':\n${o2_gdb_log}")
+  if(NOT "${o2_lldb_log}" MATCHES "${expected}")
+    message(FATAL_ERROR "O2 LLDB output is missing '${expected}':\n${o2_lldb_log}")
   endif()
 endforeach()

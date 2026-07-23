@@ -335,11 +335,11 @@ hsc --checked --emit-llvm examples/hello.hs -o hello-checked.ll
 
 ## Debug Information
 
-`-g` emits native debug information for the default executable build and for
-`--emit-llvm`. Linux and macOS targets emit DWARF v5; Windows targets emit
-CodeView metadata. It is rejected for token, AST, HIR, target, and preprocessing
-actions. Without `-g`, generated LLVM IR and executables contain no compiler
-debug metadata.
+`-g` emits native debug information for executable, object, and static-library
+builds, as well as `--emit-llvm`. Linux and macOS targets emit DWARF v5; Windows
+targets emit CodeView metadata. It is rejected for token, AST, HIR, target, and
+preprocessing actions. Without `-g`, generated LLVM IR and native outputs contain
+no compiler debug metadata.
 
 ```bash
 hsc -g examples/hello.hs -o hello-debug

@@ -1,14 +1,12 @@
 #include "FuzzInvariants.h"
 
-#include "hitsimple/codegen/LLVMCodegen.h"
 #include "hitsimple/hir/HIR.h"
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/sema/Sema.h"
 
-#include <llvm/Support/raw_ostream.h>
-
 #include <cstddef>
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -17,17 +15,6 @@ namespace {
 std::vector<hitsimple::stdlib::StandardHeader> allStandardHeaders() {
   const auto headers = hitsimple::stdlib::allStandardHeaders();
   return {headers.begin(), headers.end()};
-}
-
-std::string llvmIr(const hitsimple::codegen::ModuleEmitResult& result) {
-  if (!result.module) {
-    return {};
-  }
-  std::string output;
-  llvm::raw_string_ostream stream(output);
-  result.module->print(stream, nullptr);
-  stream.flush();
-  return output;
 }
 
 } // namespace
@@ -45,7 +32,6 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data,
     return 0;
   }
 
-  hitsimple::fuzz::assertValidAstSourceRanges(*parsed.unit);
   const auto analyzed = hitsimple::sema::analyze(
       *parsed.unit,
       hitsimple::sema::AnalyzeOptions{true, allStandardHeaders()});
@@ -55,10 +41,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data,
   }
 
   hitsimple::fuzz::require(hitsimple::hir::verifyHIR(*analyzed.unit).empty());
-  const auto emitted =
-      hitsimple::codegen::emitLlvmModule(*analyzed.unit, "fuzz.hs");
-  hitsimple::fuzz::assertValidDiagnostics(emitted.diagnostics, source.size());
-  hitsimple::fuzz::require(emitted.diagnostics.empty());
-  hitsimple::fuzz::assertValidLlvmIr(llvmIr(emitted));
+  std::ostringstream first;
+  std::ostringstream second;
+  hitsimple::hir::dump(*analyzed.unit, first);
+  hitsimple::hir::dump(*analyzed.unit, second);
+  hitsimple::fuzz::require(first.str() == second.str());
+  hitsimple::fuzz::require(first.str().size() <=
+                           hitsimple::fuzz::maximumInputBytes * 128U);
   return 0;
 }

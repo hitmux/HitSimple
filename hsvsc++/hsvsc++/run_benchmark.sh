@@ -7,7 +7,7 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 build_dir="${BENCHMARK_BUILD_DIR:-$root_dir/build}"
 runs="${1:-15}"
 warmups="${2:-3}"
-cooldown_seconds="${3:-5}"
+cooldown_seconds="${3:-1}"
 
 resolve_executable() {
     local candidate="$1"

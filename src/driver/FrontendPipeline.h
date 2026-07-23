@@ -2,6 +2,7 @@
 
 #include "driver/DriverOptions.h"
 #include "hitsimple/compat/CCompat.h"
+#include "hitsimple/codegen/LLVMCodegen.h"
 
 #include <cstddef>
 #include <filesystem>
@@ -13,21 +14,18 @@ namespace hitsimple {
 namespace support {
 class CompilationMetrics;
 struct TranslationUnitMetrics;
-struct ClangSelection;
 } // namespace support
-namespace codegen {
-struct CodegenOptions;
-}
 } // namespace hitsimple
 
 namespace hitsimple::driver {
 
 struct CompiledTranslationUnit final {
   std::string inputPath;
-  std::string llvmIr;
+  hitsimple::codegen::ModuleEmitResult emission;
   std::size_t mainDefinitionCount = 0;
   std::vector<hitsimple::compat::LinkageMetadata> compatibilityLinkage;
   std::vector<std::string> sourceModules;
+  std::size_t metricsIndex = 0;
 };
 
 struct CompiledObjectTranslationUnit final {
@@ -63,11 +61,10 @@ int preprocessOnly(const std::string& inputPath,
                    const std::optional<std::string>& outputPath);
 std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
     const std::string& inputPath, const std::filesystem::path& outputPath,
-    const std::filesystem::path& llvmIrPath,
     hitsimple::codegen::CodegenOptions codegenOptions,
     bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-    bool includeSourceModules, const hitsimple::support::ClangSelection& clang,
+    bool includeSourceModules,
     const NativeBackendOptions& backendOptions,
     hitsimple::support::CompilationMetrics& metrics);
 

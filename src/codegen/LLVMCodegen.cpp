@@ -3,6 +3,7 @@
 #include "safety/StaticSafetyAnalyzer.h"
 
 #include "hitsimple/codegen/LlvmCompatibility.h"
+#include "hitsimple/codegen/NativeTarget.h"
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/BinaryFormat/Dwarf.h>
@@ -10,7 +11,6 @@
 #include <llvm/IR/DebugInfoMetadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
 
@@ -107,14 +107,10 @@ DebugInfoFormat debugInfoFormatForTargetTriple(std::string_view targetTriple) {
              : DebugInfoFormat::Dwarf;
 }
 
-LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
-    : moduleName_(std::move(moduleName)), options_(options),
-      module_(std::make_unique<llvm::Module>(moduleName_, context_)),
-      builder_(context_) {
-  const auto targetTriple = options_.targetTriple.empty()
-                                ? llvm::sys::getDefaultTargetTriple()
-                                : options_.targetTriple;
-  setModuleTargetTriple(*module_, targetTriple);
+LlvmEmitter::LlvmEmitter(llvm::LLVMContext& context, llvm::Module& module,
+                         std::string moduleName, CodegenOptions options)
+    : moduleName_(std::move(moduleName)), options_(std::move(options)),
+      context_(context), module_(&module), builder_(context_) {
   if (options_.emitDebugInfo) {
     // Clang 18 accepts intrinsic-form debug declarations. LLVM versions that
     // offer the transitional conversion API use it before any IR is emitted.
@@ -123,7 +119,8 @@ LlvmEmitter::LlvmEmitter(std::string moduleName, CodegenOptions options)
   }
 }
 
-EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
+std::vector<diagnostic::Diagnostic>
+LlvmEmitter::emit(const hir::TranslationUnit &unit) {
   const auto targetTriple = moduleTargetTriple(*module_);
   if (!isX86_64SysVElfTarget(targetTriple)) {
     const auto rejectAggregateSignature =
@@ -145,31 +142,9 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
       rejectAggregateSignature(function->name, function->abiSignature);
     }
     if (!diagnostics_.empty()) {
-      return EmitResult{"", std::move(diagnostics_)};
+      return std::move(diagnostics_);
     }
   }
-
-  if (llvm::InitializeNativeTarget() ||
-      llvm::InitializeNativeTargetAsmPrinter()) {
-    addDiagnostic("cannot initialize LLVM native target");
-    return EmitResult{"", std::move(diagnostics_)};
-  }
-  std::string targetError;
-  const auto *target = resolveTarget(targetTriple, targetError);
-  if (target == nullptr) {
-    addDiagnostic("cannot resolve LLVM target '" + targetTriple +
-                  "': " + targetError);
-    return EmitResult{"", std::move(diagnostics_)};
-  }
-  llvm::TargetOptions targetOptions;
-  std::unique_ptr<llvm::TargetMachine> targetMachine(
-      createGenericTargetMachine(*target, targetTriple, targetOptions));
-  if (!targetMachine) {
-    addDiagnostic("cannot create LLVM target machine for '" + targetTriple +
-                  "'");
-    return EmitResult{"", std::move(diagnostics_)};
-  }
-  module_->setDataLayout(targetMachine->createDataLayout());
 
   for (const auto &global : unit.globals) {
     emit(global);
@@ -193,21 +168,17 @@ EmitResult LlvmEmitter::emit(const hir::TranslationUnit &unit) {
   }
 
   if (!diagnostics_.empty()) {
-    return EmitResult{"", std::move(diagnostics_)};
+    return std::move(diagnostics_);
   }
 
+  finalizeDebugInfo();
   std::string verifierMessage;
   llvm::raw_string_ostream verifierStream(verifierMessage);
   if (llvm::verifyModule(*module_, &verifierStream)) {
     addDiagnostic("invalid LLVM IR: " + verifierStream.str());
-    return EmitResult{"", std::move(diagnostics_)};
+    return std::move(diagnostics_);
   }
-
-  std::string llvmIr;
-  finalizeDebugInfo();
-  llvm::raw_string_ostream out(llvmIr);
-  module_->print(out, nullptr);
-  return EmitResult{out.str(), {}};
+  return {};
 }
 
 void LlvmEmitter::addDiagnostic(std::string diagnostic) {
@@ -478,11 +449,12 @@ bool LlvmEmitter::hasKnownStaticAddressRange(const hir::Expr &expression,
 }
 
 
-EmitResult emitLlvmIr(const hir::TranslationUnit &unit, std::string moduleName,
-                      CodegenOptions options) {
+ModuleEmitResult emitLlvmModule(const hir::TranslationUnit &unit,
+                                std::string moduleName,
+                                CodegenOptions options) {
   auto hirDiagnostics = hir::verifyHIR(unit);
   if (!hirDiagnostics.empty()) {
-    return EmitResult{"", std::move(hirDiagnostics)};
+    return {{}, {}, std::move(hirDiagnostics)};
   }
   const safety::StaticSafetyOptions safetyOptions{
       options.safetyMode == SafetyMode::StaticChecked ||
@@ -490,9 +462,33 @@ EmitResult emitLlvmIr(const hir::TranslationUnit &unit, std::string moduleName,
       options.safetyMode == SafetyMode::Checked};
   auto safetyResult = safety::analyzeStaticSafety(unit, safetyOptions);
   if (!safetyResult.diagnostics.empty()) {
-    return EmitResult{"", std::move(safetyResult.diagnostics)};
+    return {{}, {}, std::move(safetyResult.diagnostics)};
   }
-  return LlvmEmitter(std::move(moduleName), options).emit(unit);
+
+  auto context = std::make_unique<llvm::LLVMContext>();
+  auto module = std::make_unique<llvm::Module>(moduleName, *context);
+  const auto targetTriple = options.targetTriple.empty()
+                                ? llvm::sys::getDefaultTargetTriple()
+                                : options.targetTriple;
+  setModuleTargetTriple(*module, targetTriple);
+
+  NativeTargetOptions nativeTargetOptions;
+  nativeTargetOptions.triple = targetTriple;
+  std::string nativeTargetError;
+  const auto nativeTarget =
+      createNativeTarget(nativeTargetOptions, nativeTargetError);
+  if (!nativeTarget) {
+    return {{}, {}, {diagnostic::Diagnostic::error(
+                        diagnostic::Stage::Codegen, std::move(nativeTargetError))}};
+  }
+  module->setDataLayout(nativeTarget->machine->createDataLayout());
+
+  LlvmEmitter emitter(*context, *module, std::move(moduleName), options);
+  auto diagnostics = emitter.emit(unit);
+  if (!diagnostics.empty()) {
+    return {{}, {}, std::move(diagnostics)};
+  }
+  return {std::move(context), std::move(module), {}};
 }
 
 } // namespace hitsimple::codegen

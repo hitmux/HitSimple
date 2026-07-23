@@ -1,9 +1,12 @@
 #pragma once
 
-#include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
+
+namespace llvm {
+class Module;
+class TargetMachine;
+} // namespace llvm
 
 namespace hitsimple::codegen {
 
@@ -35,16 +38,15 @@ struct OptimizationPipelineOptions final {
 };
 
 struct OptimizationPipelineResult final {
-  std::string llvmIr;
   std::vector<std::string> remarks;
 };
 
-// Runs the native-code pipeline over LLVM IR emitted by the frontend. The
-// caller retains responsibility for serializing the returned IR and for final
-// target code generation.
-std::optional<OptimizationPipelineResult>
-runOptimizationPipeline(std::string_view llvmIr,
-                        const OptimizationPipelineOptions& options,
-                        std::string& error);
+// Runs the native-code pipeline in place. The caller owns both objects and
+// may reuse the TargetMachine for later object emission.
+bool runOptimizationPipeline(llvm::Module& module,
+                             llvm::TargetMachine& targetMachine,
+                             const OptimizationPipelineOptions& options,
+                             OptimizationPipelineResult& result,
+                             std::string& error);
 
 } // namespace hitsimple::codegen

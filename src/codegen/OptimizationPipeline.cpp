@@ -1,27 +1,21 @@
 #include "hitsimple/codegen/OptimizationPipeline.h"
-#include "hitsimple/codegen/LlvmCompatibility.h"
 
-#include <llvm/AsmParser/Parser.h>
+#include "hitsimple/codegen/SanitizerPipeline.h"
+
 #include <llvm/Config/llvm-config.h>
 #include <llvm/IR/DiagnosticInfo.h>
 #include <llvm/IR/DiagnosticPrinter.h>
-#include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PassManager.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/MC/TargetRegistry.h>
 #include <llvm/Passes/OptimizationLevel.h>
 #include <llvm/Passes/PassBuilder.h>
-#include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/PGOOptions.h>
-#include <llvm/Support/SourceMgr.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/VirtualFileSystem.h>
 #include <llvm/Support/raw_ostream.h>
-#include <llvm/Target/TargetMachine.h>
-#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -140,58 +134,21 @@ void collectOptimizationRemark(const llvm::DiagnosticInfo* diagnostic,
 
 } // namespace
 
-std::optional<OptimizationPipelineResult>
-runOptimizationPipeline(std::string_view llvmIr,
-                        const OptimizationPipelineOptions& options,
-                        std::string& error) {
-  llvm::LLVMContext context;
-  std::vector<std::string> remarks;
-  if (options.emitRemarks) {
-    context.setDiagnosticHandlerCallBack(collectOptimizationRemark, &remarks,
-                                         false);
-  }
-
-  llvm::SMDiagnostic diagnostic;
-  auto buffer = llvm::MemoryBuffer::getMemBuffer(llvmIr, "hitsimple-module");
-  auto module = llvm::parseAssembly(*buffer, diagnostic, context);
-  if (!module) {
-    std::string diagnosticText;
-    llvm::raw_string_ostream stream(diagnosticText);
-    diagnostic.print("hsc", stream);
-    stream.flush();
-    error = "cannot parse generated LLVM IR:\n" + diagnosticText;
-    return std::nullopt;
-  }
-  if (!verifyModule(*module, "before optimization", error)) {
-    return std::nullopt;
-  }
-
-  if (llvm::InitializeNativeTarget() ||
-      llvm::InitializeNativeTargetAsmPrinter()) {
-    error = "cannot initialize LLVM native target for optimization";
-    return std::nullopt;
-  }
-  const std::string targetTriple = moduleTargetTriple(*module);
-  std::string targetError;
-  const auto* target = resolveTarget(targetTriple, targetError);
-  if (target == nullptr) {
-    error = "cannot resolve LLVM target '" + targetTriple +
-            "' for optimization: " + targetError;
-    return std::nullopt;
-  }
-  llvm::TargetOptions targetOptions;
-  std::unique_ptr<llvm::TargetMachine> targetMachine(
-      createGenericTargetMachine(*target, targetTriple, targetOptions));
-  if (!targetMachine) {
-    error = "cannot create LLVM target machine for optimization";
-    return std::nullopt;
+bool runOptimizationPipeline(llvm::Module& module,
+                             llvm::TargetMachine& targetMachine,
+                             const OptimizationPipelineOptions& options,
+                             OptimizationPipelineResult& result,
+                             std::string& error) {
+  result.remarks.clear();
+  if (!verifyModule(module, "before optimization", error)) {
+    return false;
   }
 
   llvm::LoopAnalysisManager loopAnalysisManager;
   llvm::FunctionAnalysisManager functionAnalysisManager;
   llvm::CGSCCAnalysisManager cgsccAnalysisManager;
   llvm::ModuleAnalysisManager moduleAnalysisManager;
-  llvm::PassBuilder passBuilder(targetMachine.get(), {}, makePgoOptions(options));
+  llvm::PassBuilder passBuilder(&targetMachine, {}, makePgoOptions(options));
   passBuilder.registerModuleAnalyses(moduleAnalysisManager);
   passBuilder.registerCGSCCAnalyses(cgsccAnalysisManager);
   passBuilder.registerFunctionAnalyses(functionAnalysisManager);
@@ -200,16 +157,12 @@ runOptimizationPipeline(std::string_view llvmIr,
                                    cgsccAnalysisManager, moduleAnalysisManager);
 
   const auto level = toLlvmOptimizationLevel(options.optimization);
-  if (options.sanitizer == SanitizerInstrumentation::Address) {
-    for (auto& function : *module) {
-      if (!function.isDeclaration()) {
-        function.addFnAttr(llvm::Attribute::SanitizeAddress);
-      }
-    }
-  }
+  addSanitizerAttributes(module, options.sanitizer);
   llvm::ModulePassManager pipeline;
   pipeline.addPass(llvm::VerifierPass());
   pipeline.addPass(HitSimpleCanonicalizePass(options.emitRemarks));
+  pipeline.addPass(llvm::VerifierPass());
+  registerSanitizerPasses(pipeline, options.sanitizer);
   pipeline.addPass(llvm::VerifierPass());
   if (level == llvm::OptimizationLevel::O0) {
     pipeline.addPass(passBuilder.buildO0DefaultPipeline(level));
@@ -217,17 +170,15 @@ runOptimizationPipeline(std::string_view llvmIr,
     pipeline.addPass(passBuilder.buildPerModuleDefaultPipeline(level));
   }
   pipeline.addPass(llvm::VerifierPass());
-  pipeline.run(*module, moduleAnalysisManager);
-  if (!verifyModule(*module, "after optimization", error)) {
-    return std::nullopt;
+  if (options.emitRemarks) {
+    module.getContext().setDiagnosticHandlerCallBack(
+        collectOptimizationRemark, &result.remarks, false);
   }
-
-  OptimizationPipelineResult result;
-  llvm::raw_string_ostream output(result.llvmIr);
-  module->print(output, nullptr);
-  output.flush();
-  result.remarks = std::move(remarks);
-  return result;
+  pipeline.run(module, moduleAnalysisManager);
+  if (options.emitRemarks) {
+    module.getContext().setDiagnosticHandlerCallBack(nullptr, nullptr, false);
+  }
+  return verifyModule(module, "after optimization", error);
 }
 
 } // namespace hitsimple::codegen

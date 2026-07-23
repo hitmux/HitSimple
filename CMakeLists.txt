@@ -36,6 +36,10 @@ option(HS_ENABLE_UBSAN
   "Enable UndefinedBehaviorSanitizer in libFuzzer builds"
   OFF
 )
+option(HS_SMITH_REQUIRE_NETWORK_ISOLATION
+  "Require bubblewrap network isolation for the HS-Smith CTest runner"
+  OFF
+)
 if(HITSIMPLE_ENABLE_SANITIZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU" OR
      NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -80,6 +84,7 @@ unset(LLVM_AR_EXECUTABLE CACHE)
 unset(LLVM_NM_EXECUTABLE CACHE)
 unset(LLVM_PROFDATA_EXECUTABLE CACHE)
 unset(LLVM_DWARFDUMP_EXECUTABLE CACHE)
+unset(LLDB_EXECUTABLE CACHE)
 if(NOT IS_DIRECTORY "${LLVM_TOOLS_BINARY_DIR}")
   message(FATAL_ERROR
     "LLVM package did not provide a usable tool directory: ${LLVM_TOOLS_BINARY_DIR}")
@@ -115,6 +120,7 @@ find_program(LLVM_DWARFDUMP_EXECUTABLE
   NO_DEFAULT_PATH
 )
 find_program(GDB_EXECUTABLE gdb)
+find_program(LLDB_EXECUTABLE lldb)
 
 get_filename_component(HITSIMPLE_LLVM_TOOLS_DIRECTORY
   "${LLVM_TOOLS_BINARY_DIR}" REALPATH)
@@ -168,6 +174,7 @@ llvm_map_components_to_libnames(
   TargetParser
   MC
   AsmPrinter
+  Object
   DebugInfoDWARF
   native
 )
@@ -317,7 +324,10 @@ add_library(hitsimple_frontend STATIC
   src/codegen/LLVMCodegenFunctions.cpp
   src/codegen/LLVMCodegenRuntime.cpp
   src/codegen/LLVMCodegenStatements.cpp
+  src/codegen/NativeTarget.cpp
+  src/codegen/ObjectEmitter.cpp
   src/codegen/OptimizationPipeline.cpp
+  src/codegen/SanitizerPipeline.cpp
   src/diagnostic/Diagnostic.cpp
   src/hir/HIR.cpp
   src/hir/HIRDumper.cpp
@@ -354,9 +364,11 @@ if(HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
   )
 else()
   add_library(hitsimple_runtime STATIC runtime/hitsimple_runtime.c)
+  set(HITSIMPLE_BOOST_INCLUDE_DIR "")
 
   if(WIN32 OR APPLE)
     find_package(Boost 1.85.0 REQUIRED)
+    list(GET Boost_INCLUDE_DIRS 0 HITSIMPLE_BOOST_INCLUDE_DIR)
     target_sources(hitsimple_runtime PRIVATE runtime/hitsimple_f128.cpp)
     target_include_directories(hitsimple_runtime PRIVATE ${Boost_INCLUDE_DIRS})
     target_compile_definitions(hitsimple_runtime
@@ -411,6 +423,7 @@ target_compile_definitions(hitsimple_frontend
     HITSIMPLE_MCPP_EXECUTABLE="$<TARGET_FILE:hsc_mcpp>"
     HITSIMPLE_RUNTIME_SOURCE="${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c"
     HITSIMPLE_RUNTIME_LIBRARY="$<TARGET_FILE:hitsimple_runtime>"
+    HITSIMPLE_BOOST_INCLUDE_DIR="${HITSIMPLE_BOOST_INCLUDE_DIR}"
     HITSIMPLE_INSTALL_LIBDIR="${CMAKE_INSTALL_LIBDIR}"
 )
 
@@ -491,6 +504,7 @@ install(FILES
 )
 install(FILES
   ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c
+  ${PROJECT_SOURCE_DIR}/runtime/hitsimple_f128.cpp
   ${PROJECT_SOURCE_DIR}/runtime/hitsimple_f128_native.c
   DESTINATION ${CMAKE_INSTALL_DATADIR}/hitsimple/runtime
 )
@@ -550,6 +564,8 @@ if(BUILD_TESTING)
     tests/test_main.cpp
     tests/diagnostic/SourceLocationTests.cpp
     tests/codegen/LLVMCodegenTests.cpp
+    tests/codegen/NativeTargetTests.cpp
+    tests/codegen/ObjectEmitterTests.cpp
     tests/codegen/OptimizationPipelineTests.cpp
     tests/compat/CCompatTests.cpp
     tests/driver/DriverOptionsTests.cpp
@@ -615,6 +631,10 @@ target_link_libraries(hsc_unit_tests
   endfunction()
 
   add_test(NAME unit_tests COMMAND hsc_unit_tests)
+  set(hs_smith_network_isolation_argument)
+  if(HS_SMITH_REQUIRE_NETWORK_ISOLATION)
+    list(APPEND hs_smith_network_isolation_argument --require-network-isolation)
+  endif()
   add_test(
     NAME hsc_harness_unit_tests
     COMMAND ${Python3_EXECUTABLE}
@@ -718,6 +738,30 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_property_metamorphic
     PROPERTIES LABELS "testing;properties;metamorphic;phase5")
   add_test(
+    NAME hsc_hs_smith_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/hs_smith/test_hs_smith.py
+  )
+  set_tests_properties(hsc_hs_smith_unit_tests
+    PROPERTIES LABELS "testing;hs-smith;phase1")
+  if(NOT HITSIMPLE_ENABLE_SANITIZERS)
+    add_test(
+      NAME hsc_hs_smith_first_phase
+      COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/hs_smith/runner.py
+        --hsc $<TARGET_FILE:hsc>
+        --clang ${CLANG_EXECUTABLE}
+        --artifacts ${HSC_CTEST_OUTPUT_ROOT}/hs-smith
+        --cases 8
+        ${hs_smith_network_isolation_argument}
+    )
+    set_tests_properties(hsc_hs_smith_first_phase
+      PROPERTIES LABELS "testing;hs-smith;oracle;checked;phase1")
+  else()
+    # bubblewrap's isolated address space cannot reserve ASan's shadow memory.
+    # HS-Smith keeps its own non-sanitized network-isolated CI gate.
+  endif()
+  add_test(
     NAME hsc_whole_program_case_unit_tests
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/fuzz/test_whole_program_cases.py
@@ -782,16 +826,28 @@ target_link_libraries(hsc_unit_tests
     set_tests_properties(hsc_harness_aarch64_semantics PROPERTIES
       LABELS "testing;cross-target;native-semantics;phase-p3")
   endif()
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_hsc_shell_test(hsc_sanitize_address_runtime
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE)
+    add_hsc_shell_test(hsc_sanitize_address_heap_runtime
       "$<TARGET_FILE:hsc> --sanitize=address --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_oob.hs -o asan-program && ! ./asan-program >stdout 2>stderr && grep -Fq 'ERROR: AddressSanitizer: heap-buffer-overflow' stderr"
+    )
+    add_hsc_shell_test(hsc_sanitize_address_stack_runtime
+      "$<TARGET_FILE:hsc> --sanitize=address --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/asan_stack_oob.hs -o asan-stack-program && ! ./asan-stack-program >stdout 2>stderr && grep -Fq 'ERROR: AddressSanitizer: stack-buffer-overflow' stderr"
+    )
+    add_hsc_shell_test(hsc_sanitize_address_global_runtime
+      "$<TARGET_FILE:hsc> --sanitize=address --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/asan_global_oob.hs -o asan-global-program && ! ./asan-global-program >stdout 2>stderr && grep -Fq 'ERROR: AddressSanitizer: global-buffer-overflow' stderr"
+    )
+    add_hsc_shell_test(hsc_sanitize_address_disabled_has_no_instrumentation
+      "$<TARGET_FILE:hsc> --unchecked ${PROJECT_SOURCE_DIR}/tests/cases/run/asan_stack_oob.hs -o plain-program && ./plain-program && ! ${LLVM_NM_EXECUTABLE} plain-program | grep -Fq '__asan_'"
     )
     add_hsc_shell_test(hsc_sanitize_undefined_runtime
       "$<TARGET_FILE:hsc> --sanitize=undefined ${PROJECT_SOURCE_DIR}/examples/hello.hs -o ubsan-program && ./ubsan-program | grep -Fx 42"
     )
-    set_tests_properties(hsc_sanitize_address_runtime
+    set_tests_properties(hsc_sanitize_address_heap_runtime
+                         hsc_sanitize_address_stack_runtime
+                         hsc_sanitize_address_global_runtime
+                         hsc_sanitize_address_disabled_has_no_instrumentation
                          hsc_sanitize_undefined_runtime
-                         PROPERTIES LABELS "testing;sanitizer;phase4")
+                         PROPERTIES LABELS "testing;sanitizer;phase7")
   endif()
   if(APPLE AND NOT HITSIMPLE_PREBUILT_RUNTIME_LIBRARY)
     add_executable(hitsimple_f128_runtime_tests
@@ -911,26 +967,43 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_emits_target_object
     "$<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs -o hello.o && test -s hello.o"
   )
+  add_hsc_shell_test(hsc_object_and_staticlib_succeed_without_clang
+    "env PATH= HITSIMPLE_CLANG=$PWD/missing-clang $<TARGET_FILE:hsc> --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs -o hello.o && test -s hello.o && env PATH= HITSIMPLE_CLANG=$PWD/missing-clang HITSIMPLE_LLVM_AR=${LLVM_AR_EXECUTABLE} $<TARGET_FILE:hsc> --crate-type=staticlib ${PROJECT_SOURCE_DIR}/examples/hello.hs -o libhello.a && test -s libhello.a"
+  )
+  add_hsc_shell_test(hsc_executable_reports_linker_after_object_emission
+    "! env PATH= HITSIMPLE_CLANG=$PWD/missing-clang $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program >stdout 2>stderr && test ! -e program && grep -Fq 'object emission succeeded; no compatible linker driver found' stderr && grep -Fq 'configured Clang executable was not found' stderr"
+  )
+  add_hsc_shell_test(hsc_mixed_executable_reports_linker_after_object_emission
+    "! env PATH= HITSIMPLE_CLANG=$PWD/missing-clang $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o program >stdout 2>stderr && test ! -e program && grep -Fq 'object emission succeeded; no compatible linker driver found' stderr && grep -Fq 'configured Clang executable was not found' stderr"
+  )
+  add_hsc_shell_test(hsc_cxx_mixed_build_does_not_require_clang
+    "HITSIMPLE_CLANG=$PWD/missing-clang HITSIMPLE_CLANGXX=${CLANGXX_EXECUTABLE} $<TARGET_FILE:hsc> ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o program && ./program"
+  )
+  if(WIN32)
+    set(HITSIMPLE_DEFAULT_OBJECT_EXTENSION ".obj")
+  else()
+    set(HITSIMPLE_DEFAULT_OBJECT_EXTENSION ".o")
+  endif()
+  add_hsc_shell_test(hsc_emits_default_target_object
+    "cp ${PROJECT_SOURCE_DIR}/examples/hello.hs hello.hs && $<TARGET_FILE:hsc> --emit-object hello.hs && test -s hello${HITSIMPLE_DEFAULT_OBJECT_EXTENSION}"
+  )
   add_hsc_shell_test(hsc_optimization_levels_build_all_artifact_types
     "for opt in -O0 -O1 -O2 -O3 -Os; do $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o executable-$opt && ./executable-$opt && $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} --emit-object $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object-$opt.o && test -s object-$opt.o && $<TARGET_FILE:hsc> --clang ${CLANG_EXECUTABLE} --crate-type=staticlib $opt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o staticlib-$opt.a && test -s staticlib-$opt.a; done"
   )
-  add_hsc_shell_test(hsc_embedded_optimization_keeps_clang_in_backend_mode
-    "printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANG_EXECUTABLE} \"$@\"' > clang-wrapper && printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANGXX_EXECUTABLE} \"$@\"' > clangxx-wrapper && chmod +x clang-wrapper clangxx-wrapper && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper ${PROJECT_SOURCE_DIR}/examples/hello.hs -o default-program && grep -Fx -- '-O0' clang.args && ! grep -Fx -- '-O2' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -O0 -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o last-wins-program && grep -Fx -- '-O0' clang.args && ! grep -Fx -- '-O3' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --emit-object -O1 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object.o && grep -Fx -- '-O0' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --crate-type=staticlib -Os ${PROJECT_SOURCE_DIR}/examples/hello.hs -o library.a && grep -Fx -- '-O0' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o mixed-c && ./mixed-c && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-c.optimizations && test \"$(wc -l < mixed-c.optimizations)\" -eq 3 && test \"$(grep -Fc -- '-O0' mixed-c.optimizations)\" -eq 1 && test \"$(grep -Fc -- '-Os' mixed-c.optimizations)\" -eq 2 && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --clangxx $PWD/clangxx-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o mixed-cxx && ./mixed-cxx && grep -E '^-O(0|1|2|3|s)$' clang.args > mixed-cxx.optimizations && test \"$(wc -l < mixed-cxx.optimizations)\" -eq 3 && test \"$(grep -Fc -- '-O0' mixed-cxx.optimizations)\" -eq 1 && test \"$(grep -Fc -- '-Os' mixed-cxx.optimizations)\" -eq 2"
+  add_hsc_shell_test(hsc_native_object_emission_skips_clang_backend
+    "printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANG_EXECUTABLE} \"$@\"' > clang-wrapper && printf '%s\n' '#!/bin/sh' 'printf \"%s\\n\" \"$@\" >> clang.args' 'exec ${CLANGXX_EXECUTABLE} \"$@\"' > clangxx-wrapper && chmod +x clang-wrapper clangxx-wrapper && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --emit-object -O1 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o object.o && test -s object.o && test ! -e clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --crate-type=staticlib -Os ${PROJECT_SOURCE_DIR}/examples/hello.hs -o library.a && test -s library.a && test ! -e clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program && ./program && grep -Fx -- '-O3' clang.args && ! grep -Fx -- 'ir' clang.args && ! grep -E '\\.ll$' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/c_abi_import_helper.c -o mixed-c && ./mixed-c && test \"$(grep -Fc -- '-Os' clang.args)\" -eq 2 && ! grep -Fx -- '-O0' clang.args && ! grep -Fx -- 'ir' clang.args && rm -f clang.args && $<TARGET_FILE:hsc> --clang $PWD/clang-wrapper --clangxx $PWD/clangxx-wrapper -Os ${PROJECT_SOURCE_DIR}/tests/cases/interop/hsc_calls_cpp.hs --cxx-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/cpp_wrapper.cpp -o mixed-cxx && ./mixed-cxx && test \"$(grep -Fc -- '-Os' clang.args)\" -eq 2 && ! grep -Fx -- '-O0' clang.args && ! grep -Fx -- 'ir' clang.args"
   )
   add_hsc_shell_test(hsc_emit_llvm_ignores_native_optimization_selection
     "$<TARGET_FILE:hsc> --emit-llvm -O0 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o o0.ll && $<TARGET_FILE:hsc> --emit-llvm -O3 ${PROJECT_SOURCE_DIR}/examples/hello.hs -o o3.ll && cmp -s o0.ll o3.ll"
   )
   add_hsc_shell_test(hsc_pgo_instrument_and_use
-    "HITSIMPLE_OPT=$PWD/missing-opt $<TARGET_FILE:hsc> -O2 --pgo-instrument=program.profraw ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-instrumented && ./program-instrumented >instrumented.stdout && grep -Fx '42' instrumented.stdout && test -s program.profraw && ${LLVM_PROFDATA_EXECUTABLE} merge -sparse program.profraw -o program.profdata && test -s program.profdata && HITSIMPLE_OPT=$PWD/missing-opt $<TARGET_FILE:hsc> -O2 --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program-pgo && ./program-pgo >pgo.stdout && grep -Fx '42' pgo.stdout"
+    "${CMAKE_COMMAND} -DHSC=$<TARGET_FILE:hsc> -DCLANG=${CLANG_EXECUTABLE} -DLLVM_PROFDATA=${LLVM_PROFDATA_EXECUTABLE} -DSOURCE=${PROJECT_SOURCE_DIR}/tests/cases/run/pgo_hot.hs -DMISMATCH_SOURCE=${PROJECT_SOURCE_DIR}/examples/hello.hs -DWORK_DIR=$PWD -P ${PROJECT_SOURCE_DIR}/tests/support/RunNativePgoE2ETest.cmake"
   )
   add_hsc_shell_test(hsc_optimization_pipeline_emits_opt_in_remarks
     "$<TARGET_FILE:hsc> -O2 --optimization-remarks=remarks.txt ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program && ./program && grep -Fq 'HitSimple canonicalization completed; invoking the LLVM default optimization pipeline' remarks.txt"
   )
   add_hsc_shell_test(hsc_optimization_levels_preserve_core_runtime_result
     "$<TARGET_FILE:hsc> -O0 ${PROJECT_SOURCE_DIR}/tests/cases/run/arithmetic.hs -o program-o0 && ./program-o0 > o0.stdout && $<TARGET_FILE:hsc> -O2 ${PROJECT_SOURCE_DIR}/tests/cases/run/arithmetic.hs -o program-o2 && ./program-o2 > o2.stdout && cmp -s o0.stdout o2.stdout"
-  )
-  add_hsc_shell_test(hsc_rejects_incompatible_backend_clang
-    "printf '%s\n' '#!/bin/sh' 'if test \"$1\" = --version; then echo \"clang version 17.0.0\"; exit 0; fi' 'exec ${CLANG_EXECUTABLE} \"$@\"' > incompatible-clang && chmod +x incompatible-clang && ! $<TARGET_FILE:hsc> --clang $PWD/incompatible-clang ${PROJECT_SOURCE_DIR}/examples/hello.hs -o program >stdout 2>stderr && grep -Fq 'embedded LLVM major version' stderr && grep -Fq 'incompatible with backend Clang major version 17' stderr"
   )
   add_hsc_shell_test(hsc_pgo_reports_invalid_options_and_outputs
     "! $<TARGET_FILE:hsc> --pgo-unknown ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq \"unknown option '--pgo-unknown'\" stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --pgo-use=program.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'mutually exclusive' stderr && ! $<TARGET_FILE:hsc> --pgo-use=missing.profdata ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'PGO profile data does not exist' stderr && mkdir -p profile-directory && ! $<TARGET_FILE:hsc> --pgo-use=profile-directory ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'PGO profile data is not a regular file' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'only supported for --crate-type=bin' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --crate-type=staticlib ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'only supported for --crate-type=bin' stderr && ! $<TARGET_FILE:hsc> --pgo-instrument=program.profraw --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs >stdout 2>stderr && grep -Fq 'not supported with --emit-llvm' stderr"
@@ -2189,7 +2262,7 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o plain.ll && ! grep -Fq '!llvm.dbg.cu' plain.ll && $<TARGET_FILE:hsc> -g --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -o debug.ll && grep -Fq '!llvm.dbg.cu' debug.ll && grep -Fq '!DISubprogram' debug.ll && grep -Fq '!DILocalVariable(name: \"value\"' debug.ll && grep -Fq 'llvm.dbg.declare' debug.ll"
   )
   add_hsc_shell_test(hsc_rejects_debug_info_for_non_compile_action
-    "! $<TARGET_FILE:hsc> -g --dump-hir ${PROJECT_SOURCE_DIR}/examples/hello.hs 2>stderr && grep -Fq -- '-g is only supported for executable builds and --emit-llvm' stderr"
+    "! $<TARGET_FILE:hsc> -g --dump-hir ${PROJECT_SOURCE_DIR}/examples/hello.hs 2>stderr && grep -Fq -- '-g is only supported for native builds and --emit-llvm' stderr"
   )
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
      CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|aarch64|arm64|ARM64)$" AND
@@ -2199,6 +2272,11 @@ target_link_libraries(hsc_unit_tests
     )
     set_tests_properties(hsc_debug_info_gdb PROPERTIES
       SKIP_REGULAR_EXPRESSION "SKIP: ptrace is unavailable")
+  endif()
+  if(APPLE AND LLVM_DWARFDUMP_EXECUTABLE AND LLDB_EXECUTABLE)
+    add_hsc_shell_test(hsc_debug_info_lldb
+      "${CMAKE_COMMAND} -DHSC=$<TARGET_FILE:hsc> -DLLVM_DWARFDUMP=${LLVM_DWARFDUMP_EXECUTABLE} -DLLDB=${LLDB_EXECUTABLE} -DSOURCE=${PROJECT_SOURCE_DIR}/tests/cases/run/debug_info.hs -P ${PROJECT_SOURCE_DIR}/tests/support/RunLldbDebugInfoTest.cmake"
+    )
   endif()
 
   function(add_hsc_issue_baseline issue)
@@ -2300,6 +2378,7 @@ if(HS_ENABLE_FUZZING)
   add_hsc_fuzzer(fuzz_lexer tests/fuzz/LexerFuzzer.cpp lexer)
   add_hsc_fuzzer(fuzz_parser tests/fuzz/ParserFuzzer.cpp parser)
   add_hsc_fuzzer(fuzz_sema tests/fuzz/SemaFuzzer.cpp sema)
+  add_hsc_fuzzer(fuzz_hir tests/fuzz/HirFuzzer.cpp hir)
   add_hsc_fuzzer(fuzz_codegen tests/fuzz/CodegenFuzzer.cpp codegen)
 endif()
 

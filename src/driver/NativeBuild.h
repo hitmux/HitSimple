@@ -5,13 +5,15 @@
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
+
+namespace llvm {
+class Module;
+}
 
 namespace hitsimple {
 namespace support {
 class CompilationMetrics;
-struct ClangSelection;
 struct LlvmArSelection;
 } // namespace support
 namespace codegen {
@@ -22,10 +24,8 @@ struct CodegenOptions;
 namespace hitsimple::driver {
 
 std::string targetTriple();
-bool emitObjectWithClang(std::string_view llvmIr,
-                         const std::filesystem::path& llvmIrPath,
+bool emitOptimizedObject(llvm::Module& module,
                          const std::filesystem::path& objectPath,
-                         const hitsimple::support::ClangSelection& clang,
                          const NativeBackendOptions& backendOptions);
 std::string defaultObjectOutputPath(const std::string& inputPath);
 int compileObject(const std::vector<std::string>& inputPaths,
@@ -33,7 +33,6 @@ int compileObject(const std::vector<std::string>& inputPaths,
                   hitsimple::codegen::CodegenOptions codegenOptions,
                   bool cCompatibilityMode,
                   hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-                  const hitsimple::support::ClangSelection& clang,
                   const NativeBackendOptions& backendOptions,
                   hitsimple::support::CompilationMetrics& metrics);
 int compileStaticLibrary(
@@ -42,7 +41,6 @@ int compileStaticLibrary(
     hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
     const hitsimple::support::LlvmArSelection& llvmAr,
-    const hitsimple::support::ClangSelection& clang,
     const NativeBackendOptions& backendOptions,
     hitsimple::support::CompilationMetrics& metrics);
 int compileExecutable(const std::vector<std::string>& inputPaths,
@@ -50,7 +48,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
                       hitsimple::codegen::CodegenOptions codegenOptions,
                       bool cCompatibilityMode,
                       hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-                      const hitsimple::support::ClangSelection& clang,
+                      const std::optional<std::filesystem::path>& clangOverride,
                       const NativeBackendOptions& backendOptions,
                       hitsimple::support::CompilationMetrics& metrics);
 int compileMixedExecutable(

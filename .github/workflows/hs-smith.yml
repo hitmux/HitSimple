@@ -1,0 +1,50 @@
+name: HS-Smith first phase
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-oracle:
+    name: Independent semantic oracle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build and isolation dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison bubblewrap clang-18 llvm-18-dev ninja-build re2c
+
+      - name: Configure and build
+        shell: bash
+        run: |
+          cmake -S . -B build-hs-smith -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DHS_SMITH_REQUIRE_NETWORK_ISOLATION=ON \
+            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+          cmake --build build-hs-smith --parallel
+
+      - name: Run HS-Smith first phase
+        shell: bash
+        run: |
+          cmake -DBUILD_DIR=build-hs-smith \
+            '-DTEST_REGEX=^(hsc_hs_smith_unit_tests|hsc_hs_smith_first_phase)$' \
+            -P cmake/RunQuietTests.cmake
+
+      - name: Upload replay artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hs-smith-artifacts
+          path: build-hs-smith/ctest-output/hs-smith
+          if-no-files-found: warn
+          retention-days: 30

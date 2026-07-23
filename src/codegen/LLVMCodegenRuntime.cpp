@@ -188,7 +188,7 @@ llvm::CallInst *LlvmEmitter::emitCheckedRuntimeCall(
   auto *wrapper = llvm::Function::Create(
       callee.getFunctionType(), llvm::GlobalValue::InternalLinkage,
       "hs.runtime.location." + std::to_string(runtimeSourceWrapperCount_++),
-      module_.get());
+      module_);
   wrapper->addFnAttr(llvm::Attribute::NoInline);
   auto *entry = llvm::BasicBlock::Create(context_, "entry", wrapper);
   llvm::IRBuilder<> wrapperBuilder(entry);

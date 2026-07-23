@@ -159,6 +159,7 @@ jobs:
             exit 1
           fi
           grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr
+          cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_sanitize_address_(heap_runtime|stack_runtime|global_runtime|disabled_has_no_instrumentation)|hsc_sanitize_undefined_runtime|hsc_emits_default_target_object|hsc_object_and_staticlib_succeed_without_clang|hsc_optimization_levels_build_all_artifact_types|hsc_native_object_emission_skips_clang_backend|hsc_pgo_instrument_and_use)$' -P cmake/RunQuietTests.cmake
           cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy)$' -P cmake/RunQuietTests.cmake
           cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^hsc_t8_.*$' \
             -P cmake/RunQuietTests.cmake
@@ -811,6 +812,55 @@ jobs:
           }
           & build-windows/hsc.exe --clang $mingwClang -g tests/cases/run/debug_info.hs -o debug-info.exe
           if (-not (Test-Path debug-info.pdb)) { throw 'Windows debug build did not generate debug-info.pdb' }
+          $pdbutil = (Resolve-Path "$llvm/bin/llvm-pdbutil.exe").Path
+          $pdbSummary = & $pdbutil dump -summary debug-info.pdb 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$pdbSummary" -notmatch 'Age:') {
+            throw "Windows PDB could not be inspected by llvm-pdbutil: $pdbSummary"
+          }
+          & build-windows/hsc.exe --clang C:/missing/clang.exe -g --emit-object tests/cases/run/debug_info.hs -o debug-info.obj
+          if ($LASTEXITCODE -ne 0) { throw 'Windows direct debug object emission failed' }
+          $readobj = (Resolve-Path "$llvm/bin/llvm-readobj.exe").Path
+          $objectInfo = & $readobj --file-headers --sections --codeview debug-info.obj 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$objectInfo" -notmatch 'Format: COFF-x86-64' -or "$objectInfo" -notmatch '\.debug\$S') {
+            throw "Windows direct object is missing COFF or CodeView debug information: $objectInfo"
+          }
+          & build-windows/hsc.exe --clang C:/missing/clang.exe --crate-type=staticlib tests/cases/interop/c_abi_export.hs -o hsc-export.lib
+          if ($LASTEXITCODE -ne 0) { throw 'Windows direct staticlib emission failed' }
+          $llvmAr = (Resolve-Path "$llvm/bin/llvm-ar.exe").Path
+          $archiveMembers = & $llvmAr t hsc-export.lib 2>&1
+          if ($LASTEXITCODE -ne 0 -or "$archiveMembers" -notmatch 'hitsimple_runtime') {
+            throw "Windows staticlib is missing its runtime object: $archiveMembers"
+          }
+          & $mingwClang tests/cases/interop/c_abi_export_caller.c hsc-export.lib build-runtime/libhitsimple_runtime.a -lm -o c-abi-staticlib.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows C ABI staticlib link failed' }
+          & ./c-abi-staticlib.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows C ABI staticlib executable failed' }
+          foreach ($optimization in @('-O0', '-O2', '-O3')) {
+            $tag = $optimization.Substring(1)
+            & build-windows/hsc.exe --clang $mingwClang $optimization examples/hello.hs -o "hello-$tag.exe"
+            if ($LASTEXITCODE -ne 0) { throw "Windows $optimization executable build failed" }
+            & "./hello-$tag.exe" | Select-String -SimpleMatch '42'
+            if ($LASTEXITCODE -ne 0) { throw "Windows $optimization executable failed" }
+            & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-object $optimization examples/hello.hs -o "hello-$tag.obj"
+            if ($LASTEXITCODE -ne 0) { throw "Windows $optimization object emission failed" }
+            & build-windows/hsc.exe --clang C:/missing/clang.exe --crate-type=staticlib $optimization examples/hello.hs -o "hello-$tag.lib"
+            if ($LASTEXITCODE -ne 0) { throw "Windows $optimization staticlib emission failed" }
+          }
+          & build-windows/hsc.exe --clang $mingwClang -O2 --pgo-instrument=windows.profraw tests/cases/run/pgo_hot.hs -o windows-pgo-instrument.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PGO instrument build failed' }
+          & ./windows-pgo-instrument.exe
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path windows.profraw)) { throw 'Windows PGO instrument run did not create profile data' }
+          $profdata = (Resolve-Path "$llvm/bin/llvm-profdata.exe").Path
+          & $profdata merge -sparse windows.profraw -o windows.profdata
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path windows.profdata)) { throw 'Windows PGO profile merge failed' }
+          & build-windows/hsc.exe --clang $mingwClang -O2 --pgo-use=windows.profdata tests/cases/run/pgo_hot.hs -o windows-pgo-use.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PGO use build failed' }
+          & ./windows-pgo-use.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PGO use executable failed' }
+          $sanitizeOutput = & build-windows/hsc.exe --sanitize=address examples/hello.hs -o windows-asan.exe 2>&1
+          if ($LASTEXITCODE -eq 0 -or "$sanitizeOutput" -notmatch 'support only Linux and macOS') {
+            throw "Windows ASan rejection did not preserve the documented boundary: $sanitizeOutput"
+          }
           & build-windows/hsc.exe --clang C:/missing/clang.exe --emit-llvm examples/hello.hs -o hello.ll
           if (-not (Test-Path hello.ll)) { throw '--emit-llvm unexpectedly required clang' }
           $aggregateOutput = & build-windows/hsc.exe --c-compat --emit-llvm tests/cases/compat/c_aggregate_by_value.c 2>&1

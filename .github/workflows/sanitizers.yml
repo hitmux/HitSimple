@@ -10,8 +10,12 @@ permissions:
 
 jobs:
   asan-ubsan:
-    name: ASan and UBSan
+    name: ASan and UBSan (LLVM ${{ matrix.llvm_major }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm_major: [18, 19]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,18 +24,19 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y bison clang-18 llvm-18-dev ninja-build re2c
+          sudo apt-get install -y bison clang-${{ matrix.llvm_major }} \
+            llvm-${{ matrix.llvm_major }}-dev ninja-build re2c
 
       - name: Configure sanitizer build
         shell: bash
         run: |
           cmake -S . -B build-sanitize -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_C_COMPILER=clang-18 \
-            -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_COMPILER=clang-${{ matrix.llvm_major }} \
+            -DCMAKE_CXX_COMPILER=clang++-${{ matrix.llvm_major }} \
             -DBUILD_TESTING=ON \
             -DHITSIMPLE_ENABLE_SANITIZERS=ON \
-            -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
+            -DLLVM_DIR="$(llvm-config-${{ matrix.llvm_major }} --cmakedir)"
 
       - name: Build sanitizer targets
         run: cmake --build build-sanitize --parallel
@@ -51,7 +56,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sanitizer-logs
+          name: sanitizer-logs-llvm-${{ matrix.llvm_major }}
           path: |
             sanitizer-logs
             build-sanitize/ctest-output

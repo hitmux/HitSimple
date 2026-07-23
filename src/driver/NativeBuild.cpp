@@ -2,8 +2,10 @@
 
 #include "driver/Diagnostics.h"
 #include "driver/FrontendPipeline.h"
+#include "hitsimple/codegen/LlvmCompatibility.h"
+#include "hitsimple/codegen/NativeTarget.h"
+#include "hitsimple/codegen/ObjectEmitter.h"
 #include "hitsimple/codegen/OptimizationPipeline.h"
-#include "hitsimple/codegen/TargetCapabilities.h"
 #include "hitsimple/support/Cargo.h"
 #include "hitsimple/support/CompilationMetrics.h"
 #include "hitsimple/support/Path.h"
@@ -11,13 +13,11 @@
 #include "hitsimple/support/ResourcePaths.h"
 #include "hitsimple/support/Toolchain.h"
 
-#include <llvm/Config/llvm-config.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
 
-#include <cctype>
 #include <cstdlib>
-#include <exception>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -26,13 +26,24 @@
 #include <unordered_set>
 #include <utility>
 
+#ifndef HITSIMPLE_BOOST_INCLUDE_DIR
+#define HITSIMPLE_BOOST_INCLUDE_DIR ""
+#endif
+
 namespace hitsimple::driver {
 
 namespace {
 
-void appendSanitizerArguments(
-    std::vector<std::string>& arguments,
-    const NativeBackendOptions& backendOptions) {
+std::string serializeLlvmModule(const llvm::Module &module) {
+  std::string llvmIr;
+  llvm::raw_string_ostream output(llvmIr);
+  module.print(output, nullptr);
+  output.flush();
+  return llvmIr;
+}
+
+void appendSanitizerArguments(std::vector<std::string> &arguments,
+                              const NativeBackendOptions &backendOptions) {
   switch (backendOptions.sanitizer) {
   case Sanitizer::None:
     return;
@@ -47,23 +58,30 @@ void appendSanitizerArguments(
   arguments.emplace_back("-fno-omit-frame-pointer");
 }
 
-std::optional<std::vector<std::filesystem::path>> sanitizerRuntimeSources(
-    const NativeBackendOptions& backendOptions, std::string& error) {
+std::optional<std::vector<std::filesystem::path>>
+sanitizerRuntimeSources(const NativeBackendOptions &backendOptions,
+                        std::string &error) {
   if (backendOptions.sanitizer == Sanitizer::None) {
     return std::vector<std::filesystem::path>{};
   }
-#if !defined(__linux__)
-  error = "--sanitize is currently supported only on Linux hosts";
+#if !defined(__linux__) && !defined(__APPLE__)
+  error = "--sanitize native executable builds currently support only Linux "
+          "and macOS; Windows is rejected until its COFF runtime packaging "
+          "and CI coverage are implemented";
   return std::nullopt;
 #else
   const auto runtimeSource = hitsimple::support::runtimeSourcePath();
-  const std::vector<std::filesystem::path> sources{
-      runtimeSource, runtimeSource.parent_path() / "hitsimple_f128_native.c"};
-  for (const auto& source : sources) {
+  std::vector<std::filesystem::path> sources{runtimeSource};
+#if defined(__APPLE__)
+  sources.push_back(runtimeSource.parent_path() / "hitsimple_f128.cpp");
+#else
+  sources.push_back(runtimeSource.parent_path() / "hitsimple_f128_native.c");
+#endif
+  for (const auto &source : sources) {
     std::error_code filesystemError;
     if (!std::filesystem::is_regular_file(source, filesystemError)) {
       error = "sanitizer runtime source is unavailable '" +
-          hitsimple::support::pathToUtf8(source) + "'";
+              hitsimple::support::pathToUtf8(source) + "'";
       if (filesystemError) {
         error += ": " + filesystemError.message();
       }
@@ -72,6 +90,37 @@ std::optional<std::vector<std::filesystem::path>> sanitizerRuntimeSources(
   }
   return sources;
 #endif
+}
+
+bool isCxxSanitizerRuntimeSource(const std::filesystem::path &source) {
+  return source.extension() == ".cpp";
+}
+
+void appendCxxSanitizerRuntimeArguments(
+    std::vector<std::string> &arguments) {
+  arguments.emplace_back("-std=c++20");
+#if defined(__APPLE__)
+  constexpr std::string_view boostIncludeDirectory =
+      HITSIMPLE_BOOST_INCLUDE_DIR;
+  if (!boostIncludeDirectory.empty()) {
+    arguments.emplace_back("-I" + std::string(boostIncludeDirectory));
+  }
+#endif
+}
+
+int reportMissingLinkerDriver(
+    const hitsimple::support::ClangSelection &selection,
+    hitsimple::support::CompilationMetrics &metrics) {
+  std::cerr << "hsc: object emission succeeded; no compatible linker driver "
+               "found";
+  if (!selection.error.empty()) {
+    std::cerr << ": " << selection.error;
+  }
+  std::cerr << '\n';
+  const auto linkStarted = metrics.now();
+  metrics.fail(metrics.clangBackendLink(), linkStarted);
+  metrics.fail("clang_backend_link");
+  return EXIT_FAILURE;
 }
 
 } // namespace
@@ -92,9 +141,8 @@ std::string_view clangOptimizationFlag(OptimizationLevel level) {
   return "-O2";
 }
 
-void appendClangCodegenArguments(
-    std::vector<std::string>& arguments,
-    const NativeBackendOptions& backendOptions) {
+void appendClangCodegenArguments(std::vector<std::string> &arguments,
+                                 const NativeBackendOptions &backendOptions) {
   arguments.emplace_back(clangOptimizationFlag(backendOptions.optimization));
   appendSanitizerArguments(arguments, backendOptions);
   switch (backendOptions.pgoMode) {
@@ -113,29 +161,8 @@ void appendClangCodegenArguments(
   }
 }
 
-void appendHitSimpleIrCodegenArguments(
-    std::vector<std::string>& arguments,
-    const NativeBackendOptions& backendOptions) {
-#if defined(__APPLE__)
-  // Clang normalizes LLVM's native Darwin host triple to its macOS deployment
-  // triple for the same ABI. Suppress only that expected driver diagnostic.
-  arguments.emplace_back("-Wno-override-module");
-#endif
-  // The embedded New Pass Manager already applied the requested optimization
-  // pipeline. Keep Clang in backend-only mode so it cannot silently select a
-  // second, potentially different IR optimization pipeline.
-  arguments.emplace_back("-O0");
-  appendSanitizerArguments(arguments, backendOptions);
-  if (backendOptions.pgoMode == PgoMode::Instrument) {
-    arguments.push_back(
-        "-fprofile-instr-generate=" +
-        hitsimple::support::pathToUtf8(backendOptions.profilePath));
-  }
-}
-
-void appendClangLinkArguments(
-    std::vector<std::string>& arguments,
-    const NativeBackendOptions& backendOptions) {
+void appendClangLinkArguments(std::vector<std::string> &arguments,
+                              const NativeBackendOptions &backendOptions) {
   arguments.emplace_back(clangOptimizationFlag(backendOptions.optimization));
   appendSanitizerArguments(arguments, backendOptions);
   if (backendOptions.pgoMode == PgoMode::Instrument) {
@@ -154,112 +181,38 @@ std::string targetTriple() {
 }
 
 bool usesWindowsCodeView(
-    const hitsimple::codegen::CodegenOptions& codegenOptions) {
+    const hitsimple::codegen::CodegenOptions &codegenOptions) {
   const auto triple = codegenOptions.targetTriple.empty()
-      ? targetTriple()
-      : codegenOptions.targetTriple;
+                          ? targetTriple()
+                          : codegenOptions.targetTriple;
   return llvm::Triple(triple).isOSWindows();
 }
 
-std::filesystem::path pdbPathForExecutable(
-    const std::string& executablePath) {
+std::filesystem::path pdbPathForExecutable(const std::string &executablePath) {
   auto pdbPath = hitsimple::support::pathFromUtf8(executablePath);
   pdbPath.replace_extension(".pdb");
   return pdbPath;
 }
 
-std::optional<unsigned> backendClangMajorVersion(
-    const hitsimple::support::ClangSelection& clang, std::string& error) {
-  if (!clang.path) {
-    error = clang.error;
-    return std::nullopt;
-  }
-  std::error_code filesystemError;
-  const auto outputPath = std::filesystem::temp_directory_path(filesystemError) /
-      ("hitsimple-clang-version-" +
-       std::to_string(hitsimple::support::currentProcessId()) + ".txt");
-  if (filesystemError) {
-    error = "cannot determine a temporary path for Clang version detection: " +
-            filesystemError.message();
-    return std::nullopt;
-  }
-  const auto process =
-      hitsimple::support::runProcess(*clang.path, {"--version"}, outputPath);
-  const auto output = readFile(hitsimple::support::pathToUtf8(outputPath));
-  std::filesystem::remove(outputPath, filesystemError);
-  if (!process.launched) {
-    error = "cannot start backend Clang '" +
-            hitsimple::support::pathToUtf8(*clang.path) + "': " +
-            process.error;
-    return std::nullopt;
-  }
-  if (process.exitCode != 0 || !output) {
-    error = "cannot read backend Clang version from '" +
-            hitsimple::support::pathToUtf8(*clang.path) + "'";
-    return std::nullopt;
-  }
-  const auto marker = output->find("clang version ");
-  if (marker == std::string::npos) {
-    error = "backend compiler does not report a Clang version: '" +
-            hitsimple::support::pathToUtf8(*clang.path) + "'";
-    return std::nullopt;
-  }
-  auto cursor = marker + std::string_view("clang version ").size();
-  const auto firstDigit = cursor;
-  while (cursor < output->size() &&
-         std::isdigit(static_cast<unsigned char>((*output)[cursor]))) {
-    ++cursor;
-  }
-  if (cursor == firstDigit) {
-    error = "backend Clang has an invalid version string: '" +
-            hitsimple::support::pathToUtf8(*clang.path) + "'";
-    return std::nullopt;
-  }
-  try {
-    return static_cast<unsigned>(std::stoul(output->substr(
-        firstDigit, cursor - firstDigit)));
-  } catch (const std::exception&) {
-    error = "backend Clang has an unsupported version string: '" +
-            hitsimple::support::pathToUtf8(*clang.path) + "'";
-    return std::nullopt;
-  }
-}
-
-bool validateBackendClangCompatibility(
-    const hitsimple::support::ClangSelection& clang) {
-  std::string error;
-  const auto major = backendClangMajorVersion(clang, error);
-  if (!major) {
-    std::cerr << "hsc: " << error << '\n';
-    return false;
-  }
-  if (*major != LLVM_VERSION_MAJOR) {
-    std::cerr << "hsc: embedded LLVM major version " << LLVM_VERSION_MAJOR
-              << " is incompatible with backend Clang major version " << *major
-              << "; select a matching --clang executable\n";
-    return false;
-  }
-  return true;
-}
-
 class TemporaryDirectory final {
 public:
-  explicit TemporaryDirectory(std::filesystem::path path) : path_(std::move(path)) {}
+  explicit TemporaryDirectory(std::filesystem::path path)
+      : path_(std::move(path)) {}
 
   ~TemporaryDirectory() {
     std::error_code error;
     std::filesystem::remove_all(path_, error);
   }
 
-  const std::filesystem::path& path() const { return path_; }
+  const std::filesystem::path &path() const { return path_; }
 
 private:
   std::filesystem::path path_;
 };
 
-bool writeOptimizedLlvmIr(std::string_view llvmIr,
-                          const std::filesystem::path& llvmIrPath,
-                          const NativeBackendOptions& backendOptions) {
+bool emitOptimizedObject(llvm::Module &module,
+                         const std::filesystem::path &objectPath,
+                         const NativeBackendOptions &backendOptions) {
   hitsimple::codegen::OptimizationPipelineOptions pipelineOptions;
   pipelineOptions.optimization = backendOptions.optimization;
   pipelineOptions.pgoMode = backendOptions.pgoMode;
@@ -269,131 +222,96 @@ bool writeOptimizedLlvmIr(std::string_view llvmIr,
   }
   pipelineOptions.profilePath =
       hitsimple::support::pathToUtf8(backendOptions.profilePath);
-  pipelineOptions.emitRemarks = backendOptions.optimizationRemarksPath.has_value();
+  pipelineOptions.emitRemarks =
+      backendOptions.optimizationRemarksPath.has_value();
 
+  hitsimple::codegen::NativeTargetOptions targetOptions;
+  targetOptions.triple = hitsimple::codegen::moduleTargetTriple(module);
+  targetOptions.optimization = backendOptions.optimization;
+  std::string targetError;
+  const auto nativeTarget =
+      hitsimple::codegen::createNativeTarget(targetOptions, targetError);
+  if (!nativeTarget) {
+    std::cerr << "hsc: cannot create native target for object emission: "
+              << targetError << '\n';
+    return false;
+  }
+  module.setDataLayout(nativeTarget->machine->createDataLayout());
+
+  hitsimple::codegen::OptimizationPipelineResult optimized;
   std::string pipelineError;
-  const auto optimized = hitsimple::codegen::runOptimizationPipeline(
-      llvmIr, pipelineOptions, pipelineError);
-  if (!optimized) {
+  if (!hitsimple::codegen::runOptimizationPipeline(
+          module, *nativeTarget->machine, pipelineOptions, optimized,
+          pipelineError)) {
     std::cerr << "hsc: optimization pipeline failed: " << pipelineError << '\n';
     return false;
   }
   if (backendOptions.optimizationRemarksPath &&
       !appendOptimizationRemarks(*backendOptions.optimizationRemarksPath,
-                                 optimized->remarks)) {
+                                 optimized.remarks)) {
     return false;
   }
-
-  const auto llvmIrPathText = hitsimple::support::pathToUtf8(llvmIrPath);
-  if (!writeFile(llvmIrPathText, optimized->llvmIr)) {
-    std::cerr << "hsc: cannot write temporary LLVM IR '" << llvmIrPathText
-              << "'\n";
-    return false;
-  }
-  return true;
-}
-
-bool emitObjectWithClang(
-    std::string_view llvmIr, const std::filesystem::path& llvmIrPath,
-    const std::filesystem::path& objectPath,
-    const hitsimple::support::ClangSelection& clang,
-    const NativeBackendOptions& backendOptions) {
-  if (!validateBackendClangCompatibility(clang) ||
-      !writeOptimizedLlvmIr(llvmIr, llvmIrPath, backendOptions)) {
-    return false;
-  }
-  std::vector<std::string> arguments{
-      "-x", "ir", hitsimple::support::pathToUtf8(llvmIrPath), "-c", "-o",
-      hitsimple::support::pathToUtf8(objectPath)};
-  appendHitSimpleIrCodegenArguments(arguments, backendOptions);
-  const auto process = hitsimple::support::runProcess(*clang.path, arguments);
-  if (!process.launched) {
-    std::cerr << "hsc: cannot start Clang '"
-              << hitsimple::support::pathToUtf8(*clang.path)
-              << "': " << process.error << '\n';
-    return false;
-  }
-  if (process.exitCode != 0) {
-    std::cerr << "hsc: Clang failed while compiling LLVM IR to object (exit code "
-              << process.exitCode << ")\n";
+  hitsimple::codegen::ObjectEmissionOptions emissionOptions;
+  std::string emissionError;
+  if (!hitsimple::codegen::emitObjectFile(
+          module, *nativeTarget->machine, objectPath, emissionOptions,
+          emissionError)) {
+    std::cerr << "hsc: object emission failed: " << emissionError << '\n';
     return false;
   }
   return true;
 }
 
-std::string defaultObjectOutputPath(const std::string& inputPath) {
+std::string defaultObjectOutputPath(const std::string &inputPath) {
   auto output = hitsimple::support::pathFromUtf8(inputPath);
+#ifdef _WIN32
+  output.replace_extension(".obj");
+#else
   output.replace_extension(".o");
+#endif
   return hitsimple::support::pathToUtf8(output);
 }
 
-int compileObject(const std::vector<std::string>& inputPaths,
-                  const std::optional<std::string>& outputPath,
+int compileObject(const std::vector<std::string> &inputPaths,
+                  const std::optional<std::string> &outputPath,
                   hitsimple::codegen::CodegenOptions codegenOptions,
                   bool cCompatibilityMode,
                   hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-                  const hitsimple::support::ClangSelection& clang,
-                  const NativeBackendOptions& backendOptions,
-                  hitsimple::support::CompilationMetrics& metrics) {
+                  const NativeBackendOptions &backendOptions,
+                  hitsimple::support::CompilationMetrics &metrics) {
   if (inputPaths.size() != 1U) {
     std::cerr << "hsc: --crate-type=object supports exactly one input file\n";
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
-  if (!clang.path) {
-    std::cerr << "hsc: " << clang.error << '\n';
-    metrics.fail("clang_backend_link");
-    return EXIT_FAILURE;
-  }
-  const auto objectPath = outputPath.value_or(defaultObjectOutputPath(
-      inputPaths.front()));
+  const auto objectPath =
+      outputPath.value_or(defaultObjectOutputPath(inputPaths.front()));
   if (!validateOutputParent(objectPath)) {
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
-  const auto temporaryPath = std::filesystem::temp_directory_path() /
-      ("hitsimple-object-" +
-       std::to_string(hitsimple::support::currentProcessId()));
-  std::error_code directoryError;
-  std::filesystem::remove_all(temporaryPath, directoryError);
-  directoryError.clear();
-  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
-    std::cerr << "hsc: cannot create object temporary directory '"
-              << hitsimple::support::pathToUtf8(temporaryPath) << "': "
-              << directoryError.message() << '\n';
-    metrics.fail("cli");
-    return EXIT_FAILURE;
-  }
-  TemporaryDirectory temporaryDirectory(temporaryPath);
-  const auto writeStarted = metrics.now();
   if (!compileObjectTranslationUnit(
           inputPaths.front(), hitsimple::support::pathFromUtf8(objectPath),
-          temporaryPath / "unit.ll", codegenOptions, cCompatibilityMode,
-          providerSelection, true, clang, backendOptions, metrics)) {
+          codegenOptions, cCompatibilityMode, providerSelection, true,
+          backendOptions, metrics)) {
     return EXIT_FAILURE;
   }
-  metrics.complete(metrics.llvmIrWrite(), writeStarted);
+  metrics.markSkipped(metrics.llvmIrWrite());
   metrics.markSkipped(metrics.clangBackendLink());
   return EXIT_SUCCESS;
 }
 
 int compileStaticLibrary(
-    const std::vector<std::string>& inputPaths,
-    const std::optional<std::string>& outputPath,
+    const std::vector<std::string> &inputPaths,
+    const std::optional<std::string> &outputPath,
     hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-    const hitsimple::support::LlvmArSelection& llvmAr,
-    const hitsimple::support::ClangSelection& clang,
-    const NativeBackendOptions& backendOptions,
-    hitsimple::support::CompilationMetrics& metrics) {
+    const hitsimple::support::LlvmArSelection &llvmAr,
+    const NativeBackendOptions &backendOptions,
+    hitsimple::support::CompilationMetrics &metrics) {
   if (!llvmAr.path) {
     std::cerr << "hsc: " << llvmAr.error << '\n';
     metrics.fail("cli");
-    return EXIT_FAILURE;
-  }
-  if (!clang.path) {
-    std::cerr << "hsc: " << clang.error << '\n';
-    metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
   const auto archivePath = outputPath.value_or("libhitsimple.a");
@@ -402,7 +320,8 @@ int compileStaticLibrary(
     return EXIT_FAILURE;
   }
 
-  const auto temporaryPath = std::filesystem::temp_directory_path() /
+  const auto temporaryPath =
+      std::filesystem::temp_directory_path() /
       ("hitsimple-staticlib-" +
        std::to_string(hitsimple::support::currentProcessId()));
   std::error_code directoryError;
@@ -410,8 +329,8 @@ int compileStaticLibrary(
   directoryError.clear();
   if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
     std::cerr << "hsc: cannot create static library temporary directory '"
-              << hitsimple::support::pathToUtf8(temporaryPath) << "': "
-              << directoryError.message() << '\n';
+              << hitsimple::support::pathToUtf8(temporaryPath)
+              << "': " << directoryError.message() << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
@@ -422,34 +341,35 @@ int compileStaticLibrary(
   std::vector<std::string> sourceModuleIds;
   std::unordered_set<std::string> seenSourceModules;
   for (std::size_t index = 0; index < inputPaths.size(); ++index) {
-    const auto objectPath = temporaryPath / ("unit-" +
-        std::to_string(index) + ".o");
+    const auto objectPath =
+        temporaryPath / ("unit-" + std::to_string(index) + ".o");
     auto compiled = compileObjectTranslationUnit(
-        inputPaths[index], objectPath,
-        temporaryPath / ("unit-" + std::to_string(index) + ".ll"),
-        codegenOptions, cCompatibilityMode, providerSelection, false, clang,
-        backendOptions, metrics);
+        inputPaths[index], objectPath, codegenOptions, cCompatibilityMode,
+        providerSelection, false, backendOptions, metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
-    for (const auto& module : compiled->sourceModules) {
+    for (const auto &module : compiled->sourceModules) {
       if (seenSourceModules.insert(module).second) {
         sourceModuleIds.push_back(module);
       }
     }
     objectPaths.push_back(objectPath);
   }
-  auto sourceModules = compileSourceModules(sourceModuleIds, codegenOptions, metrics);
+  auto sourceModules =
+      compileSourceModules(sourceModuleIds, codegenOptions, metrics);
   if (!sourceModules) {
     return EXIT_FAILURE;
   }
   for (std::size_t index = 0; index < sourceModules->size(); ++index) {
-    const auto objectPath = temporaryPath /
-        ("stdlib-" + std::to_string(index) + ".o");
-    if (!emitObjectWithClang(
-            (*sourceModules)[index].llvmIr,
-            temporaryPath / ("stdlib-" + std::to_string(index) + ".ll"),
-            objectPath, clang, backendOptions)) {
+    const auto objectPath =
+        temporaryPath / ("stdlib-" + std::to_string(index) + ".o");
+    metrics.translationUnits()
+        .at((*sourceModules)[index].metricsIndex)
+        .llvmIrBytes =
+        serializeLlvmModule(*(*sourceModules)[index].emission.module).size();
+    if (!emitOptimizedObject(*(*sourceModules)[index].emission.module,
+                             objectPath, backendOptions)) {
       metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
@@ -471,8 +391,9 @@ int compileStaticLibrary(
 
   const auto originalDirectory = std::filesystem::current_path(directoryError);
   if (directoryError) {
-    std::cerr << "hsc: cannot read current directory while creating static library: "
-              << directoryError.message() << '\n';
+    std::cerr
+        << "hsc: cannot read current directory while creating static library: "
+        << directoryError.message() << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
@@ -495,8 +416,8 @@ int compileStaticLibrary(
   }
   if (!extractResult.launched) {
     std::cerr << "hsc: cannot start llvm-ar '"
-              << hitsimple::support::pathToUtf8(*llvmAr.path) << "': "
-              << extractResult.error << '\n';
+              << hitsimple::support::pathToUtf8(*llvmAr.path)
+              << "': " << extractResult.error << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
@@ -507,7 +428,7 @@ int compileStaticLibrary(
     return EXIT_FAILURE;
   }
 
-  for (const auto& entry : std::filesystem::directory_iterator(temporaryPath)) {
+  for (const auto &entry : std::filesystem::directory_iterator(temporaryPath)) {
     if (!entry.is_regular_file()) {
       continue;
     }
@@ -526,17 +447,17 @@ int compileStaticLibrary(
   }
 
   const auto temporaryArchive = temporaryPath / "libhitsimple.a";
-  std::vector<std::string> archiveArguments{"rcs",
-      hitsimple::support::pathToUtf8(temporaryArchive)};
-  for (const auto& objectPath : objectPaths) {
+  std::vector<std::string> archiveArguments{
+      "rcs", hitsimple::support::pathToUtf8(temporaryArchive)};
+  for (const auto &objectPath : objectPaths) {
     archiveArguments.push_back(hitsimple::support::pathToUtf8(objectPath));
   }
-  const auto archiveResult = hitsimple::support::runProcess(*llvmAr.path,
-                                                             archiveArguments);
+  const auto archiveResult =
+      hitsimple::support::runProcess(*llvmAr.path, archiveArguments);
   if (!archiveResult.launched) {
     std::cerr << "hsc: cannot start llvm-ar '"
-              << hitsimple::support::pathToUtf8(*llvmAr.path) << "': "
-              << archiveResult.error << '\n';
+              << hitsimple::support::pathToUtf8(*llvmAr.path)
+              << "': " << archiveResult.error << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
@@ -548,10 +469,9 @@ int compileStaticLibrary(
   }
 
   std::error_code copyError;
-  std::filesystem::copy_file(temporaryArchive,
-                             hitsimple::support::pathFromUtf8(archivePath),
-                             std::filesystem::copy_options::overwrite_existing,
-                             copyError);
+  std::filesystem::copy_file(
+      temporaryArchive, hitsimple::support::pathFromUtf8(archivePath),
+      std::filesystem::copy_options::overwrite_existing, copyError);
   if (copyError) {
     std::cerr << "hsc: cannot write static library '" << archivePath
               << "': " << copyError.message() << '\n';
@@ -562,25 +482,19 @@ int compileStaticLibrary(
   metrics.markSkipped(metrics.clangBackendLink());
   return EXIT_SUCCESS;
 }
-int compileExecutable(const std::vector<std::string>& inputPaths,
-                      const std::optional<std::string>& outputPath,
-                      hitsimple::codegen::CodegenOptions codegenOptions,
-                      bool cCompatibilityMode,
-                      hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-                      const hitsimple::support::ClangSelection& clang,
-                      const NativeBackendOptions& backendOptions,
-                      hitsimple::support::CompilationMetrics& metrics) {
-  if (!clang.path) {
-    std::cerr << "hsc: " << clang.error << '\n';
-    const auto linkStarted = metrics.now();
-    metrics.fail(metrics.clangBackendLink(), linkStarted);
-    metrics.fail("clang_backend_link");
-    return EXIT_FAILURE;
-  }
+
+int compileExecutable(
+    const std::vector<std::string> &inputPaths,
+    const std::optional<std::string> &outputPath,
+    hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
+    hitsimple::stdlib::BuiltinProviderSelection providerSelection,
+    const std::optional<std::filesystem::path> &clangOverride,
+    const NativeBackendOptions &backendOptions,
+    hitsimple::support::CompilationMetrics &metrics) {
   std::vector<CompiledTranslationUnit> units;
   units.reserve(inputPaths.size());
   std::size_t mainCount = 0;
-  for (const auto& inputPath : inputPaths) {
+  for (const auto &inputPath : inputPaths) {
     auto compiled =
         compileTranslationUnit(inputPath, codegenOptions, cCompatibilityMode,
                                providerSelection, false, metrics);
@@ -592,9 +506,9 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   }
 
   if (mainCount == 0) {
-    printDiagnostic(fileLevelDiagnostic(
-        hitsimple::diagnostic::Stage::Sema,
-        "program must define a main function", inputPaths.front()));
+    printDiagnostic(fileLevelDiagnostic(hitsimple::diagnostic::Stage::Sema,
+                                        "program must define a main function",
+                                        inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
@@ -610,8 +524,8 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     return EXIT_FAILURE;
   }
   const auto sourceModuleIds = collectRequiredSourceModules(units);
-  auto sourceModules = compileSourceModules(sourceModuleIds, codegenOptions,
-                                            metrics);
+  auto sourceModules =
+      compileSourceModules(sourceModuleIds, codegenOptions, metrics);
   if (!sourceModules) {
     return EXIT_FAILURE;
   }
@@ -638,10 +552,6 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
     metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
   }
-  if (!validateBackendClangCompatibility(clang)) {
-    metrics.fail("clang_backend_link");
-    return EXIT_FAILURE;
-  }
   const bool emitWindowsPdb =
       codegenOptions.emitDebugInfo && usesWindowsCodeView(codegenOptions);
   std::optional<std::filesystem::path> pdbPath;
@@ -657,52 +567,64 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
       return EXIT_FAILURE;
     }
   }
-  std::vector<std::filesystem::path> temporaryPaths;
-  temporaryPaths.reserve(units.size());
-  std::vector<std::filesystem::path> clangInputPaths;
-  clangInputPaths.reserve(units.size());
-  const auto tempDirectory = std::filesystem::temp_directory_path();
-  const auto tempPrefix =
-      "hitsimple-" +
-      std::to_string(hitsimple::support::currentProcessId());
+  const auto temporaryPath =
+      std::filesystem::temp_directory_path() /
+      ("hitsimple-link-" +
+       std::to_string(hitsimple::support::currentProcessId()));
+  std::error_code directoryError;
+  std::filesystem::remove_all(temporaryPath, directoryError);
+  directoryError.clear();
+  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
+    std::cerr << "hsc: cannot create link temporary directory '"
+              << hitsimple::support::pathToUtf8(temporaryPath)
+              << "': " << directoryError.message() << '\n';
+    metrics.fail("cli");
+    return EXIT_FAILURE;
+  }
+  TemporaryDirectory temporaryDirectory(temporaryPath);
+  std::vector<std::filesystem::path> objectPaths;
+  objectPaths.reserve(units.size());
   for (std::size_t index = 0; index < units.size(); ++index) {
-    const auto tempPath =
-        tempDirectory / (tempPrefix + "-" + std::to_string(index) + ".ll");
-    if (!writeOptimizedLlvmIr(units[index].llvmIr, tempPath, backendOptions)) {
-      for (const auto& path : temporaryPaths) {
-        std::filesystem::remove(path);
-      }
-      metrics.fail(metrics.llvmIrWrite(), writeStarted);
-      metrics.fail("llvm_ir_write");
+    const auto objectPath =
+        temporaryPath / ("hitsimple-" + std::to_string(index) + ".o");
+    metrics.translationUnits().at(units[index].metricsIndex).llvmIrBytes =
+        serializeLlvmModule(*units[index].emission.module).size();
+    if (!emitOptimizedObject(*units[index].emission.module, objectPath,
+                             backendOptions)) {
+      metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
-    temporaryPaths.push_back(tempPath);
-    clangInputPaths.push_back(tempPath);
+    objectPaths.push_back(objectPath);
   }
-  metrics.complete(metrics.llvmIrWrite(), writeStarted);
+  metrics.markSkipped(metrics.llvmIrWrite());
 
-  std::vector<std::string> arguments{"-x", "ir"};
-  for (const auto& tempPath : clangInputPaths) {
-    arguments.push_back(hitsimple::support::pathToUtf8(tempPath));
+  const auto clang = hitsimple::support::resolveClang(clangOverride);
+  if (!clang.path) {
+    return reportMissingLinkerDriver(clang, metrics);
+  }
+
+  std::vector<std::string> arguments;
+  for (const auto &objectPath : objectPaths) {
+    arguments.push_back(hitsimple::support::pathToUtf8(objectPath));
   }
   if (!sanitizedRuntimeSourcePaths->empty()) {
-    for (const auto& runtimeSource : *sanitizedRuntimeSourcePaths) {
-      arguments.insert(arguments.end(),
-                       {"-x", "c",
-                        hitsimple::support::pathToUtf8(runtimeSource)});
+    for (const auto &runtimeSource : *sanitizedRuntimeSourcePaths) {
+      if (isCxxSanitizerRuntimeSource(runtimeSource)) {
+        appendCxxSanitizerRuntimeArguments(arguments);
+      }
+      arguments.push_back(hitsimple::support::pathToUtf8(runtimeSource));
     }
   } else if (const auto runtimeSource =
                  hitsimple::support::pathEnvironmentVariable(
                      "HITSIMPLE_RUNTIME_SOURCE")) {
-    arguments.insert(arguments.end(),
-                     {"-x", "c",
-                      hitsimple::support::pathToUtf8(*runtimeSource)});
+    arguments.push_back(hitsimple::support::pathToUtf8(*runtimeSource));
   } else {
-    arguments.insert(arguments.end(), {"-x", "none",
-                                       hitsimple::support::pathToUtf8(
-                                           hitsimple::support::runtimeLibraryPath())});
+    arguments.insert(arguments.end(),
+                     {"-x", "none",
+                      hitsimple::support::pathToUtf8(
+                          hitsimple::support::runtimeLibraryPath())});
   }
-  appendHitSimpleIrCodegenArguments(arguments, backendOptions);
+  appendClangLinkArguments(arguments, backendOptions);
 #ifdef _WIN32
   arguments.push_back("-static-libgcc");
   arguments.push_back("-static-libstdc++");
@@ -722,9 +644,6 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   arguments.insert(arguments.end(), {"-lm", "-o", executablePath});
   const auto linkStarted = metrics.now();
   const auto process = hitsimple::support::runProcess(*clang.path, arguments);
-  for (const auto& tempPath : temporaryPaths) {
-    std::filesystem::remove(tempPath);
-  }
   if (!process.launched) {
     std::cerr << "hsc: cannot start Clang '"
               << hitsimple::support::pathToUtf8(*clang.path)
@@ -735,7 +654,7 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
   }
   if (process.exitCode != 0) {
     std::cerr << "hsc: Clang failed while linking executable (exit code "
-                << process.exitCode << ")\n";
+              << process.exitCode << ")\n";
     metrics.fail(metrics.clangBackendLink(), linkStarted);
     metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
@@ -760,17 +679,17 @@ int compileExecutable(const std::vector<std::string>& inputPaths,
 }
 
 int compileMixedExecutable(
-    const std::vector<std::string>& inputPaths,
-    const std::optional<std::string>& outputPath,
+    const std::vector<std::string> &inputPaths,
+    const std::optional<std::string> &outputPath,
     hitsimple::codegen::CodegenOptions codegenOptions, bool cCompatibilityMode,
     hitsimple::stdlib::BuiltinProviderSelection providerSelection,
-    const std::optional<std::filesystem::path>& clangOverride,
-    const std::optional<std::filesystem::path>& clangxxOverride,
-    const ExternalBuildInputs& externalInputs,
-    const NativeBackendOptions& backendOptions,
-    hitsimple::support::CompilationMetrics& metrics) {
-  const bool linkOnlyExternalInputs = externalInputs.cSources.empty() &&
-      externalInputs.cxxSources.empty() &&
+    const std::optional<std::filesystem::path> &clangOverride,
+    const std::optional<std::filesystem::path> &clangxxOverride,
+    const ExternalBuildInputs &externalInputs,
+    const NativeBackendOptions &backendOptions,
+    hitsimple::support::CompilationMetrics &metrics) {
+  const bool linkOnlyExternalInputs =
+      externalInputs.cSources.empty() && externalInputs.cxxSources.empty() &&
       (!externalInputs.linkInputs.empty() || !externalInputs.libraries.empty());
   if (linkOnlyExternalInputs && !externalInputs.linkerLanguage) {
     std::cerr << "hsc: archive or object link inputs require "
@@ -786,31 +705,12 @@ int compileMixedExecutable(
     return EXIT_FAILURE;
   }
 
-  const bool useCxxLinker = externalInputs.linkerLanguage
-      ? *externalInputs.linkerLanguage == LinkerLanguage::Cxx
-      : !externalInputs.cxxSources.empty();
-  const bool needsCCompiler = true;
-  const bool needsCxxCompiler = !externalInputs.cxxSources.empty() ||
-      useCxxLinker;
-  const auto clang = hitsimple::support::resolveClang(clangOverride);
-  const auto clangxx = hitsimple::support::resolveClangxx(clangxxOverride);
-  if (needsCCompiler && !clang.path) {
-    std::cerr << "hsc: " << clang.error << '\n';
-    metrics.fail("clang_backend_link");
-    return EXIT_FAILURE;
-  }
-  if (needsCxxCompiler && !clangxx.path) {
-    std::cerr << "hsc: " << clangxx.error << '\n';
-    metrics.fail("clang_backend_link");
-    return EXIT_FAILURE;
-  }
-  if (!validateBackendClangCompatibility(clang) ||
-      (needsCxxCompiler && !validateBackendClangCompatibility(clangxx))) {
-    metrics.fail("clang_backend_link");
-    return EXIT_FAILURE;
-  }
-
-  const auto temporaryPath = std::filesystem::temp_directory_path() /
+  const bool useCxxLinker =
+      externalInputs.linkerLanguage
+          ? *externalInputs.linkerLanguage == LinkerLanguage::Cxx
+          : !externalInputs.cxxSources.empty();
+  const auto temporaryPath =
+      std::filesystem::temp_directory_path() /
       ("hitsimple-link-" +
        std::to_string(hitsimple::support::currentProcessId()));
   std::error_code directoryError;
@@ -818,8 +718,8 @@ int compileMixedExecutable(
   directoryError.clear();
   if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
     std::cerr << "hsc: cannot create link temporary directory '"
-              << hitsimple::support::pathToUtf8(temporaryPath) << "': "
-              << directoryError.message() << '\n';
+              << hitsimple::support::pathToUtf8(temporaryPath)
+              << "': " << directoryError.message() << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
@@ -833,19 +733,17 @@ int compileMixedExecutable(
   std::unordered_set<std::string> seenSourceModules;
   std::size_t mainCount = 0;
   for (std::size_t index = 0; index < inputPaths.size(); ++index) {
-    const auto objectPath = temporaryPath /
-        ("hitsimple-" + std::to_string(index) + ".o");
+    const auto objectPath =
+        temporaryPath / ("hitsimple-" + std::to_string(index) + ".o");
     auto compiled = compileObjectTranslationUnit(
-        inputPaths[index], objectPath,
-        temporaryPath / ("hitsimple-" + std::to_string(index) + ".ll"),
-        codegenOptions, cCompatibilityMode, providerSelection, false, clang,
-        backendOptions, metrics);
+        inputPaths[index], objectPath, codegenOptions, cCompatibilityMode,
+        providerSelection, false, backendOptions, metrics);
     if (!compiled) {
       return EXIT_FAILURE;
     }
     mainCount += compiled->mainDefinitionCount;
     units.push_back(std::move(*compiled));
-    for (const auto& module : units.back().sourceModules) {
+    for (const auto &module : units.back().sourceModules) {
       if (seenSourceModules.insert(module).second) {
         sourceModuleIds.push_back(module);
       }
@@ -853,9 +751,9 @@ int compileMixedExecutable(
     hitSimpleObjects.push_back(objectPath);
   }
   if (externalInputs.entryMode == EntryMode::HitSimple && mainCount == 0) {
-    printDiagnostic(fileLevelDiagnostic(
-        hitsimple::diagnostic::Stage::Sema,
-        "program must define a main function", inputPaths.front()));
+    printDiagnostic(fileLevelDiagnostic(hitsimple::diagnostic::Stage::Sema,
+                                        "program must define a main function",
+                                        inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
@@ -867,36 +765,41 @@ int compileMixedExecutable(
     return EXIT_FAILURE;
   }
   if (externalInputs.entryMode == EntryMode::Native && mainCount != 0) {
-    printDiagnostic(fileLevelDiagnostic(
-        hitsimple::diagnostic::Stage::Sema,
-        "--entry=native forbids a HitSimple main function", inputPaths.front()));
+    printDiagnostic(
+        fileLevelDiagnostic(hitsimple::diagnostic::Stage::Sema,
+                            "--entry=native forbids a HitSimple main function",
+                            inputPaths.front()));
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
   std::vector<CompiledTranslationUnit> compatibilityUnits;
   compatibilityUnits.reserve(units.size());
-  for (const auto& unit : units) {
-    compatibilityUnits.push_back(
-        {inputPaths[compatibilityUnits.size()], "", unit.mainDefinitionCount,
-         unit.compatibilityLinkage, {}});
+  for (const auto &unit : units) {
+    compatibilityUnits.push_back({inputPaths[compatibilityUnits.size()],
+                                  {},
+                                  unit.mainDefinitionCount,
+                                  unit.compatibilityLinkage,
+                                  {},
+                                  0});
   }
   if (!validateCCompatibilityExternalAbi(compatibilityUnits)) {
     metrics.fail("sema_hir");
     return EXIT_FAILURE;
   }
-  auto sourceModules = compileSourceModules(sourceModuleIds, codegenOptions,
-                                            metrics);
+  auto sourceModules =
+      compileSourceModules(sourceModuleIds, codegenOptions, metrics);
   if (!sourceModules) {
     return EXIT_FAILURE;
   }
   for (std::size_t index = 0; index < sourceModules->size(); ++index) {
-    const auto objectPath = temporaryPath /
-        ("hitsimple-stdlib-" + std::to_string(index) + ".o");
-    if (!emitObjectWithClang(
-            (*sourceModules)[index].llvmIr,
-            temporaryPath / ("hitsimple-stdlib-" + std::to_string(index) +
-                             ".ll"),
-            objectPath, clang, backendOptions)) {
+    const auto objectPath =
+        temporaryPath / ("hitsimple-stdlib-" + std::to_string(index) + ".o");
+    metrics.translationUnits()
+        .at((*sourceModules)[index].metricsIndex)
+        .llvmIrBytes =
+        serializeLlvmModule(*(*sourceModules)[index].emission.module).size();
+    if (!emitOptimizedObject(*(*sourceModules)[index].emission.module,
+                             objectPath, backendOptions)) {
       metrics.fail("llvm_emission");
       return EXIT_FAILURE;
     }
@@ -914,7 +817,7 @@ int compileMixedExecutable(
     metrics.fail("llvm_ir_write");
     return EXIT_FAILURE;
   }
-  metrics.complete(metrics.llvmIrWrite(), writeStarted);
+  metrics.markSkipped(metrics.llvmIrWrite());
 
   std::string sanitizerRuntimeError;
   const auto sanitizedRuntimeSourcePaths =
@@ -924,28 +827,52 @@ int compileMixedExecutable(
     metrics.fail("clang_backend_link");
     return EXIT_FAILURE;
   }
+  const auto runtimeSource =
+      hitsimple::support::pathEnvironmentVariable("HITSIMPLE_RUNTIME_SOURCE");
+  const bool needsCCompiler =
+      !externalInputs.cSources.empty() || !useCxxLinker ||
+      !sanitizedRuntimeSourcePaths->empty() || runtimeSource.has_value();
+  const bool needsCxxCompiler =
+      !externalInputs.cxxSources.empty() || useCxxLinker;
+  const auto clang = needsCCompiler
+                         ? hitsimple::support::resolveClang(clangOverride)
+                         : hitsimple::support::ClangSelection{};
+  const auto clangxx =
+      needsCxxCompiler
+          ? hitsimple::support::resolveClangxx(clangxxOverride)
+          : hitsimple::support::ClangSelection{};
+  if (needsCCompiler && !clang.path) {
+    return reportMissingLinkerDriver(clang, metrics);
+  }
+  if (needsCxxCompiler && !clangxx.path) {
+    return reportMissingLinkerDriver(clangxx, metrics);
+  }
 
   std::vector<std::filesystem::path> externalObjects;
   externalObjects.reserve(externalInputs.cSources.size() +
                           externalInputs.cxxSources.size() +
                           sanitizedRuntimeSourcePaths->size() + 1U);
-  const auto compileExternalSource = [&](const std::string& source,
-                                         std::string_view label,
-                                         const hitsimple::support::ClangSelection& compiler,
-                                         std::size_t index) -> bool {
-    const auto objectPath = temporaryPath /
-        (std::string(label) + "-" + std::to_string(index) + ".o");
-    std::vector<std::string> arguments{"-c", source, "-o",
-                                        hitsimple::support::pathToUtf8(objectPath)};
+  const auto compileExternalSource =
+      [&](const std::string &source, std::string_view label,
+          const hitsimple::support::ClangSelection &compiler,
+          std::size_t index, bool requiresCxx20 = false) -> bool {
+    const auto objectPath = temporaryPath / (std::string(label) + "-" +
+                                             std::to_string(index) + ".o");
+    std::vector<std::string> arguments{
+        "-c", source, "-o", hitsimple::support::pathToUtf8(objectPath)};
+    if (requiresCxx20) {
+      appendCxxSanitizerRuntimeArguments(arguments);
+    }
     appendClangCodegenArguments(arguments, backendOptions);
     if (codegenOptions.emitDebugInfo) {
       arguments.push_back("-g");
     }
-    const auto process = hitsimple::support::runProcess(*compiler.path, arguments);
+    const auto process =
+        hitsimple::support::runProcess(*compiler.path, arguments);
     if (!process.launched) {
       std::cerr << "hsc: cannot start " << label << " compiler '"
-                << hitsimple::support::pathToUtf8(*compiler.path) << "': "
-                << process.error << '\n';
+                << hitsimple::support::pathToUtf8(*compiler.path)
+                << "': " << process.error << '\n';
       return false;
     }
     if (process.exitCode != 0) {
@@ -963,7 +890,8 @@ int compileMixedExecutable(
       return EXIT_FAILURE;
     }
   }
-  for (std::size_t index = 0; index < externalInputs.cxxSources.size(); ++index) {
+  for (std::size_t index = 0; index < externalInputs.cxxSources.size();
+       ++index) {
     if (!compileExternalSource(externalInputs.cxxSources[index], "C++", clangxx,
                                index)) {
       metrics.fail("clang_backend_link");
@@ -974,19 +902,19 @@ int compileMixedExecutable(
   if (!sanitizedRuntimeSourcePaths->empty()) {
     for (std::size_t index = 0; index < sanitizedRuntimeSourcePaths->size();
          ++index) {
+      const auto &runtimeSource = (*sanitizedRuntimeSourcePaths)[index];
+      const bool runtimeIsCxx = isCxxSanitizerRuntimeSource(runtimeSource);
       if (!compileExternalSource(
-              hitsimple::support::pathToUtf8(
-                  (*sanitizedRuntimeSourcePaths)[index]),
-              "runtime C", clang, index)) {
+              hitsimple::support::pathToUtf8(runtimeSource),
+              runtimeIsCxx ? "runtime C++" : "runtime C", clang, index,
+              runtimeIsCxx)) {
         metrics.fail("clang_backend_link");
         return EXIT_FAILURE;
       }
       runtimeObjects.push_back(externalObjects.back());
       externalObjects.pop_back();
     }
-  } else if (const auto runtimeSource =
-                 hitsimple::support::pathEnvironmentVariable(
-                     "HITSIMPLE_RUNTIME_SOURCE")) {
+  } else if (runtimeSource) {
     if (!compileExternalSource(hitsimple::support::pathToUtf8(*runtimeSource),
                                "runtime C", clang, 0U)) {
       metrics.fail("clang_backend_link");
@@ -1013,24 +941,25 @@ int compileMixedExecutable(
   }
 
   std::vector<std::string> linkArguments;
-  for (const auto& objectPath : hitSimpleObjects) {
+  for (const auto &objectPath : hitSimpleObjects) {
     linkArguments.push_back(hitsimple::support::pathToUtf8(objectPath));
   }
-  for (const auto& objectPath : externalObjects) {
+  for (const auto &objectPath : externalObjects) {
     linkArguments.push_back(hitsimple::support::pathToUtf8(objectPath));
   }
   linkArguments.insert(linkArguments.end(), externalInputs.linkInputs.begin(),
                        externalInputs.linkInputs.end());
-  for (const auto& directory : externalInputs.libraryDirectories) {
+  for (const auto &directory : externalInputs.libraryDirectories) {
     linkArguments.insert(linkArguments.end(), {"-L", directory});
   }
-  for (const auto& library : externalInputs.libraries) {
+  for (const auto &library : externalInputs.libraries) {
     linkArguments.insert(linkArguments.end(), {"-l", library});
   }
-  linkArguments.insert(linkArguments.end(), externalInputs.linkArguments.begin(),
+  linkArguments.insert(linkArguments.end(),
+                       externalInputs.linkArguments.begin(),
                        externalInputs.linkArguments.end());
   if (!runtimeObjects.empty()) {
-    for (const auto& runtimeObject : runtimeObjects) {
+    for (const auto &runtimeObject : runtimeObjects) {
       linkArguments.push_back(hitsimple::support::pathToUtf8(runtimeObject));
     }
   } else {
@@ -1058,13 +987,13 @@ int compileMixedExecutable(
   }
   linkArguments.insert(linkArguments.end(), {"-lm", "-o", executablePath});
   const auto linkStarted = metrics.now();
-  const auto& linker = useCxxLinker ? clangxx : clang;
+  const auto &linker = useCxxLinker ? clangxx : clang;
   const auto linkResult =
       hitsimple::support::runProcess(*linker.path, linkArguments);
   if (!linkResult.launched) {
     std::cerr << "hsc: cannot start linker '"
-              << hitsimple::support::pathToUtf8(*linker.path) << "': "
-              << linkResult.error << '\n';
+              << hitsimple::support::pathToUtf8(*linker.path)
+              << "': " << linkResult.error << '\n';
     metrics.fail(metrics.clangBackendLink(), linkStarted);
     metrics.fail("clang_backend_link");
     return EXIT_FAILURE;

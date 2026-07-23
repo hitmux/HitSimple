@@ -39,7 +39,8 @@ class FuzzCampaignTests(unittest.TestCase):
             self.assertIn('"$FUZZER" corpus', replay)
 
     def test_target_catalog_stays_aligned_with_committed_seed_directories(self) -> None:
-        self.assertEqual(set(TARGETS), {"lexer", "parser", "sema", "codegen"})
+        seed_root = Path(__file__).parents[1] / "corpus" / "seeds"
+        self.assertEqual(set(TARGETS), {path.name for path in seed_root.iterdir() if path.is_dir()})
 
     @unittest.skipIf(os.name == "nt", "the fake fuzzer uses a POSIX shell fixture")
     def test_injected_crash_is_minimized_and_documented_for_replay(self) -> None:

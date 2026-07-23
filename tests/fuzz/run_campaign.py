@@ -24,6 +24,7 @@ TARGETS: dict[str, str] = {
     "lexer": "fuzz_lexer",
     "parser": "fuzz_parser",
     "sema": "fuzz_sema",
+    "hir": "fuzz_hir",
     "codegen": "fuzz_codegen",
 }
 DEFAULT_SECONDS_PER_TARGET = 900

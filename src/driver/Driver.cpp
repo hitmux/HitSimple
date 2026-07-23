@@ -44,7 +44,7 @@ void printHelp(std::ostream& out) {
       << "  --optimization-remarks=<path>\n"
       << "                   Write opt-in HitSimple pipeline remarks\n"
       << "  --sanitize=<address|undefined>\n"
-      << "                   Build a Linux test executable with the selected sanitizer\n"
+      << "                   Build a Linux or macOS executable with the selected sanitizer\n"
       << "  -g                Emit native debug information\n"
       << "  --pgo-instrument=<profraw>\n"
       << "                   Build an instrumented executable that writes LLVM\n"
@@ -498,16 +498,13 @@ int runHsc(const std::vector<std::string>& arguments) {
   if (crateType == CrateType::Object) {
     return finish(compileObject(inputPaths, outputPath, codegenOptions,
                                 cCompatibilityMode, providerSelection,
-                                hitsimple::support::resolveClang(clangOverride),
                                 backendOptions, metrics));
   }
   if (crateType == CrateType::StaticLib) {
     return finish(compileStaticLibrary(
         inputPaths, outputPath, codegenOptions, cCompatibilityMode,
         providerSelection,
-        hitsimple::support::resolveLlvmAr(),
-        hitsimple::support::resolveClang(clangOverride), backendOptions,
-        metrics));
+        hitsimple::support::resolveLlvmAr(), backendOptions, metrics));
   }
 
   if (cargoManifest) {
@@ -545,9 +542,7 @@ int runHsc(const std::vector<std::string>& arguments) {
 
   return finish(compileExecutable(
       inputPaths, outputPath, codegenOptions, cCompatibilityMode,
-      providerSelection,
-      hitsimple::support::resolveClang(clangOverride), backendOptions,
-      metrics));
+      providerSelection, clangOverride, backendOptions, metrics));
 }
 
 } // namespace hitsimple::driver

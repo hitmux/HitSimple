@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y bison clang-18 llvm-18-dev ninja-build re2c
+          sudo apt-get install -y bison bubblewrap clang-18 llvm-18-dev ninja-build re2c
 
       - name: Configure and build
         shell: bash
@@ -29,6 +29,7 @@ jobs:
           cmake -S . -B build-t8 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=ON \
+            -DHS_SMITH_REQUIRE_NETWORK_ISOLATION=ON \
             -DLLVM_DIR="$(llvm-config-18 --cmakedir)"
           cmake --build build-t8 --parallel
 
@@ -36,7 +37,7 @@ jobs:
         shell: bash
         run: |
           cmake -DBUILD_DIR=build-t8 \
-            '-DTEST_REGEX=^(hsc_harness_(runtime|differential|output_differential|checked_differential|p3_host_semantics|aarch64_semantics)|hsc_property_metamorphic|hsc_whole_program_fuzzer|hsc_t8_.*)$' \
+            '-DTEST_REGEX=^(hsc_harness_(runtime|differential|output_differential|checked_differential|p3_host_semantics|aarch64_semantics)|hsc_property_metamorphic|hsc_hs_smith_(unit_tests|first_phase)|hsc_whole_program_fuzzer|hsc_t8_.*)$' \
             -P cmake/RunQuietTests.cmake
 
       - name: Collect benchmark samples and trend report

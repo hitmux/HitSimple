@@ -3,15 +3,23 @@
 #include "hitsimple/diagnostic/Diagnostic.h"
 #include "hitsimple/hir/HIR.h"
 
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace hitsimple::codegen {
 
-struct EmitResult {
-  std::string llvmIr;
+struct ModuleEmitResult final {
+  // Keep the context before the module so that the module is destroyed first.
+  std::unique_ptr<llvm::LLVMContext> context;
+  std::unique_ptr<llvm::Module> module;
   std::vector<diagnostic::Diagnostic> diagnostics;
+
+  bool ok() const { return module != nullptr && diagnostics.empty(); }
 };
 
 enum class SafetyMode {
@@ -32,9 +40,9 @@ struct CodegenOptions {
   bool emitDebugInfo = false;
 };
 
-EmitResult emitLlvmIr(const hir::TranslationUnit& unit,
-                      std::string moduleName,
-                      CodegenOptions options = {});
+ModuleEmitResult emitLlvmModule(const hir::TranslationUnit& unit,
+                                std::string moduleName,
+                                CodegenOptions options = {});
 
 DebugInfoFormat debugInfoFormatForTargetTriple(std::string_view targetTriple);
 

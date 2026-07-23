@@ -329,7 +329,7 @@ llvm::Function *LlvmEmitter::declare(const hir::Function &function) {
       return existing;
     }
     return llvm::Function::Create(functionType, llvm::Function::InternalLinkage,
-                                  function.name, module_.get());
+                                  function.name, module_);
   }
   if (function.abiSignature &&
       function.abiSignature->parameterTypes.size() != function.parameters.size()) {
@@ -361,7 +361,7 @@ llvm::Function *LlvmEmitter::declare(const hir::Function &function) {
                            ? llvm::Function::InternalLinkage
                            : llvm::Function::ExternalLinkage;
   auto *declared = llvm::Function::Create(functionType, linkage, function.name,
-                                          module_.get());
+                                          module_);
   if (memoryPlan) {
     cAbiMemoryPlans_[function.name] = *memoryPlan;
     applyCAbiMemoryAttributes(*declared, *memoryPlan);
@@ -374,7 +374,7 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
   auto *functionType = llvm::FunctionType::get(builder_.getVoidTy(), false);
   auto *function = llvm::Function::Create(
       functionType, llvm::GlobalValue::InternalLinkage,
-      "__hitsimple.global.init", module_.get());
+      "__hitsimple.global.init", module_);
   auto *entry = llvm::BasicBlock::Create(context_, "entry", function);
   builder_.SetInsertPoint(entry);
 

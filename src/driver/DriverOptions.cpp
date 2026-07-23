@@ -613,7 +613,7 @@ parseDriverOptions(const std::vector<std::string>& arguments) {
   }
 
   if (codegenOptions.emitDebugInfo && !(shouldEmitLlvm || actions.empty())) {
-    error << "-g is only supported for executable builds and --emit-llvm\n";
+    error << "-g is only supported for native builds and --emit-llvm\n";
     return fail();
   }
 

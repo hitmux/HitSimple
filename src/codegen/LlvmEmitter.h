@@ -77,9 +77,10 @@ struct ViewValue {
 
 class LlvmEmitter {
 public:
-  LlvmEmitter(std::string moduleName, CodegenOptions options);
+  LlvmEmitter(llvm::LLVMContext& context, llvm::Module& module,
+              std::string moduleName, CodegenOptions options);
 
-  EmitResult emit(const hir::TranslationUnit &unit);
+  std::vector<diagnostic::Diagnostic> emit(const hir::TranslationUnit &unit);
 
 private:
   class SourceRangeScope final {
@@ -344,8 +345,8 @@ private:
 
   std::string moduleName_;
   CodegenOptions options_;
-  llvm::LLVMContext context_;
-  std::unique_ptr<llvm::Module> module_;
+  llvm::LLVMContext& context_;
+  llvm::Module* module_ = nullptr;
   llvm::IRBuilder<> builder_;
   std::unique_ptr<llvm::DIBuilder> debugBuilder_;
   llvm::DICompileUnit* debugCompileUnit_ = nullptr;
