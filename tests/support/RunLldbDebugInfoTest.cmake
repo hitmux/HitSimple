@@ -10,8 +10,6 @@ foreach(variable HSC LLVM_DWARFDUMP LLDB SOURCE)
   endif()
 endforeach()
 
-get_filename_component(source_file_name "${SOURCE}" NAME)
-
 execute_process(
   COMMAND "${HSC}" -g --emit-object "${SOURCE}" -o debug-info.o
   RESULT_VARIABLE object_compile_result
@@ -55,7 +53,7 @@ require_success("${o0_dwarf_result}" "${o0_dwarf_output}${o0_dwarf_error}")
 
 execute_process(
   COMMAND "${LLDB}" -b
-          -o "breakpoint set --file ${source_file_name} --line 6"
+          -o "breakpoint set --name helper"
           -o run
           -o bt
           -o "frame variable value"
@@ -89,7 +87,7 @@ require_success("${o2_dwarf_result}" "${o2_dwarf_output}${o2_dwarf_error}")
 
 execute_process(
   COMMAND "${LLDB}" -b
-          -o "breakpoint set --file ${source_file_name} --line 6"
+          -o "breakpoint set --name helper"
           -o run
           -o bt
           -- ./debug-info-o2

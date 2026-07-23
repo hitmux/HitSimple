@@ -113,6 +113,17 @@ void appendCxxSanitizerRuntimeArguments(
 #endif
 }
 
+void appendSanitizerRuntimePlatformArguments(
+    std::vector<std::string> &arguments) {
+#if defined(__APPLE__)
+  // Match the installed runtime library: the C source delegates f128 to the
+  // software C++ backend instead of relying on Linux's native _Float128.
+  arguments.emplace_back("-DHITSIMPLE_SOFTWARE_F128=1");
+#else
+  static_cast<void>(arguments);
+#endif
+}
+
 int reportMissingLinkerDriver(
     const hitsimple::support::ClangSelection &selection,
     hitsimple::support::CompilationMetrics &metrics) {
@@ -627,6 +638,7 @@ int compileExecutable(
         runtimeArguments.insert(runtimeArguments.end(), {"-x", "c++"});
         appendCxxSanitizerRuntimeArguments(runtimeArguments);
       }
+      appendSanitizerRuntimePlatformArguments(runtimeArguments);
       runtimeArguments.push_back(hitsimple::support::pathToUtf8(runtimeSource));
       runtimeArguments.insert(runtimeArguments.end(),
                               {"-o", hitsimple::support::pathToUtf8(runtimeObject)});
@@ -894,7 +906,8 @@ int compileMixedExecutable(
   const auto compileExternalSource =
       [&](const std::string &source, std::string_view label,
           const hitsimple::support::ClangSelection &compiler,
-          std::size_t index, bool requiresCxx20 = false) -> bool {
+          std::size_t index, bool requiresCxx20 = false,
+          bool isSanitizerRuntime = false) -> bool {
     const auto objectPath = temporaryPath / (std::string(label) + "-" +
                                              std::to_string(index) + ".o");
     std::vector<std::string> arguments{
@@ -902,6 +915,9 @@ int compileMixedExecutable(
     if (requiresCxx20) {
       arguments.insert(arguments.end(), {"-x", "c++"});
       appendCxxSanitizerRuntimeArguments(arguments);
+    }
+    if (isSanitizerRuntime) {
+      appendSanitizerRuntimePlatformArguments(arguments);
     }
     appendClangCodegenArguments(arguments, backendOptions);
     if (codegenOptions.emitDebugInfo) {
@@ -947,7 +963,7 @@ int compileMixedExecutable(
       if (!compileExternalSource(
               hitsimple::support::pathToUtf8(runtimeSource),
               runtimeIsCxx ? "runtime C++" : "runtime C", clang, index,
-              runtimeIsCxx)) {
+              runtimeIsCxx, true)) {
         metrics.fail("clang_backend_link");
         return EXIT_FAILURE;
       }

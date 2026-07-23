@@ -188,12 +188,14 @@ def preexec(policy: SandboxPolicy) -> Callable[[], None] | None:
                 pass
 
         set_limit(resource.RLIMIT_AS, policy.memory_bytes)
-        # Without a user namespace (for example on macOS), RLIMIT_NPROC is
-        # shared with the runner's existing tasks. Preserve the policy as an
-        # additional child-process budget instead of preventing the compiler
-        # from launching its preprocessor.
-        set_limit(resource.RLIMIT_NPROC,
-                  policy.process_limit + _uid_process_count(os.getuid()))
+        # Without a user namespace, RLIMIT_NPROC is shared with the runner's
+        # existing tasks. Preserve the policy as an additional child-process
+        # budget when /proc lets us count those tasks. macOS has no /proc
+        # equivalent available here, so do not install an unusably low limit.
+        existing_processes = _uid_process_count(os.getuid())
+        if existing_processes:
+            set_limit(resource.RLIMIT_NPROC,
+                      policy.process_limit + existing_processes)
         set_limit(resource.RLIMIT_FSIZE, policy.output_limit_bytes)
         cpu_limit = max(1, math.ceil(policy.timeout_seconds) + 1)
         set_limit(resource.RLIMIT_CPU, cpu_limit)
