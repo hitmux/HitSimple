@@ -136,8 +136,8 @@ bool emitMacDsym(const std::string &executablePath, std::string &error) {
             removeError.message();
     return false;
   }
-  const auto process =
-      hitsimple::support::runProcess("dsymutil", {executablePath});
+  const auto process = hitsimple::support::runProcess(
+      "/usr/bin/xcrun", {"dsymutil", executablePath});
   if (!process.launched) {
     error = "cannot start dsymutil: " + process.error;
     return false;
