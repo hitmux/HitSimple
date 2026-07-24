@@ -66,6 +66,57 @@ class BenchmarkTrendTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(output["status"], "failure")
 
+    def test_new_workload_requires_an_explicit_baseline(self) -> None:
+        current = report(100, 200)
+        current["workloads"]["bitops"] = {"hitsimple": {"median_ns": 300}}
+        result, output = self.run_checker(current, report(100, 200))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output["status"], "baseline_incomplete")
+        self.assertEqual(output["missing_baseline_workloads"], ["bitops"])
+        self.assertEqual(output["workloads"]["bitops"]["status"], "baseline_missing")
+
+    def test_incompatible_hardware_is_not_compared(self) -> None:
+        current = report(200, 400)
+        current["target_triple"] = "x86_64-pc-linux-gnu"
+        current["cpu"] = {"model": "local"}
+        baseline = report(100, 200)
+        baseline["target_triple"] = "aarch64-unknown-linux-gnu"
+        baseline["cpu"] = {"model": "remote"}
+        result, output = self.run_checker(current, baseline)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output["status"], "baseline_incompatible")
+
+    def test_instruction_regression_fails_when_quality_baseline_exists(self) -> None:
+        current = report(100, 200)
+        baseline = report(100, 200)
+        current["machine_quality"] = {
+            "workloads": {
+                "mandelbrot": {
+                    "hsc_o2": {
+                        "instruction_count": 109,
+                        "stack_memory_operations": 4,
+                    }
+                }
+            }
+        }
+        baseline["machine_quality"] = {
+            "workloads": {
+                "mandelbrot": {
+                    "hsc_o2": {
+                        "instruction_count": 100,
+                        "stack_memory_operations": 4,
+                    }
+                }
+            }
+        }
+        result, output = self.run_checker(current, baseline)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(output["status"], "failure")
+        self.assertEqual(
+            output["machine_quality"]["workloads"]["mandelbrot"]["status"],
+            "failure",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

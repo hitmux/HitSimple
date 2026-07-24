@@ -27,6 +27,8 @@ HS_TEST(CompilationMetrics_SerializesVersionedStageStates) {
   const auto started = metrics.now();
   metrics.complete(unit.preprocess, started);
   metrics.markSkipped(unit.cCompatLowering);
+  metrics.complete(metrics.nativeOptimization(), started);
+  metrics.complete(metrics.objectEmission(), started);
   metrics.fail(unit.parse, metrics.now());
   metrics.fail("parse");
 
@@ -42,6 +44,9 @@ HS_TEST(CompilationMetrics_SerializesVersionedStageStates) {
                  std::string::npos);
   HS_EXPECT_TRUE(json.find("\"status\": \"failed\"") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(json.find("\"native_optimization\"") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(json.find("\"object_emission\"") != std::string::npos);
 }
 
 HS_TEST(CompilationMetrics_CountsHirNodes) {

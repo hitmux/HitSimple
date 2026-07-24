@@ -270,12 +270,12 @@ void CompilationMetrics::markSkipped(StageMetrics& stage) {
 
 void CompilationMetrics::complete(StageMetrics& stage, TimePoint started) {
   stage.status = MetricStageStatus::Completed;
-  stage.durationNs = durationNs(started, now());
+  stage.durationNs += durationNs(started, now());
 }
 
 void CompilationMetrics::fail(StageMetrics& stage, TimePoint started) {
   stage.status = MetricStageStatus::Failed;
-  stage.durationNs = durationNs(started, now());
+  stage.durationNs += durationNs(started, now());
 }
 
 void CompilationMetrics::fail(std::string stage) {
@@ -315,6 +315,20 @@ StageMetrics& CompilationMetrics::llvmIrWrite() { return llvmIrWrite_; }
 
 const StageMetrics& CompilationMetrics::llvmIrWrite() const {
   return llvmIrWrite_;
+}
+
+StageMetrics& CompilationMetrics::nativeOptimization() {
+  return nativeOptimization_;
+}
+
+const StageMetrics& CompilationMetrics::nativeOptimization() const {
+  return nativeOptimization_;
+}
+
+StageMetrics& CompilationMetrics::objectEmission() { return objectEmission_; }
+
+const StageMetrics& CompilationMetrics::objectEmission() const {
+  return objectEmission_;
 }
 
 StageMetrics& CompilationMetrics::clangBackendLink() { return clangBackendLink_; }
@@ -365,6 +379,8 @@ std::string CompilationMetrics::toJson() const {
   }
   json += "\n  ],\n  \"global_stages\": {";
   appendStageJson(json, "llvm_ir_write", llvmIrWrite_, false);
+  appendStageJson(json, "native_optimization", nativeOptimization_, true);
+  appendStageJson(json, "object_emission", objectEmission_, true);
   appendStageJson(json, "clang_backend_link", clangBackendLink_, true);
   json += "\n  }\n}\n";
   return json;
@@ -391,6 +407,9 @@ void CompilationMetrics::printSummary(std::ostream& out) const {
   }
   out << "hsc: timing global llvm_ir_write="
       << toString(llvmIrWrite_.status) << ':' << llvmIrWrite_.durationNs
+      << " native_optimization=" << toString(nativeOptimization_.status) << ':'
+      << nativeOptimization_.durationNs << " object_emission="
+      << toString(objectEmission_.status) << ':' << objectEmission_.durationNs
       << " clang_backend_link=" << toString(clangBackendLink_.status) << ':'
       << clangBackendLink_.durationNs << '\n';
 }

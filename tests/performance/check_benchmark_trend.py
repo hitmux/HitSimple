@@ -10,9 +10,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-WORKLOADS = ("mandelbrot", "memory")
-
-
 def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--current", required=True, type=Path)
@@ -21,6 +18,8 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--warn-percent", type=float, default=3.0)
     parser.add_argument("--investigate-percent", type=float, default=5.0)
     parser.add_argument("--fail-percent", type=float, default=10.0)
+    parser.add_argument("--instruction-fail-percent", type=float, default=8.0)
+    parser.add_argument("--stack-memory-fail-percent", type=float, default=8.0)
     return parser.parse_args(argv)
 
 
@@ -50,6 +49,74 @@ def median(report: Mapping[str, Any], workload: str) -> float:
     return float(value)
 
 
+def workload_medians(report: Mapping[str, Any]) -> dict[str, float]:
+    try:
+        workloads = report["workloads"]
+    except KeyError as error:
+        raise ValueError("report is missing workloads") from error
+    if not isinstance(workloads, dict) or not workloads:
+        raise ValueError("report workloads must be a non-empty object")
+    return {str(workload): median(report, str(workload)) for workload in workloads}
+
+
+def baseline_compatibility(
+    current: Mapping[str, Any], baseline: Mapping[str, Any]
+) -> list[str]:
+    differences = []
+    for field in ("target_triple",):
+        current_value = current.get(field)
+        baseline_value = baseline.get(field)
+        if isinstance(current_value, str) and isinstance(baseline_value, str):
+            if current_value != baseline_value:
+                differences.append(
+                    field + " differs: current=" + current_value + ", baseline=" + baseline_value
+                )
+    current_cpu = current.get("cpu")
+    baseline_cpu = baseline.get("cpu")
+    if isinstance(current_cpu, dict) and isinstance(baseline_cpu, dict):
+        current_model = current_cpu.get("model")
+        baseline_model = baseline_cpu.get("model")
+        if isinstance(current_model, str) and isinstance(baseline_model, str):
+            if current_model != baseline_model:
+                differences.append(
+                    "cpu.model differs: current="
+                    + current_model
+                    + ", baseline="
+                    + baseline_model
+                )
+    return differences
+
+
+def quality_metrics(report: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    try:
+        workloads = report["machine_quality"]["workloads"]
+    except (KeyError, TypeError):
+        return {}
+    if not isinstance(workloads, dict):
+        return {}
+    result = {}
+    for workload, value in workloads.items():
+        try:
+            metrics = value["hsc_o2"]
+            instructions = metrics["instruction_count"]
+            stack_memory = metrics["stack_memory_operations"]
+        except (KeyError, TypeError):
+            continue
+        if (
+            isinstance(instructions, int)
+            and not isinstance(instructions, bool)
+            and instructions > 0
+            and isinstance(stack_memory, int)
+            and not isinstance(stack_memory, bool)
+            and stack_memory >= 0
+        ):
+            result[str(workload)] = {
+                "instruction_count": instructions,
+                "stack_memory_operations": stack_memory,
+            }
+    return result
+
+
 def write_json(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -60,9 +127,12 @@ def main(argv: Sequence[str]) -> int:
     if not (0 <= args.warn_percent <= args.investigate_percent <= args.fail_percent):
         print("trend thresholds must satisfy 0 <= warn <= investigate <= fail", file=sys.stderr)
         return 2
+    if args.instruction_fail_percent < 0 or args.stack_memory_fail_percent < 0:
+        print("machine-quality thresholds must be non-negative", file=sys.stderr)
+        return 2
     try:
         current = read_json(args.current)
-        current_medians = {workload: median(current, workload) for workload in WORKLOADS}
+        current_medians = workload_medians(current)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -75,6 +145,10 @@ def main(argv: Sequence[str]) -> int:
             "investigate": args.investigate_percent,
             "fail": args.fail_percent,
         },
+        "machine_quality_thresholds_percent": {
+            "instruction_fail": args.instruction_fail_percent,
+            "stack_memory_fail": args.stack_memory_fail_percent,
+        },
     }
     if args.baseline is None or not args.baseline.is_file():
         report.update(
@@ -82,7 +156,7 @@ def main(argv: Sequence[str]) -> int:
                 "status": "baseline_missing",
                 "next_action": "approve a native benchmark report as the baseline before enforcing regressions",
                 "workloads": {
-                    workload: {"current_median_ns": value}
+                    workload: {"current_median_ns": value, "status": "baseline_missing"}
                     for workload, value in current_medians.items()
                 },
             }
@@ -93,15 +167,36 @@ def main(argv: Sequence[str]) -> int:
 
     try:
         baseline = read_json(args.baseline)
-        baseline_medians = {workload: median(baseline, workload) for workload in WORKLOADS}
+        baseline_medians = workload_medians(baseline)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
 
+    compatibility_differences = baseline_compatibility(current, baseline)
+    if compatibility_differences:
+        report.update(
+            {
+                "status": "baseline_incompatible",
+                "baseline": str(args.baseline.resolve()),
+                "next_action": "run on hardware matching the approved baseline before enforcing regressions",
+                "compatibility_differences": compatibility_differences,
+            }
+        )
+        write_json(args.output, report)
+        print("benchmark baseline is incompatible with the current runner; saved a non-gating trend report")
+        return 0
+
     statuses = []
     workloads: dict[str, Any] = {}
-    for workload in WORKLOADS:
-        current_median = current_medians[workload]
+    missing_baselines = []
+    for workload, current_median in current_medians.items():
+        if workload not in baseline_medians:
+            missing_baselines.append(workload)
+            workloads[workload] = {
+                "current_median_ns": current_median,
+                "status": "baseline_missing",
+            }
+            continue
         baseline_median = baseline_medians[workload]
         regression_percent = (current_median / baseline_median - 1.0) * 100.0
         if regression_percent > args.fail_percent:
@@ -120,8 +215,51 @@ def main(argv: Sequence[str]) -> int:
             "status": status,
         }
 
+    current_quality = quality_metrics(current)
+    baseline_quality = quality_metrics(baseline)
+    quality_workloads: dict[str, Any] = {}
+    missing_quality_baselines = []
+    for workload, current_metrics in current_quality.items():
+        if workload not in baseline_quality:
+            missing_quality_baselines.append(workload)
+            quality_workloads[workload] = {
+                "current": current_metrics,
+                "status": "baseline_missing",
+            }
+            continue
+        baseline_metrics = baseline_quality[workload]
+        metric_results: dict[str, Any] = {}
+        quality_status = "pass"
+        for metric, threshold in (
+            ("instruction_count", args.instruction_fail_percent),
+            ("stack_memory_operations", args.stack_memory_fail_percent),
+        ):
+            baseline_value = baseline_metrics[metric]
+            current_value = current_metrics[metric]
+            if baseline_value == 0:
+                regression_percent = None
+                metric_status = "not_comparable"
+            else:
+                regression_percent = (current_value / baseline_value - 1.0) * 100.0
+                metric_status = "failure" if regression_percent > threshold else "pass"
+            if metric_status == "failure":
+                quality_status = "failure"
+            metric_results[metric] = {
+                "baseline": baseline_value,
+                "current": current_value,
+                "regression_percent": regression_percent,
+                "status": metric_status,
+            }
+        statuses.append(quality_status)
+        quality_workloads[workload] = {
+            "metrics": metric_results,
+            "status": quality_status,
+        }
+
     if "failure" in statuses:
         overall = "failure"
+    elif missing_baselines or missing_quality_baselines:
+        overall = "baseline_incomplete"
     elif "investigate" in statuses:
         overall = "investigate"
     elif "warning" in statuses:
@@ -132,6 +270,11 @@ def main(argv: Sequence[str]) -> int:
         {
             "status": overall,
             "baseline": str(args.baseline.resolve()),
+            "missing_baseline_workloads": missing_baselines,
+            "machine_quality": {
+                "missing_baseline_workloads": missing_quality_baselines,
+                "workloads": quality_workloads,
+            },
             "workloads": workloads,
         }
     )

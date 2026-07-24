@@ -48,6 +48,9 @@ jobs:
           BENCHMARK_REPORT="$PWD/phase8-artifacts/benchmark/report.json" \
           HSC="$PWD/build-t8/hsc" \
           CXX=clang++-18 \
+          OPT=opt-18 \
+          LLC=llc-18 \
+          LLVM_OBJDUMP=llvm-objdump-18 \
           hsvsc++/hsvsc++/run_benchmark.sh 15 3 0
           baseline_args=()
           if [[ -f tests/performance/baselines/aarch64-linux.json ]]; then

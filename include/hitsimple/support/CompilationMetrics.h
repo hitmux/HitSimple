@@ -74,6 +74,10 @@ public:
   [[nodiscard]] std::vector<TranslationUnitMetrics>& translationUnits();
   [[nodiscard]] StageMetrics& llvmIrWrite();
   [[nodiscard]] const StageMetrics& llvmIrWrite() const;
+  [[nodiscard]] StageMetrics& nativeOptimization();
+  [[nodiscard]] const StageMetrics& nativeOptimization() const;
+  [[nodiscard]] StageMetrics& objectEmission();
+  [[nodiscard]] const StageMetrics& objectEmission() const;
   [[nodiscard]] StageMetrics& clangBackendLink();
   [[nodiscard]] const StageMetrics& clangBackendLink() const;
 
@@ -86,6 +90,8 @@ private:
   std::optional<std::string> failedStage_;
   std::vector<TranslationUnitMetrics> translationUnits_;
   StageMetrics llvmIrWrite_;
+  StageMetrics nativeOptimization_;
+  StageMetrics objectEmission_;
   StageMetrics clangBackendLink_;
 };
 

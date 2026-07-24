@@ -26,7 +26,8 @@ namespace hitsimple::driver {
 std::string targetTriple();
 bool emitOptimizedObject(llvm::Module& module,
                          const std::filesystem::path& objectPath,
-                         const NativeBackendOptions& backendOptions);
+                         const NativeBackendOptions& backendOptions,
+                         hitsimple::support::CompilationMetrics& metrics);
 std::string defaultObjectOutputPath(const std::string& inputPath);
 int compileObject(const std::vector<std::string>& inputPaths,
                   const std::optional<std::string>& outputPath,

@@ -735,6 +735,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   units.push_back(CompiledTranslationUnit{inputPath, std::move(emitResult), mainCount,
                                           parsed->compatibilityLinkage,
                                           sourceModules, metricsIndex});
+  metrics.complete(unitMetrics.llvmEmission, emissionStarted);
   std::optional<hitsimple::codegen::ModuleEmitResult> merged;
   llvm::Module* module = units.front().emission.module.get();
   if (includeSourceModules && !sourceModules.empty()) {
@@ -754,12 +755,9 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
   }
   auto& completedUnitMetrics = metrics.translationUnits().at(metricsIndex);
   completedUnitMetrics.llvmIrBytes = serializeLlvmModule(*module).size();
-  if (!emitOptimizedObject(*module, outputPath, backendOptions)) {
-    metrics.fail(completedUnitMetrics.llvmEmission, emissionStarted);
-    metrics.fail("llvm_emission");
+  if (!emitOptimizedObject(*module, outputPath, backendOptions, metrics)) {
     return std::nullopt;
   }
-  metrics.complete(completedUnitMetrics.llvmEmission, emissionStarted);
   return CompiledObjectTranslationUnit{mainCount,
                                        std::move(parsed->compatibilityLinkage),
                                        sourceModules};

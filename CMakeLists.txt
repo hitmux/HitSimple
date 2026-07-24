@@ -2236,6 +2236,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_timing_json_emit_llvm_success
     "$<TARGET_FILE:hsc> --timing-json=timing-success.json --emit-llvm ${PROJECT_SOURCE_DIR}/examples/hello.hs -o module.ll && ${CMAKE_COMMAND} -DJSON=$PWD/timing-success.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=1 -DEXPECTED_C_COMPAT_LOWERING_STATUS=skipped -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
   )
+  add_hsc_shell_test(hsc_timing_json_object_records_native_pipeline
+    "$<TARGET_FILE:hsc> --timing-json=timing-object.json --emit-object ${PROJECT_SOURCE_DIR}/examples/hello.hs -o hello.o && ${CMAKE_COMMAND} -DJSON=$PWD/timing-object.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=1 -DEXPECTED_NATIVE_OPTIMIZATION_STATUS=completed -DEXPECTED_OBJECT_EMISSION_STATUS=completed -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
+  )
   add_hsc_shell_test(hsc_timing_json_c_compat
     "$<TARGET_FILE:hsc> --timing-json=timing-c-compat.json --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_runtime_double.c -o module.ll && ${CMAKE_COMMAND} -DJSON=$PWD/timing-c-compat.json -DEXPECTED_OUTCOME=success -DEXPECTED_TU_COUNT=1 -DEXPECTED_C_COMPAT_LOWERING_STATUS=completed -P ${PROJECT_SOURCE_DIR}/cmake/VerifyTimingJson.cmake"
   )
@@ -2332,7 +2335,7 @@ target_link_libraries(hsc_unit_tests
 
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_hsc_shell_test(hsc_issue_bench_001
-      "BENCHMARK_BUILD_DIR=$PWD/benchmark-build HSC=$<TARGET_FILE:hsc> CXX=${CLANGXX_EXECUTABLE} ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/run_benchmark.sh 1 0 0 > benchmark.log && grep -Fq 'resolved hsc path: $<TARGET_FILE:hsc>' benchmark.log && grep -Fq 'HS/C++ 中位数比:' benchmark.log"
+      "BENCHMARK_BUILD_DIR=$PWD/benchmark-build BENCHMARK_REPORT=$PWD/benchmark-report.json HSC=$<TARGET_FILE:hsc> CXX=${CLANGXX_EXECUTABLE} ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/run_benchmark.sh 1 0 0 > benchmark.log && grep -Fq 'resolved hsc path: $<TARGET_FILE:hsc>' benchmark.log && grep -Fq '所有 9 项工作负载均与 C++ 参照一致。' benchmark.log && grep -Fq 'HS/C++ 中位数比:' benchmark.log && grep -Fq '\"version\": 2' benchmark-report.json && grep -Fq '\"checked_loop\"' benchmark-report.json && grep -Fq '\"machine_quality\"' benchmark-report.json"
     )
   else()
     add_test(NAME hsc_issue_bench_001 COMMAND ${CMAKE_COMMAND} -E true)

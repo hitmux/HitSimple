@@ -7,6 +7,8 @@
 
 namespace {
 
+extern "C" std::uint64_t benchmark_c_abi_mix(std::uint64_t value);
+
 struct MandelbrotConfig {
     std::uint64_t width;
     std::uint64_t height;
@@ -21,6 +23,12 @@ constexpr std::uint64_t kSeedAddend = 1013904223ULL;
 constexpr std::uint64_t kTransformMultiplier = 1103515245ULL;
 constexpr std::uint64_t kTransformAddend = 12345ULL;
 constexpr std::uint64_t kIndexMultiplier = 2654435761ULL;
+constexpr std::uint64_t kBitOpsIterations = 8000000;
+constexpr std::uint64_t kIntegerSumIterations = 16000000;
+constexpr std::uint64_t kBranchIterations = 12000000;
+constexpr std::uint64_t kFunctionCallIterations = 8000000;
+constexpr std::uint64_t kStdlibIterations = 12000000;
+constexpr std::uint64_t kCheckedLoopIterations = 100000;
 
 std::uint64_t mandelbrot_iterations(double cr, double ci, std::uint64_t max_iterations) {
     double zr = 0.0;
@@ -76,6 +84,85 @@ std::uint64_t memory_checksum(std::uint64_t elements, std::uint64_t rounds) {
             data[index] ^ static_cast<std::uint32_t>(index * kIndexMultiplier));
     }
 
+  return checksum;
+}
+
+std::uint64_t bitops_checksum() {
+    std::uint64_t value = UINT64_C(0x9e3779b97f4a7c15);
+    for (std::uint64_t iteration = 0; iteration < kBitOpsIterations; ++iteration) {
+        value ^= value >> 13;
+        value ^= value >> 7;
+        value ^= value >> 17;
+        value = value * UINT64_C(6364136223846793005) +
+                UINT64_C(1442695040888963407);
+    }
+    return value;
+}
+
+std::uint64_t integer_sum_checksum() {
+    std::uint64_t checksum = 0;
+    for (std::uint64_t iteration = 0; iteration < kIntegerSumIterations; ++iteration) {
+        const std::uint64_t scaled = iteration * UINT64_C(33) + UINT64_C(17);
+        checksum += scaled ^ (iteration >> 3);
+    }
+    return checksum;
+}
+
+std::uint64_t branch_checksum() {
+    std::uint64_t state = UINT64_C(0x0123456789abcdef);
+    std::uint64_t checksum = 0;
+    for (std::uint64_t iteration = 0; iteration < kBranchIterations; ++iteration) {
+        state = state * UINT64_C(2862933555777941757) + UINT64_C(3037000493);
+        if ((state & UINT64_C(256)) == 0) {
+            checksum += state;
+        } else {
+            checksum ^= state;
+        }
+    }
+    return checksum;
+}
+
+std::uint64_t function_mix(std::uint64_t value) {
+    value ^= value >> 29;
+    value *= UINT64_C(0xbf58476d1ce4e5b9);
+    value ^= value >> 31;
+    return value;
+}
+
+std::uint64_t function_call_checksum() {
+    std::uint64_t value = UINT64_C(0x94d049bb133111eb);
+    for (std::uint64_t iteration = 0; iteration < kFunctionCallIterations; ++iteration) {
+        value = function_mix(value);
+    }
+    return value;
+}
+
+std::uint64_t stdlib_checksum() {
+    std::int64_t checksum = 0;
+    for (std::uint64_t iteration = 0; iteration < kStdlibIterations; ++iteration) {
+        const std::int64_t value =
+            static_cast<std::int64_t>(iteration & UINT64_C(8191)) - 4096;
+        checksum += std::llabs(value);
+    }
+    return std::bit_cast<std::uint64_t>(checksum);
+}
+
+std::uint64_t c_abi_checksum() {
+    std::uint64_t value = UINT64_C(0xd6e8feb86659fd93);
+    for (std::uint64_t iteration = 0; iteration < kFunctionCallIterations; ++iteration) {
+        value = benchmark_c_abi_mix(value);
+    }
+  return value;
+}
+
+std::uint64_t checked_loop_checksum() {
+    std::uint8_t data[64]{};
+    std::uint64_t checksum = 0;
+    for (std::uint64_t iteration = 0; iteration < kCheckedLoopIterations; ++iteration) {
+        const std::uint64_t slot = iteration & UINT64_C(63);
+        data[slot] = static_cast<std::uint8_t>(iteration);
+        checksum += data[slot];
+    }
     return checksum;
 }
 
@@ -120,7 +207,36 @@ int main(int argc, char* argv[]) {
         print_checksum("memory", memory_checksum(kMemoryElements, kMemoryRounds));
         return EXIT_SUCCESS;
     }
+    if (mode == "bitops") {
+        print_checksum("bitops", bitops_checksum());
+        return EXIT_SUCCESS;
+    }
+    if (mode == "integer_sum") {
+        print_checksum("integer_sum", integer_sum_checksum());
+        return EXIT_SUCCESS;
+    }
+    if (mode == "branch") {
+        print_checksum("branch", branch_checksum());
+        return EXIT_SUCCESS;
+    }
+    if (mode == "function_call") {
+        print_checksum("function_call", function_call_checksum());
+        return EXIT_SUCCESS;
+    }
+    if (mode == "stdlib") {
+        print_checksum("stdlib", stdlib_checksum());
+        return EXIT_SUCCESS;
+    }
+    if (mode == "c_abi") {
+        print_checksum("c_abi", c_abi_checksum());
+        return EXIT_SUCCESS;
+    }
+    if (mode == "checked_loop") {
+        print_checksum("checked_loop", checked_loop_checksum());
+        return EXIT_SUCCESS;
+    }
 
-    std::cerr << "usage: " << argv[0] << " [check|mandelbrot|memory]\n";
+    std::cerr << "usage: " << argv[0]
+              << " [check|mandelbrot|memory|bitops|integer_sum|branch|function_call|stdlib|c_abi|checked_loop]\n";
     return EXIT_FAILURE;
 }

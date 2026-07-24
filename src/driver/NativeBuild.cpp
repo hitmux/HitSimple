@@ -255,7 +255,9 @@ private:
 
 bool emitOptimizedObject(llvm::Module &module,
                          const std::filesystem::path &objectPath,
-                         const NativeBackendOptions &backendOptions) {
+                         const NativeBackendOptions &backendOptions,
+                         hitsimple::support::CompilationMetrics &metrics) {
+  const auto optimizationStarted = metrics.now();
   hitsimple::codegen::OptimizationPipelineOptions pipelineOptions;
   pipelineOptions.optimization = backendOptions.optimization;
   pipelineOptions.pgoMode = backendOptions.pgoMode;
@@ -275,6 +277,8 @@ bool emitOptimizedObject(llvm::Module &module,
   const auto nativeTarget =
       hitsimple::codegen::createNativeTarget(targetOptions, targetError);
   if (!nativeTarget) {
+    metrics.fail(metrics.nativeOptimization(), optimizationStarted);
+    metrics.fail("native_optimization");
     std::cerr << "hsc: cannot create native target for object emission: "
               << targetError << '\n';
     return false;
@@ -286,9 +290,12 @@ bool emitOptimizedObject(llvm::Module &module,
   if (!hitsimple::codegen::runOptimizationPipeline(
           module, *nativeTarget->machine, pipelineOptions, optimized,
           pipelineError)) {
+    metrics.fail(metrics.nativeOptimization(), optimizationStarted);
+    metrics.fail("native_optimization");
     std::cerr << "hsc: optimization pipeline failed: " << pipelineError << '\n';
     return false;
   }
+  metrics.complete(metrics.nativeOptimization(), optimizationStarted);
   if (backendOptions.optimizationRemarksPath &&
       !appendOptimizationRemarks(*backendOptions.optimizationRemarksPath,
                                  optimized.remarks)) {
@@ -296,12 +303,16 @@ bool emitOptimizedObject(llvm::Module &module,
   }
   hitsimple::codegen::ObjectEmissionOptions emissionOptions;
   std::string emissionError;
+  const auto emissionStarted = metrics.now();
   if (!hitsimple::codegen::emitObjectFile(
           module, *nativeTarget->machine, objectPath, emissionOptions,
           emissionError)) {
+    metrics.fail(metrics.objectEmission(), emissionStarted);
+    metrics.fail("object_emission");
     std::cerr << "hsc: object emission failed: " << emissionError << '\n';
     return false;
   }
+  metrics.complete(metrics.objectEmission(), emissionStarted);
   return true;
 }
 
@@ -412,8 +423,7 @@ int compileStaticLibrary(
         .llvmIrBytes =
         serializeLlvmModule(*(*sourceModules)[index].emission.module).size();
     if (!emitOptimizedObject(*(*sourceModules)[index].emission.module,
-                             objectPath, backendOptions)) {
-      metrics.fail("llvm_emission");
+                             objectPath, backendOptions, metrics)) {
       return EXIT_FAILURE;
     }
     objectPaths.push_back(objectPath);
@@ -633,8 +643,7 @@ int compileExecutable(
     metrics.translationUnits().at(units[index].metricsIndex).llvmIrBytes =
         serializeLlvmModule(*units[index].emission.module).size();
     if (!emitOptimizedObject(*units[index].emission.module, objectPath,
-                             backendOptions)) {
-      metrics.fail("llvm_emission");
+                             backendOptions, metrics)) {
       return EXIT_FAILURE;
     }
     objectPaths.push_back(objectPath);
@@ -888,8 +897,7 @@ int compileMixedExecutable(
         .llvmIrBytes =
         serializeLlvmModule(*(*sourceModules)[index].emission.module).size();
     if (!emitOptimizedObject(*(*sourceModules)[index].emission.module,
-                             objectPath, backendOptions)) {
-      metrics.fail("llvm_emission");
+                             objectPath, backendOptions, metrics)) {
       return EXIT_FAILURE;
     }
     hitSimpleObjects.push_back(objectPath);
