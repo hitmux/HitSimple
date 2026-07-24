@@ -10,7 +10,7 @@ on:
       version:
         description: Version to validate without publishing
         required: true
-        default: "0.3.6"
+        default: "0.3.7"
       scope:
         description: Validation jobs to run
         required: true
@@ -1260,9 +1260,10 @@ jobs:
           HitSimple ${HITSIMPLE_VERSION} is a beta release.
 
           Highlights:
-          - Differential testing now covers output files, checksums, safety modes, and all supported optimization levels.
-          - Native AArch64 semantic regression coverage verifies strict-alignment and platform-specific behavior on GitHub-hosted ARM runners.
-          - Reference differential tests and scheduled sanitizer-backed fuzz campaigns provide reproducible artifacts, replay instructions, and minimized failures.
+          - The compiler now runs the LLVM optimization pipeline and emits native object files through a unified TargetMachine, without a temporary LLVM IR round trip.
+          - Direct object and static-library emission no longer require Clang; Clang remains the linker driver and is used for external C or C++ sources.
+          - GitHub-hosted Linux, macOS, and Windows validation now covers native object emission, sanitizer and PGO paths, debug metadata, and C ABI interoperability.
+          - Native AArch64 performance baselines and regression gates cover nine representative workloads with reproducible artifacts.
           - Release assets include Linux tarballs and DEBs, macOS tarballs, Fedora 44 and EL9 RPMs, Windows full/slim ZIPs, the VS Code extension VSIX, and SHA256SUMS.
           - The Windows full package bundles llvm-mingw. Slim and macOS packages require a Clang 18 toolchain matching their embedded LLVM; RPM packages require the matching system Clang major.
 
