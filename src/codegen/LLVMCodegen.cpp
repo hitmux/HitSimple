@@ -50,6 +50,36 @@ bool isX86_64SysVElfTarget(std::string_view targetTriple) {
          target.getObjectFormat() == llvm::Triple::ELF && !target.isX32();
 }
 
+std::vector<diagnostic::Diagnostic> validateCAbiAggregateByValue(
+    const hir::TranslationUnit &unit, std::string_view targetTriple) {
+  if (isX86_64SysVElfTarget(targetTriple)) {
+    return {};
+  }
+
+  const std::string targetText(targetTriple);
+  std::vector<diagnostic::Diagnostic> diagnostics;
+  const auto rejectAggregateSignature =
+      [&](std::string_view name,
+          const std::optional<hir::FunctionAbiSignature> &signature) {
+        if (!hasCAbiAggregateByValue(signature)) {
+          return;
+        }
+        diagnostics.push_back(diagnostic::Diagnostic::error(
+            diagnostic::Stage::Codegen,
+            "C aggregate by-value ABI is only supported for x86_64 SysV "
+            "ELF targets; target '" +
+                targetText + "' is not supported for function '" +
+                std::string(name) + "'"));
+      };
+  for (const auto &function : unit.externFunctions) {
+    rejectAggregateSignature(function.name, function.abiSignature);
+  }
+  for (const auto &function : unit.functions) {
+    rejectAggregateSignature(function->name, function->abiSignature);
+  }
+  return diagnostics;
+}
+
 template <typename ModuleType>
 void useLegacyDebugInfoFormatIfAvailable(ModuleType &module) {
   if constexpr (requires(ModuleType &value) {
@@ -121,31 +151,6 @@ LlvmEmitter::LlvmEmitter(llvm::LLVMContext& context, llvm::Module& module,
 
 std::vector<diagnostic::Diagnostic>
 LlvmEmitter::emit(const hir::TranslationUnit &unit) {
-  const auto targetTriple = moduleTargetTriple(*module_);
-  if (!isX86_64SysVElfTarget(targetTriple)) {
-    const auto rejectAggregateSignature =
-        [&](std::string_view name,
-            const std::optional<hir::FunctionAbiSignature> &signature) {
-          if (!hasCAbiAggregateByValue(signature)) {
-            return;
-          }
-          addDiagnostic(
-              "C aggregate by-value ABI is only supported for x86_64 SysV "
-              "ELF targets; target '" +
-              targetTriple + "' is not supported for function '" +
-              std::string(name) + "'");
-        };
-    for (const auto &function : unit.externFunctions) {
-      rejectAggregateSignature(function.name, function.abiSignature);
-    }
-    for (const auto &function : unit.functions) {
-      rejectAggregateSignature(function->name, function->abiSignature);
-    }
-    if (!diagnostics_.empty()) {
-      return std::move(diagnostics_);
-    }
-  }
-
   for (const auto &global : unit.globals) {
     emit(global);
   }
@@ -470,6 +475,10 @@ ModuleEmitResult emitLlvmModule(const hir::TranslationUnit &unit,
   const auto targetTriple = options.targetTriple.empty()
                                 ? llvm::sys::getDefaultTargetTriple()
                                 : options.targetTriple;
+  auto abiDiagnostics = validateCAbiAggregateByValue(unit, targetTriple);
+  if (!abiDiagnostics.empty()) {
+    return {{}, {}, {}, std::move(abiDiagnostics)};
+  }
   setModuleTargetTriple(*module, targetTriple);
 
   NativeTargetOptions targetOptions;

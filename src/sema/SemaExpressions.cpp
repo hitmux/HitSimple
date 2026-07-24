@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <limits>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace hitsimple::sema {
 namespace {
@@ -228,10 +230,97 @@ std::optional<std::size_t> integerLiteralArgument(const ast::CallExpr &call,
   return static_cast<std::size_t>(*value);
 }
 
+bool exceedsExpressionDepth(const ast::Expr &root, std::size_t maximumDepth) {
+  std::vector<std::pair<const ast::Expr *, std::size_t>> pending;
+  pending.emplace_back(&root, 1U);
+
+  const auto addChild = [&](const std::unique_ptr<ast::Expr> &child,
+                            std::size_t depth) {
+    if (child) {
+      pending.emplace_back(child.get(), depth);
+    }
+  };
+  const auto addChildren =
+      [&](const std::vector<std::unique_ptr<ast::Expr>> &children,
+          std::size_t depth) {
+    for (const auto &child : children) {
+      addChild(child, depth);
+    }
+  };
+
+  while (!pending.empty()) {
+    const auto [expression, depth] = pending.back();
+    pending.pop_back();
+    if (depth > maximumDepth) {
+      return true;
+    }
+    const auto childDepth = depth + 1U;
+
+    if (const auto *unary = dynamic_cast<const ast::UnaryExpr *>(expression)) {
+      addChild(unary->operand, childDepth);
+    } else if (const auto *binary =
+                   dynamic_cast<const ast::BinaryExpr *>(expression)) {
+      addChild(binary->left, childDepth);
+      addChild(binary->right, childDepth);
+    } else if (const auto *ternary =
+                   dynamic_cast<const ast::TernaryExpr *>(expression)) {
+      addChild(ternary->condition, childDepth);
+      addChild(ternary->thenExpr, childDepth);
+      addChild(ternary->elseExpr, childDepth);
+    } else if (const auto *unsignedExpr =
+                   dynamic_cast<const ast::UnsignedExpr *>(expression)) {
+      addChild(unsignedExpr->operand, childDepth);
+    } else if (const auto *cast =
+                   dynamic_cast<const ast::IntegerCastExpr *>(expression)) {
+      addChild(cast->operand, childDepth);
+    } else if (const auto *asExpr =
+                   dynamic_cast<const ast::AsExpr *>(expression)) {
+      addChild(asExpr->operand, childDepth);
+    } else if (const auto *index =
+                   dynamic_cast<const ast::IndexExpr *>(expression)) {
+      addChild(index->base, childDepth);
+      addChild(index->index, childDepth);
+    } else if (const auto *slice =
+                   dynamic_cast<const ast::SliceExpr *>(expression)) {
+      addChild(slice->base, childDepth);
+      addChild(slice->start, childDepth);
+      addChild(slice->end, childDepth);
+    } else if (const auto *member =
+                   dynamic_cast<const ast::MemberExpr *>(expression)) {
+      addChild(member->base, childDepth);
+    } else if (const auto *deref =
+                   dynamic_cast<const ast::DerefExpr *>(expression)) {
+      addChild(deref->address, childDepth);
+    } else if (const auto *call =
+                   dynamic_cast<const ast::CallExpr *>(expression)) {
+      addChildren(call->arguments, childDepth);
+    } else if (const auto *method =
+                   dynamic_cast<const ast::MethodCallExpr *>(expression)) {
+      addChild(method->receiver, childDepth);
+      addChildren(method->arguments, childDepth);
+    } else if (const auto *assignment =
+                   dynamic_cast<const ast::AssignmentExpr *>(expression)) {
+      for (const auto &target : assignment->targets) {
+        addChild(target.target, childDepth);
+      }
+      addChildren(assignment->values, childDepth);
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   CurrentRangeGuard rangeGuard(*this, expression);
+  // The lowering path is recursive. Reject an over-deep tree before entering
+  // it so the semantic limit is reliable on platforms with smaller stacks.
+  if (expressionDepth_ == 0U &&
+      exceedsExpressionDepth(expression, maximumExpressionDepth_)) {
+    addDiagnostic("expression nesting exceeds maximum depth of " +
+                  std::to_string(maximumExpressionDepth_));
+    return nullptr;
+  }
   ExpressionDepthGuard depthGuard(*this);
   if (!depthGuard.entered()) {
     return nullptr;
