@@ -1026,7 +1026,9 @@ bool Analyzer::collectViewTemplates(
       }
 
       if (!member.templateName.empty() && member.templateName != "none" &&
-          !isVariableLengthStandardTemplate(member.templateName)) {
+          !isVariableLengthStandardTemplate(member.templateName) &&
+          (standardTemplateByteLength(member.templateName) ||
+           templates_.contains(member.templateName))) {
         const auto templateSize = templateByteLength(member.templateName);
         if (templateSize && length != *templateSize) {
           addDiagnostic("member byte length '[" + member.length +
@@ -1352,11 +1354,12 @@ Analyzer::parseDeclaredLength(std::string_view length,
     return std::nullopt;
   }
   if (!templateName.empty() && templateName != "none" &&
-      !isVariableLengthStandardTemplate(templateName)) {
+      !isVariableLengthStandardTemplate(templateName) &&
+      (standardTemplateByteLength(templateName) ||
+       templates_.contains(std::string(templateName)))) {
     const auto templateSize = templateByteLength(templateName);
     if (templateSize && byteLength != *templateSize) {
-      addDiagnostic("declared byte length '[" + std::string(length) +
-                    "]' does not match fixed template '" +
+      addDiagnostic("declared byte length does not match template '" +
                     std::string(templateName) + "'");
       return std::nullopt;
     }

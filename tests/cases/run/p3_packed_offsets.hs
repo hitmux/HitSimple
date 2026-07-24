@@ -6,12 +6,12 @@ template OffsetOne {
 }
 
 template OffsetTwo {
-    padding[2] as u8
+    padding[2]
     value[4] as u32
 }
 
 template OffsetThree {
-    padding[3] as u8
+    padding[3]
     value[4] as u32
 }
 
