@@ -8,6 +8,7 @@ namespace hitsimple::sema {
 AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
                                 const AnalyzeOptions &options) {
   currentRange_.reset();
+  expressionDepth_ = 0;
   hir::setActiveSourceRange(std::nullopt);
   std::vector<std::unique_ptr<hir::Function>> functions;
   std::vector<hir::ExternFunction> externFunctions;
@@ -179,6 +180,9 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
       std::move(implOps), std::move(externFunctions), std::move(functions),
       std::move(globalInit));
   auto hirDiagnostics = hir::verifyHIR(*result_.unit);
+  if (!hirDiagnostics.empty()) {
+    result_.unit.reset();
+  }
   result_.diagnostics.insert(result_.diagnostics.end(),
                              std::make_move_iterator(hirDiagnostics.begin()),
                              std::make_move_iterator(hirDiagnostics.end()));

@@ -232,6 +232,10 @@ std::optional<std::size_t> integerLiteralArgument(const ast::CallExpr &call,
 
 std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   CurrentRangeGuard rangeGuard(*this, expression);
+  ExpressionDepthGuard depthGuard(*this);
+  if (!depthGuard.entered()) {
+    return nullptr;
+  }
   if (const auto *identifier =
           dynamic_cast<const ast::IdentifierExpr *>(&expression)) {
     const auto *symbol = lookup(identifier->name);

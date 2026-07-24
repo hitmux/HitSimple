@@ -64,6 +64,37 @@ HS_TEST(Sema_LowersStageEIntegerExpressions) {
   HS_EXPECT_TRUE(dump.find("BinaryExpr op=|| bytes=1") != std::string::npos);
 }
 
+HS_TEST(Sema_RejectsExcessivelyNestedExpressions) {
+  std::string source = "func main() -> i32 {\n    return ";
+  source += std::string(300U, '~');
+  source += "1\n}\n";
+
+  auto result = analyzeSource(source);
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(
+      result.diagnostics.front().message.find(
+          "expression nesting exceeds maximum depth of 256") !=
+      std::string::npos);
+}
+
+HS_TEST(Sema_RejectsFixedTemplateMemberWithMismatchedByteLength) {
+  auto result = analyzeSource("template Pair {\n"
+                              "    left[5] as i32\n"
+                              "}\n"
+                              "func main() -> i32 {\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(
+      result.diagnostics.front().message.find(
+          "member byte length '[5]' does not match fixed template 'i32'") !=
+      std::string::npos);
+}
+
 HS_TEST(Sema_FoldsTypedIntegerLiteralExpressions) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[2]\n"

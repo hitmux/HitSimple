@@ -1025,6 +1025,17 @@ bool Analyzer::collectViewTemplates(
         continue;
       }
 
+      if (!member.templateName.empty() && member.templateName != "none" &&
+          !isVariableLengthStandardTemplate(member.templateName)) {
+        const auto templateSize = templateByteLength(member.templateName);
+        if (templateSize && length != *templateSize) {
+          addDiagnostic("member byte length '[" + member.length +
+                        "]' does not match fixed template '" +
+                        member.templateName + "'");
+          continue;
+        }
+      }
+
       info.members.push_back(
           StructMemberInfo{member.name, length, offset, member.templateName});
       hirMembers.emplace_back(member.name, length, offset, member.templateName);
@@ -1335,7 +1346,22 @@ Analyzer::parseDeclaredLength(std::string_view length,
       return std::nullopt;
     }
   }
-  return parseByteLength(length);
+
+  const auto byteLength = parseByteLength(length);
+  if (!byteLength) {
+    return std::nullopt;
+  }
+  if (!templateName.empty() && templateName != "none" &&
+      !isVariableLengthStandardTemplate(templateName)) {
+    const auto templateSize = templateByteLength(templateName);
+    if (templateSize && byteLength != *templateSize) {
+      addDiagnostic("declared byte length '[" + std::string(length) +
+                    "]' does not match fixed template '" +
+                    std::string(templateName) + "'");
+      return std::nullopt;
+    }
+  }
+  return byteLength;
 }
 
 std::optional<std::size_t>

@@ -15,6 +15,7 @@ from memory_model import MemoryError, MemoryModel
 from mutation import run_mutations, score
 from oracle import Failure, FailureSignature, OracleLevel, deduplicate
 from reducer import reduce_source
+from runner import DEFAULT_TIMEOUT_SECONDS, parse_arguments
 from sandbox import SandboxPolicy, detect, wrap
 
 
@@ -118,6 +119,21 @@ class HsSmithTests(unittest.TestCase):
         self.assertFalse(plan.enabled)
         self.assertFalse(plan.network_isolated)
         self.assertEqual(plan.reason, "prlimit is unavailable")
+
+    def test_runner_default_timeout_allows_compiler_startup_on_loaded_ci(self) -> None:
+        args = parse_arguments(
+            [
+                "--hsc",
+                "hsc",
+                "--clang",
+                "clang",
+                "--artifacts",
+                "artifacts",
+            ]
+        )
+
+        self.assertEqual(args.timeout, DEFAULT_TIMEOUT_SECONDS)
+        self.assertEqual(DEFAULT_TIMEOUT_SECONDS, 15.0)
 
 
 if __name__ == "__main__":

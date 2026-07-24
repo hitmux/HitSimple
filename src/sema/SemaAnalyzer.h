@@ -201,6 +201,8 @@ public:
                         const AnalyzeOptions &options);
 
 private:
+  static constexpr std::size_t maximumExpressionDepth_ = 256U;
+
   class CurrentRangeGuard final {
   public:
     CurrentRangeGuard(Analyzer &analyzer, const ast::Node &node)
@@ -220,6 +222,35 @@ private:
   private:
     Analyzer &analyzer_;
     std::optional<diagnostic::SourceRange> previous_;
+  };
+
+  class ExpressionDepthGuard final {
+  public:
+    explicit ExpressionDepthGuard(Analyzer &analyzer) : analyzer_(analyzer) {
+      if (analyzer_.expressionDepth_ >= maximumExpressionDepth_) {
+        analyzer_.addDiagnostic(
+            "expression nesting exceeds maximum depth of " +
+            std::to_string(maximumExpressionDepth_));
+        return;
+      }
+      ++analyzer_.expressionDepth_;
+      entered_ = true;
+    }
+
+    ~ExpressionDepthGuard() {
+      if (entered_) {
+        --analyzer_.expressionDepth_;
+      }
+    }
+
+    ExpressionDepthGuard(const ExpressionDepthGuard &) = delete;
+    ExpressionDepthGuard &operator=(const ExpressionDepthGuard &) = delete;
+
+    bool entered() const { return entered_; }
+
+  private:
+    Analyzer &analyzer_;
+    bool entered_ = false;
   };
 
   std::unique_ptr<hir::Function> analyze(const ast::FunctionDecl &function);
@@ -387,6 +418,7 @@ private:
 
   AnalyzeResult result_;
   std::optional<diagnostic::SourceRange> currentRange_;
+  std::size_t expressionDepth_ = 0;
   std::vector<std::unordered_map<std::string, Symbol>> scopes_;
   std::unordered_map<std::string, std::size_t> bindingCounts_;
   std::unordered_map<std::string, FunctionSignature> functions_;

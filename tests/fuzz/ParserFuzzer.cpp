@@ -7,6 +7,12 @@
 #include <cstdint>
 #include <string>
 
+namespace {
+
+constexpr std::size_t maximumAstDumpSourceBytes = 1024U;
+
+} // namespace
+
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data,
                                       std::size_t size) {
   if (size > hitsimple::fuzz::maximumInputBytes) {
@@ -21,9 +27,15 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data,
 
   if (parsed.unit) {
     hitsimple::fuzz::assertValidAstSourceRanges(*parsed.unit);
-    const std::string dump = hitsimple::ast::dumpToString(*parsed.unit);
-    hitsimple::fuzz::require(dump.size() <=
-                             hitsimple::fuzz::maximumInputBytes * 64U);
+    // AST indentation is quadratic for a deeply nested valid expression.
+    // Keep the dump invariant bounded while still exercising it on ordinary
+    // parser inputs; semantic analysis rejects nesting that is too deep for
+    // the recursive compiler pipeline.
+    if (source.size() <= maximumAstDumpSourceBytes) {
+      const std::string dump = hitsimple::ast::dumpToString(*parsed.unit);
+      hitsimple::fuzz::require(dump.size() <=
+                               hitsimple::fuzz::maximumInputBytes * 64U);
+    }
   }
 
   return 0;

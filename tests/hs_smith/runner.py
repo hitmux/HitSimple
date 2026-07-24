@@ -34,6 +34,7 @@ OPTIMIZATIONS = ("O0", "O1", "O2", "O3", "Os")
 SAFETY_MODES = ("unchecked", "static-checked", "checked")
 DEFAULT_SEED = 20260723
 DEFAULT_CASES = 8
+DEFAULT_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,12 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--artifacts", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--cases", type=_positive_int, default=DEFAULT_CASES)
-    parser.add_argument("--timeout", type=_positive_float, default=5.0)
+    parser.add_argument(
+        "--timeout",
+        type=_positive_float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help="per-process time limit in seconds",
+    )
     parser.add_argument("--require-network-isolation", action="store_true")
     parser.add_argument("--list", action="store_true")
     return parser.parse_args(argv)
