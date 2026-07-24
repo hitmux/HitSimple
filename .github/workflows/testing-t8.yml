@@ -58,6 +58,7 @@ jobs:
             baseline_args=(--baseline tests/performance/baselines/aarch64-linux.json)
           fi
           python3 tests/performance/check_benchmark_trend.py \
+            --gate \
             --current phase8-artifacts/benchmark/report.json \
             --output phase8-artifacts/benchmark/trend.json \
             "${baseline_args[@]}"

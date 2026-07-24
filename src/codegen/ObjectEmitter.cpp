@@ -1,5 +1,7 @@
 #include "hitsimple/codegen/ObjectEmitter.h"
 
+#include "hitsimple/support/Path.h"
+
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
@@ -26,7 +28,7 @@ bool emitObjectFile(llvm::Module &module, llvm::TargetMachine &targetMachine,
   }
 
   std::error_code outputError;
-  const auto outputPathText = outputPath.string();
+  const auto outputPathText = support::pathToUtf8(outputPath);
   llvm::raw_fd_ostream output(outputPathText, outputError,
                               llvm::sys::fs::OF_None);
   if (outputError) {

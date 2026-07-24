@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -20,6 +21,11 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--fail-percent", type=float, default=10.0)
     parser.add_argument("--instruction-fail-percent", type=float, default=8.0)
     parser.add_argument("--stack-memory-fail-percent", type=float, default=8.0)
+    parser.add_argument(
+        "--gate",
+        action="store_true",
+        help="fail when the baseline is missing, incompatible, or incomplete",
+    )
     return parser.parse_args(argv)
 
 
@@ -46,11 +52,29 @@ def median(report: Mapping[str, Any], workload: str, implementation: str) -> flo
             + implementation
             + ".median_ns"
         ) from error
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(
             "median for '" + workload + "." + implementation + "' must be a positive number"
         )
-    return float(value)
+    try:
+        numeric_value = float(value)
+    except OverflowError as error:
+        raise ValueError(
+            "median for '"
+            + workload
+            + "."
+            + implementation
+            + "' must be a finite positive number"
+        ) from error
+    if not math.isfinite(numeric_value) or numeric_value <= 0:
+        raise ValueError(
+            "median for '"
+            + workload
+            + "."
+            + implementation
+            + "' must be a finite positive number"
+        )
+    return numeric_value
 
 
 def workload_measurements(report: Mapping[str, Any]) -> dict[str, dict[str, float]]:
@@ -146,6 +170,18 @@ def write_json(path: Path, value: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def exit_code(status: str, gate: bool) -> int:
+    if status == "failure":
+        return 1
+    if gate and status in {
+        "baseline_missing",
+        "baseline_incompatible",
+        "baseline_incomplete",
+    }:
+        return 1
+    return 0
+
+
 def main(argv: Sequence[str]) -> int:
     args = parse_arguments(argv)
     if not (0 <= args.warn_percent <= args.investigate_percent <= args.fail_percent):
@@ -190,8 +226,8 @@ def main(argv: Sequence[str]) -> int:
             }
         )
         write_json(args.output, report)
-        print("benchmark baseline is unavailable; saved a non-gating trend report")
-        return 0
+        print("benchmark baseline is unavailable; saved a trend report")
+        return exit_code("baseline_missing", args.gate)
 
     try:
         baseline = read_json(args.baseline)
@@ -211,21 +247,33 @@ def main(argv: Sequence[str]) -> int:
             }
         )
         write_json(args.output, report)
-        print("benchmark baseline is incompatible with the current runner; saved a non-gating trend report")
-        return 0
+        print("benchmark baseline is incompatible with the current runner; saved a trend report")
+        return exit_code("baseline_incompatible", args.gate)
 
     statuses = []
     workloads: dict[str, Any] = {}
-    missing_baselines = []
-    for workload, current_values in current_measurements.items():
+    current_workloads = set(current_measurements)
+    baseline_workloads = set(baseline_measurements)
+    missing_baselines = sorted(current_workloads - baseline_workloads)
+    missing_current_workloads = sorted(baseline_workloads - current_workloads)
+    for workload in sorted(current_workloads | baseline_workloads):
         if workload not in baseline_measurements:
-            missing_baselines.append(workload)
+            current_values = current_measurements[workload]
             workloads[workload] = {
                 "current_hitsimple_median_ns": current_values["hitsimple"],
                 "current_cpp_median_ns": current_values["cpp"],
                 "status": "baseline_missing",
             }
             continue
+        if workload not in current_measurements:
+            baseline_values = baseline_measurements[workload]
+            workloads[workload] = {
+                "baseline_hitsimple_median_ns": baseline_values["hitsimple"],
+                "baseline_cpp_median_ns": baseline_values["cpp"],
+                "status": "current_missing",
+            }
+            continue
+        current_values = current_measurements[workload]
         baseline_values = baseline_measurements[workload]
         baseline_ratio = baseline_values["hitsimple"] / baseline_values["cpp"]
         current_ratio = current_values["hitsimple"] / current_values["cpp"]
@@ -257,15 +305,29 @@ def main(argv: Sequence[str]) -> int:
     current_quality = quality_metrics(current)
     baseline_quality = quality_metrics(baseline)
     quality_workloads: dict[str, Any] = {}
-    missing_quality_baselines = []
-    for workload, current_metrics in current_quality.items():
+    current_quality_workloads = set(current_quality)
+    baseline_quality_workloads = set(baseline_quality)
+    missing_quality_baselines = sorted(
+        current_quality_workloads - baseline_quality_workloads
+    )
+    missing_current_quality_workloads = sorted(
+        baseline_quality_workloads - current_quality_workloads
+    )
+    for workload in sorted(current_quality_workloads | baseline_quality_workloads):
         if workload not in baseline_quality:
-            missing_quality_baselines.append(workload)
+            current_metrics = current_quality[workload]
             quality_workloads[workload] = {
                 "current": current_metrics,
                 "status": "baseline_missing",
             }
             continue
+        if workload not in current_quality:
+            quality_workloads[workload] = {
+                "baseline": baseline_quality[workload],
+                "status": "current_missing",
+            }
+            continue
+        current_metrics = current_quality[workload]
         baseline_metrics = baseline_quality[workload]
         metric_results: dict[str, Any] = {}
         quality_status = "pass"
@@ -297,7 +359,12 @@ def main(argv: Sequence[str]) -> int:
 
     if "failure" in statuses:
         overall = "failure"
-    elif missing_baselines or missing_quality_baselines:
+    elif (
+        missing_baselines
+        or missing_current_workloads
+        or missing_quality_baselines
+        or missing_current_quality_workloads
+    ):
         overall = "baseline_incomplete"
     elif "investigate" in statuses:
         overall = "investigate"
@@ -310,8 +377,10 @@ def main(argv: Sequence[str]) -> int:
             "status": overall,
             "baseline": str(args.baseline.resolve()),
             "missing_baseline_workloads": missing_baselines,
+            "missing_current_workloads": missing_current_workloads,
             "machine_quality": {
                 "missing_baseline_workloads": missing_quality_baselines,
+                "missing_current_workloads": missing_current_quality_workloads,
                 "workloads": quality_workloads,
             },
             "workloads": workloads,
@@ -319,7 +388,7 @@ def main(argv: Sequence[str]) -> int:
     )
     write_json(args.output, report)
     print("benchmark trend status: " + overall)
-    return 1 if overall == "failure" else 0
+    return exit_code(overall, args.gate)
 
 
 if __name__ == "__main__":

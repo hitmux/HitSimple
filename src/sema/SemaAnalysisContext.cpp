@@ -651,11 +651,15 @@ Analyzer::parseReturnSignature(const std::vector<ast::ReturnItem> &returns,
   std::vector<std::size_t> byteLengths;
   for (const auto &item : returns) {
     std::size_t length = 0;
+    const auto &templateName = item.templateName;
     if (!item.length.empty()) {
-      length = parseByteLength(item.length);
+      const auto declaredLength =
+          parseDeclaredLength(item.length, templateName);
+      if (!declaredLength) {
+        return std::nullopt;
+      }
+      length = *declaredLength;
     } else {
-      const auto templateName =
-          item.templateName.empty() ? item.name : item.templateName;
       const auto templateLength =
           cAbi && templateName == "cstr"
               ? std::optional<std::size_t>{pointerByteLength()}

@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -608,6 +609,50 @@ HS_TEST(Sema_RejectsImplMethodTemplateParameterLengthMismatch) {
   HS_EXPECT_TRUE(wrongStandardTemplateLength.diagnostics[0].find(
                      "byte length does not match template 'i32'") !=
                  std::string::npos);
+}
+
+HS_TEST(Sema_RejectsFixedTemplateReturnLengthMismatch) {
+  const auto expectMismatch = [](std::string_view source) {
+    const auto result = analyzeSource(source);
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+    HS_EXPECT_TRUE(result.diagnostics[0].find(
+                       "declared byte length does not match template 'i32'") !=
+                   std::string::npos);
+  };
+
+  expectMismatch("func invalid() -> [5] as i32 {\n"
+                 "    return 0\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    return 0\n"
+                 "}\n");
+  expectMismatch("template Counter {\n"
+                 "    value[4] as i32\n"
+                 "}\n"
+                 "impl Counter {\n"
+                 "    func invalid(self as Counter) -> [5] as i32 {\n"
+                 "        return 0\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    return 0\n"
+                 "}\n");
+  expectMismatch("template Counter {\n"
+                 "    value[4] as i32\n"
+                 "}\n"
+                 "impl Counter {\n"
+                 "    op + (left as Counter, right as Counter) -> [5] as i32 {\n"
+                 "        return 0\n"
+                 "    }\n"
+                 "}\n"
+                 "func main() {\n"
+                 "    return 0\n"
+                 "}\n");
+  expectMismatch("extern invalid() -> [5] as i32\n"
+                 "func main() {\n"
+                 "    return 0\n"
+                 "}\n");
 }
 
 HS_TEST(Sema_RejectsMismatchedUserTemplateReturnViews) {

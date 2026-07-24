@@ -40,7 +40,10 @@ def report(
 
 class BenchmarkTrendTests(unittest.TestCase):
     def run_checker(
-        self, current: dict[str, object], baseline: dict[str, object] | None
+        self,
+        current: dict[str, object],
+        baseline: dict[str, object] | None,
+        gate: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -48,12 +51,19 @@ class BenchmarkTrendTests(unittest.TestCase):
             output_path = root / "trend.json"
             current_path.write_text(json.dumps(current), encoding="utf-8")
             command = [sys.executable, str(SCRIPT), "--current", str(current_path), "--output", str(output_path)]
+            if gate:
+                command.append("--gate")
             if baseline is not None:
                 baseline_path = root / "baseline.json"
                 baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
                 command.extend(("--baseline", str(baseline_path)))
             result = subprocess.run(command, text=True, capture_output=True, check=False)
-            return result, json.loads(output_path.read_text(encoding="utf-8"))
+            output = (
+                json.loads(output_path.read_text(encoding="utf-8"))
+                if output_path.is_file()
+                else {}
+            )
+            return result, output
 
     def test_missing_baseline_is_visible_but_not_a_failure(self) -> None:
         result, output = self.run_checker(report(100, 200), None)
@@ -91,6 +101,49 @@ class BenchmarkTrendTests(unittest.TestCase):
         self.assertEqual(output["status"], "baseline_incomplete")
         self.assertEqual(output["missing_baseline_workloads"], ["bitops"])
         self.assertEqual(output["workloads"]["bitops"]["status"], "baseline_missing")
+
+    def test_missing_current_workload_is_visible_and_incomplete(self) -> None:
+        current = report(100, 200)
+        del current["workloads"]["memory"]
+
+        result, output = self.run_checker(current, report(100, 200))
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output["status"], "baseline_incomplete")
+        self.assertEqual(output["missing_current_workloads"], ["memory"])
+        self.assertEqual(output["workloads"]["memory"]["status"], "current_missing")
+
+    def test_nonfinite_median_is_rejected(self) -> None:
+        current = report(100, 200)
+        current["workloads"]["mandelbrot"]["hitsimple"]["median_ns"] = float("nan")
+
+        result, output = self.run_checker(current, report(100, 200))
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(output, {})
+        self.assertIn("must be a finite positive number", result.stderr)
+
+    def test_gate_rejects_missing_or_incompatible_baselines(self) -> None:
+        missing_result, missing_output = self.run_checker(report(100, 200), None, gate=True)
+        self.assertEqual(missing_result.returncode, 1)
+        self.assertEqual(missing_output["status"], "baseline_missing")
+
+        incompatible = report(100, 200)
+        incompatible["target_triple"] = "x86_64-pc-linux-gnu"
+        incompatible_result, incompatible_output = self.run_checker(
+            incompatible, report(100, 200), gate=True
+        )
+        self.assertEqual(incompatible_result.returncode, 1)
+        self.assertEqual(incompatible_output["status"], "baseline_incompatible")
+
+    def test_gate_rejects_incomplete_workload_sets(self) -> None:
+        current = report(100, 200)
+        del current["workloads"]["memory"]
+
+        result, output = self.run_checker(current, report(100, 200), gate=True)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(output["status"], "baseline_incomplete")
 
     def test_equal_hardware_slowdown_is_diagnostic_not_a_regression(self) -> None:
         result, output = self.run_checker(report(111, 222, 55.5, 111), report(100, 200, 50, 100))

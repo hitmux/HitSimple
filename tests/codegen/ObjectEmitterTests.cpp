@@ -3,6 +3,7 @@
 #include "hitsimple/codegen/LlvmCompatibility.h"
 #include "hitsimple/codegen/NativeTarget.h"
 #include "hitsimple/codegen/ObjectEmitter.h"
+#include "hitsimple/support/Path.h"
 
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
@@ -19,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -28,6 +30,12 @@ public:
       : path_(std::filesystem::temp_directory_path() /
               ("hitsimple-object-emitter-" +
                std::to_string(llvm::sys::Process::getProcessId()) + ".o")) {
+    std::error_code error;
+    std::filesystem::remove(path_, error);
+  }
+
+  explicit TemporaryObjectFile(std::filesystem::path filename)
+      : path_(std::filesystem::temp_directory_path() / std::move(filename)) {
     std::error_code error;
     std::filesystem::remove(path_, error);
   }
@@ -126,6 +134,24 @@ HS_TEST(ObjectEmitter_EmitsParsableNativeObject) {
     containsMain = containsMain || *name == "main" || *name == "_main";
   }
   HS_EXPECT_TRUE(containsMain);
+}
+
+HS_TEST(ObjectEmitter_EmitsObjectToUnicodePath) {
+  std::string error;
+  auto fixture = makeFixture(false, error);
+  HS_EXPECT_TRUE(fixture.has_value());
+  HS_EXPECT_TRUE(error.empty());
+
+  TemporaryObjectFile output(hitsimple::support::pathFromUtf8(
+      "hitsimple-object-emitter-输出 对象-" +
+      std::to_string(llvm::sys::Process::getProcessId()) + ".o"));
+  hitsimple::codegen::ObjectEmissionOptions options;
+  HS_EXPECT_TRUE(hitsimple::codegen::emitObjectFile(
+      *fixture->module, *fixture->target.machine, output.path(), options,
+      error));
+  HS_EXPECT_TRUE(error.empty());
+  HS_EXPECT_TRUE(std::filesystem::is_regular_file(output.path()));
+  HS_EXPECT_TRUE(std::filesystem::file_size(output.path()) > 0U);
 }
 
 HS_TEST(ObjectEmitter_RejectsInvalidModuleBeforeOpeningOutput) {
