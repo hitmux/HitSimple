@@ -83,6 +83,9 @@ unset(CLANGXX_EXECUTABLE CACHE)
 unset(LLVM_AR_EXECUTABLE CACHE)
 unset(LLVM_NM_EXECUTABLE CACHE)
 unset(LLVM_PROFDATA_EXECUTABLE CACHE)
+unset(LLVM_OPT_EXECUTABLE CACHE)
+unset(LLVM_LLC_EXECUTABLE CACHE)
+unset(LLVM_OBJDUMP_EXECUTABLE CACHE)
 unset(LLVM_DWARFDUMP_EXECUTABLE CACHE)
 unset(LLDB_EXECUTABLE CACHE)
 if(NOT IS_DIRECTORY "${LLVM_TOOLS_BINARY_DIR}")
@@ -114,6 +117,21 @@ find_program(LLVM_PROFDATA_EXECUTABLE
   HINTS "${LLVM_TOOLS_BINARY_DIR}"
   NO_DEFAULT_PATH
   REQUIRED)
+find_program(LLVM_OPT_EXECUTABLE
+  NAMES opt
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_LLC_EXECUTABLE
+  NAMES llc
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
+find_program(LLVM_OBJDUMP_EXECUTABLE
+  NAMES llvm-objdump
+  HINTS "${LLVM_TOOLS_BINARY_DIR}"
+  NO_DEFAULT_PATH
+  REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
   NAMES llvm-dwarfdump
   HINTS "${LLVM_TOOLS_BINARY_DIR}"
@@ -130,6 +148,9 @@ foreach(HITSIMPLE_LLVM_TOOL IN ITEMS
     LLVM_AR_EXECUTABLE
     LLVM_NM_EXECUTABLE
     LLVM_PROFDATA_EXECUTABLE
+    LLVM_OPT_EXECUTABLE
+    LLVM_LLC_EXECUTABLE
+    LLVM_OBJDUMP_EXECUTABLE
     LLVM_DWARFDUMP_EXECUTABLE)
   if(NOT ${HITSIMPLE_LLVM_TOOL})
     continue()
@@ -186,6 +207,9 @@ message(STATUS "Found clang: ${CLANG_EXECUTABLE}")
 message(STATUS "Found clang++: ${CLANGXX_EXECUTABLE}")
 message(STATUS "Found llvm-ar: ${LLVM_AR_EXECUTABLE}")
 message(STATUS "Found llvm-profdata: ${LLVM_PROFDATA_EXECUTABLE}")
+message(STATUS "Found opt: ${LLVM_OPT_EXECUTABLE}")
+message(STATUS "Found llc: ${LLVM_LLC_EXECUTABLE}")
+message(STATUS "Found llvm-objdump: ${LLVM_OBJDUMP_EXECUTABLE}")
 
 file(GLOB HITSIMPLE_HANDWRITTEN_STANDARD_HEADERS
   "${PROJECT_SOURCE_DIR}/stdlib/*.hsh"
@@ -2335,7 +2359,7 @@ target_link_libraries(hsc_unit_tests
 
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_hsc_shell_test(hsc_issue_bench_001
-      "BENCHMARK_BUILD_DIR=$PWD/benchmark-build BENCHMARK_REPORT=$PWD/benchmark-report.json HSC=$<TARGET_FILE:hsc> CXX=${CLANGXX_EXECUTABLE} ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/run_benchmark.sh 1 0 0 > benchmark.log && grep -Fq 'resolved hsc path: $<TARGET_FILE:hsc>' benchmark.log && grep -Fq '所有 9 项工作负载均与 C++ 参照一致。' benchmark.log && grep -Fq 'HS/C++ 中位数比:' benchmark.log && grep -Fq '\"version\": 2' benchmark-report.json && grep -Fq '\"checked_loop\"' benchmark-report.json && grep -Fq '\"machine_quality\"' benchmark-report.json"
+      "BENCHMARK_BUILD_DIR=$PWD/benchmark-build BENCHMARK_REPORT=$PWD/benchmark-report.json HSC=$<TARGET_FILE:hsc> CXX=${CLANGXX_EXECUTABLE} OPT=${LLVM_OPT_EXECUTABLE} LLC=${LLVM_LLC_EXECUTABLE} LLVM_OBJDUMP=${LLVM_OBJDUMP_EXECUTABLE} ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/run_benchmark.sh 1 0 0 > benchmark.log && grep -Fq 'resolved hsc path: $<TARGET_FILE:hsc>' benchmark.log && grep -Fq '所有 9 项工作负载均与 C++ 参照一致。' benchmark.log && grep -Fq 'HS/C++ 中位数比:' benchmark.log && grep -Fq '\"version\": 2' benchmark-report.json && grep -Fq '\"checked_loop\"' benchmark-report.json && grep -Fq '\"machine_quality\"' benchmark-report.json"
     )
   else()
     add_test(NAME hsc_issue_bench_001 COMMAND ${CMAKE_COMMAND} -E true)
