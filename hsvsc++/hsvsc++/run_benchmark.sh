@@ -314,9 +314,13 @@ perf_dir="$build_dir/benchmark-$run_id-perf"
 mkdir -p "$perf_dir"
 perf_status=unavailable
 if perf_path="$(command -v "${PERF:-perf}" 2>/dev/null)"; then
+    perf_command=("$perf_path")
+    if [[ "${PERF_USE_SUDO:-0}" == 1 ]]; then
+        perf_command=(sudo -n "$perf_path")
+    fi
     perf_status=collected
     for workload in mandelbrot memory; do
-        if ! taskset -c "$cpu" "$perf_path" stat -r "$runs" \
+        if ! taskset -c "$cpu" "${perf_command[@]}" stat -r "$runs" \
             -e cycles,instructions,branches,branch-misses,cache-misses \
             -o "$perf_dir/$workload.txt" -- "${hs_bins[$workload]}"; then
             perf_status=unavailable_or_denied

@@ -51,6 +51,7 @@ jobs:
           OPT=opt-18 \
           LLC=llc-18 \
           LLVM_OBJDUMP=llvm-objdump-18 \
+          PERF_USE_SUDO=1 \
           hsvsc++/hsvsc++/run_benchmark.sh 15 3 0
           baseline_args=()
           if [[ -f tests/performance/baselines/aarch64-linux.json ]]; then
