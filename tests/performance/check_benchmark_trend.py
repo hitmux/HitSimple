@@ -35,28 +35,38 @@ def read_json(path: Path) -> Mapping[str, Any]:
     return value
 
 
-def median(report: Mapping[str, Any], workload: str) -> float:
+def median(report: Mapping[str, Any], workload: str, implementation: str) -> float:
     try:
-        value = report["workloads"][workload]["hitsimple"]["median_ns"]
+        value = report["workloads"][workload][implementation]["median_ns"]
     except (KeyError, TypeError) as error:
         raise ValueError(
             "report is missing workloads."
             + workload
-            + ".hitsimple.median_ns"
+            + "."
+            + implementation
+            + ".median_ns"
         ) from error
     if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
-        raise ValueError("median for '" + workload + "' must be a positive number")
+        raise ValueError(
+            "median for '" + workload + "." + implementation + "' must be a positive number"
+        )
     return float(value)
 
 
-def workload_medians(report: Mapping[str, Any]) -> dict[str, float]:
+def workload_measurements(report: Mapping[str, Any]) -> dict[str, dict[str, float]]:
     try:
         workloads = report["workloads"]
     except KeyError as error:
         raise ValueError("report is missing workloads") from error
     if not isinstance(workloads, dict) or not workloads:
         raise ValueError("report workloads must be a non-empty object")
-    return {str(workload): median(report, str(workload)) for workload in workloads}
+    return {
+        str(workload): {
+            "hitsimple": median(report, str(workload), "hitsimple"),
+            "cpp": median(report, str(workload), "cpp"),
+        }
+        for workload in workloads
+    }
 
 
 def baseline_compatibility(
@@ -66,24 +76,38 @@ def baseline_compatibility(
     for field in ("target_triple",):
         current_value = current.get(field)
         baseline_value = baseline.get(field)
-        if isinstance(current_value, str) and isinstance(baseline_value, str):
-            if current_value != baseline_value:
-                differences.append(
-                    field + " differs: current=" + current_value + ", baseline=" + baseline_value
-                )
+        if not isinstance(current_value, str) or not isinstance(baseline_value, str):
+            differences.append(field + " is missing from the current report or baseline")
+        elif current_value != baseline_value:
+            differences.append(
+                field + " differs: current=" + current_value + ", baseline=" + baseline_value
+            )
     current_cpu = current.get("cpu")
     baseline_cpu = baseline.get("cpu")
-    if isinstance(current_cpu, dict) and isinstance(baseline_cpu, dict):
-        current_model = current_cpu.get("model")
-        baseline_model = baseline_cpu.get("model")
-        if isinstance(current_model, str) and isinstance(baseline_model, str):
-            if current_model != baseline_model:
-                differences.append(
-                    "cpu.model differs: current="
-                    + current_model
-                    + ", baseline="
-                    + baseline_model
-                )
+    for field in ("model", "governor"):
+        current_value = current_cpu.get(field) if isinstance(current_cpu, dict) else None
+        baseline_value = baseline_cpu.get(field) if isinstance(baseline_cpu, dict) else None
+        if not isinstance(current_value, str) or not isinstance(baseline_value, str):
+            differences.append("cpu." + field + " is missing from the current report or baseline")
+        elif current_value != baseline_value:
+            differences.append(
+                "cpu."
+                + field
+                + " differs: current="
+                + current_value
+                + ", baseline="
+                + baseline_value
+            )
+    current_cxx = current.get("cxx")
+    baseline_cxx = baseline.get("cxx")
+    current_version = current_cxx.get("version") if isinstance(current_cxx, dict) else None
+    baseline_version = baseline_cxx.get("version") if isinstance(baseline_cxx, dict) else None
+    if not isinstance(current_version, str) or not isinstance(baseline_version, str):
+        differences.append("cxx.version is missing from the current report or baseline")
+    elif current_version != baseline_version:
+        differences.append(
+            "cxx.version differs: current=" + current_version + ", baseline=" + baseline_version
+        )
     return differences
 
 
@@ -132,13 +156,13 @@ def main(argv: Sequence[str]) -> int:
         return 2
     try:
         current = read_json(args.current)
-        current_medians = workload_medians(current)
+        current_measurements = workload_measurements(current)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
 
     report: dict[str, Any] = {
-        "version": 1,
+        "version": 2,
         "current": str(args.current.resolve()),
         "thresholds_percent": {
             "warn": args.warn_percent,
@@ -156,8 +180,12 @@ def main(argv: Sequence[str]) -> int:
                 "status": "baseline_missing",
                 "next_action": "approve a native benchmark report as the baseline before enforcing regressions",
                 "workloads": {
-                    workload: {"current_median_ns": value, "status": "baseline_missing"}
-                    for workload, value in current_medians.items()
+                    workload: {
+                        "current_hitsimple_median_ns": values["hitsimple"],
+                        "current_cpp_median_ns": values["cpp"],
+                        "status": "baseline_missing",
+                    }
+                    for workload, values in current_measurements.items()
                 },
             }
         )
@@ -167,7 +195,7 @@ def main(argv: Sequence[str]) -> int:
 
     try:
         baseline = read_json(args.baseline)
-        baseline_medians = workload_medians(baseline)
+        baseline_measurements = workload_measurements(baseline)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -189,16 +217,22 @@ def main(argv: Sequence[str]) -> int:
     statuses = []
     workloads: dict[str, Any] = {}
     missing_baselines = []
-    for workload, current_median in current_medians.items():
-        if workload not in baseline_medians:
+    for workload, current_values in current_measurements.items():
+        if workload not in baseline_measurements:
             missing_baselines.append(workload)
             workloads[workload] = {
-                "current_median_ns": current_median,
+                "current_hitsimple_median_ns": current_values["hitsimple"],
+                "current_cpp_median_ns": current_values["cpp"],
                 "status": "baseline_missing",
             }
             continue
-        baseline_median = baseline_medians[workload]
-        regression_percent = (current_median / baseline_median - 1.0) * 100.0
+        baseline_values = baseline_measurements[workload]
+        baseline_ratio = baseline_values["hitsimple"] / baseline_values["cpp"]
+        current_ratio = current_values["hitsimple"] / current_values["cpp"]
+        regression_percent = (current_ratio / baseline_ratio - 1.0) * 100.0
+        absolute_hitsimple_delta_percent = (
+            current_values["hitsimple"] / baseline_values["hitsimple"] - 1.0
+        ) * 100.0
         if regression_percent > args.fail_percent:
             status = "failure"
         elif regression_percent > args.investigate_percent:
@@ -209,9 +243,14 @@ def main(argv: Sequence[str]) -> int:
             status = "pass"
         statuses.append(status)
         workloads[workload] = {
-            "baseline_median_ns": baseline_median,
-            "current_median_ns": current_median,
-            "regression_percent": regression_percent,
+            "baseline_hitsimple_median_ns": baseline_values["hitsimple"],
+            "baseline_cpp_median_ns": baseline_values["cpp"],
+            "current_hitsimple_median_ns": current_values["hitsimple"],
+            "current_cpp_median_ns": current_values["cpp"],
+            "baseline_hs_cpp_ratio": baseline_ratio,
+            "current_hs_cpp_ratio": current_ratio,
+            "ratio_regression_percent": regression_percent,
+            "hitsimple_absolute_delta_percent": absolute_hitsimple_delta_percent,
             "status": status,
         }
 

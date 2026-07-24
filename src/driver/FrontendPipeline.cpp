@@ -508,7 +508,7 @@ std::optional<std::vector<CompiledTranslationUnit>> compileSourceModules(
 }
 
 std::optional<hitsimple::codegen::ModuleEmitResult> mergeLlvmModules(
-    const std::vector<CompiledTranslationUnit>& units, std::string& error) {
+    std::vector<CompiledTranslationUnit>& units, std::string& error) {
   if (units.empty()) {
     error = "no LLVM modules to merge";
     return std::nullopt;
@@ -545,6 +545,12 @@ std::optional<hitsimple::codegen::ModuleEmitResult> mergeLlvmModules(
     }
   }
   result.module = std::move(merged);
+  result.nativeTarget = std::move(units.front().emission.nativeTarget);
+  if (!result.nativeTarget.machine) {
+    error = "internal error: missing LLVM target machine for '" +
+        units.front().inputPath + "'";
+    return std::nullopt;
+  }
   return result;
 }
 
@@ -737,7 +743,7 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
                                           sourceModules, metricsIndex});
   metrics.complete(unitMetrics.llvmEmission, emissionStarted);
   std::optional<hitsimple::codegen::ModuleEmitResult> merged;
-  llvm::Module* module = units.front().emission.module.get();
+  auto* emission = &units.front().emission;
   if (includeSourceModules && !sourceModules.empty()) {
     auto modules = compileSourceModules(sourceModules, codegenOptions, metrics);
     if (!modules) {
@@ -751,11 +757,12 @@ std::optional<CompiledObjectTranslationUnit> compileObjectTranslationUnit(
       std::cerr << "hsc: cannot merge LLVM IR: " << mergeError << '\n';
       return std::nullopt;
     }
-    module = merged->module.get();
+    emission = &*merged;
   }
   auto& completedUnitMetrics = metrics.translationUnits().at(metricsIndex);
-  completedUnitMetrics.llvmIrBytes = serializeLlvmModule(*module).size();
-  if (!emitOptimizedObject(*module, outputPath, backendOptions, metrics)) {
+  completedUnitMetrics.llvmIrBytes =
+      serializeLlvmModule(*emission->module).size();
+  if (!emitOptimizedObject(*emission, outputPath, backendOptions, metrics)) {
     return std::nullopt;
   }
   return CompiledObjectTranslationUnit{mainCount,

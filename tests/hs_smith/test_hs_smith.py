@@ -83,6 +83,7 @@ class HsSmithTests(unittest.TestCase):
             patch("sandbox.subprocess.run", side_effect=[
                 type("Result", (), {"returncode": 1})(),
                 type("Result", (), {"returncode": 0})(),
+                type("Result", (), {"returncode": 0})(),
             ]) as run,
             patch("sandbox._uid_process_count", return_value=9),
         ):
@@ -90,8 +91,12 @@ class HsSmithTests(unittest.TestCase):
 
         self.assertTrue(plan.enabled)
         self.assertTrue(plan.network_isolated)
-        self.assertEqual(plan.reason, "bubblewrap network namespace via sudo fallback")
+        self.assertEqual(
+            plan.reason,
+            "bubblewrap network namespace via sudo fallback with prlimit resource limits",
+        )
         self.assertEqual(plan.existing_uid_processes, 9)
+        self.assertEqual(plan.resource_limiter, "/usr/bin/prlimit")
         self.assertEqual(plan.command_prefix[:2], ("/usr/bin/sudo", "-n"))
         self.assertIn("--reuid", plan.command_prefix)
         self.assertIn("--regid", plan.command_prefix)
@@ -100,7 +105,19 @@ class HsSmithTests(unittest.TestCase):
             command = wrap(plan, ("run",), SandboxPolicy())
         self.assertLess(command.index("/usr/bin/setpriv"), command.index("/usr/bin/prlimit"))
         self.assertIn("--nproc=25", command)
-        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_count, 3)
+        self.assertIn("--cpu=1", run.call_args_list[-1].args[0])
+
+    def test_network_isolation_is_disabled_without_prlimit(self) -> None:
+        def which(name: str) -> str | None:
+            return None if name == "prlimit" else "/usr/bin/" + name
+
+        with patch("sandbox.shutil.which", side_effect=which):
+            plan = detect(Path("/workspace"))
+
+        self.assertFalse(plan.enabled)
+        self.assertFalse(plan.network_isolated)
+        self.assertEqual(plan.reason, "prlimit is unavailable")
 
 
 if __name__ == "__main__":

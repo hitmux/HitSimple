@@ -117,21 +117,6 @@ find_program(LLVM_PROFDATA_EXECUTABLE
   HINTS "${LLVM_TOOLS_BINARY_DIR}"
   NO_DEFAULT_PATH
   REQUIRED)
-find_program(LLVM_OPT_EXECUTABLE
-  NAMES opt
-  HINTS "${LLVM_TOOLS_BINARY_DIR}"
-  NO_DEFAULT_PATH
-  REQUIRED)
-find_program(LLVM_LLC_EXECUTABLE
-  NAMES llc
-  HINTS "${LLVM_TOOLS_BINARY_DIR}"
-  NO_DEFAULT_PATH
-  REQUIRED)
-find_program(LLVM_OBJDUMP_EXECUTABLE
-  NAMES llvm-objdump
-  HINTS "${LLVM_TOOLS_BINARY_DIR}"
-  NO_DEFAULT_PATH
-  REQUIRED)
 find_program(LLVM_DWARFDUMP_EXECUTABLE
   NAMES llvm-dwarfdump
   HINTS "${LLVM_TOOLS_BINARY_DIR}"
@@ -148,9 +133,6 @@ foreach(HITSIMPLE_LLVM_TOOL IN ITEMS
     LLVM_AR_EXECUTABLE
     LLVM_NM_EXECUTABLE
     LLVM_PROFDATA_EXECUTABLE
-    LLVM_OPT_EXECUTABLE
-    LLVM_LLC_EXECUTABLE
-    LLVM_OBJDUMP_EXECUTABLE
     LLVM_DWARFDUMP_EXECUTABLE)
   if(NOT ${HITSIMPLE_LLVM_TOOL})
     continue()
@@ -207,9 +189,6 @@ message(STATUS "Found clang: ${CLANG_EXECUTABLE}")
 message(STATUS "Found clang++: ${CLANGXX_EXECUTABLE}")
 message(STATUS "Found llvm-ar: ${LLVM_AR_EXECUTABLE}")
 message(STATUS "Found llvm-profdata: ${LLVM_PROFDATA_EXECUTABLE}")
-message(STATUS "Found opt: ${LLVM_OPT_EXECUTABLE}")
-message(STATUS "Found llc: ${LLVM_LLC_EXECUTABLE}")
-message(STATUS "Found llvm-objdump: ${LLVM_OBJDUMP_EXECUTABLE}")
 
 file(GLOB HITSIMPLE_HANDWRITTEN_STANDARD_HEADERS
   "${PROJECT_SOURCE_DIR}/stdlib/*.hsh"
@@ -578,6 +557,48 @@ include(CTest)
 if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+  set(HITSIMPLE_T8_BENCHMARK_TOOLS_AVAILABLE FALSE)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_program(LLVM_OPT_EXECUTABLE
+      NAMES opt
+      HINTS "${LLVM_TOOLS_BINARY_DIR}"
+      NO_DEFAULT_PATH)
+    find_program(LLVM_LLC_EXECUTABLE
+      NAMES llc
+      HINTS "${LLVM_TOOLS_BINARY_DIR}"
+      NO_DEFAULT_PATH)
+    find_program(LLVM_OBJDUMP_EXECUTABLE
+      NAMES llvm-objdump
+      HINTS "${LLVM_TOOLS_BINARY_DIR}"
+      NO_DEFAULT_PATH)
+    if(LLVM_OPT_EXECUTABLE AND LLVM_LLC_EXECUTABLE AND
+       LLVM_OBJDUMP_EXECUTABLE)
+      set(HITSIMPLE_T8_BENCHMARK_TOOLS_AVAILABLE TRUE)
+      foreach(HITSIMPLE_T8_BENCHMARK_TOOL IN ITEMS
+          LLVM_OPT_EXECUTABLE
+          LLVM_LLC_EXECUTABLE
+          LLVM_OBJDUMP_EXECUTABLE)
+        get_filename_component(HITSIMPLE_T8_BENCHMARK_TOOL_REALPATH
+          "${${HITSIMPLE_T8_BENCHMARK_TOOL}}" REALPATH)
+        get_filename_component(HITSIMPLE_T8_BENCHMARK_TOOL_DIRECTORY
+          "${HITSIMPLE_T8_BENCHMARK_TOOL_REALPATH}" DIRECTORY)
+        if(NOT HITSIMPLE_T8_BENCHMARK_TOOL_DIRECTORY STREQUAL
+           HITSIMPLE_LLVM_TOOLS_DIRECTORY)
+          message(FATAL_ERROR
+            "${HITSIMPLE_T8_BENCHMARK_TOOL} must come from "
+            "${HITSIMPLE_LLVM_TOOLS_DIRECTORY}, but resolved to "
+            "${${HITSIMPLE_T8_BENCHMARK_TOOL}}")
+        endif()
+      endforeach()
+      message(STATUS "Found Linux benchmark opt: ${LLVM_OPT_EXECUTABLE}")
+      message(STATUS "Found Linux benchmark llc: ${LLVM_LLC_EXECUTABLE}")
+      message(STATUS "Found Linux benchmark llvm-objdump: ${LLVM_OBJDUMP_EXECUTABLE}")
+    else()
+      message(STATUS
+        "Skipping Linux benchmark CTest: opt, llc, or llvm-objdump is unavailable")
+    endif()
+  endif()
+
   if(APPLE)
     set(HITSIMPLE_LIBRARY_SEARCH_LINK_ARGUMENT "-Wl,-undefined,error")
   else()
@@ -814,6 +835,13 @@ target_link_libraries(hsc_unit_tests
       ${PROJECT_SOURCE_DIR}/tests/performance/test_check_benchmark_trend.py
   )
   set_tests_properties(hsc_t8_benchmark_trend_unit_tests
+    PROPERTIES LABELS "testing;performance;phase8")
+  add_test(
+    NAME hsc_t8_native_artifact_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/performance/test_analyze_native_artifacts.py
+  )
+  set_tests_properties(hsc_t8_native_artifact_unit_tests
     PROPERTIES LABELS "testing;performance;phase8")
   add_test(
     NAME hsc_t8_vectorization_remarks
@@ -1262,6 +1290,9 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_c_compat_pair_native_to_hsc
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_pair_library.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_pair_native_caller.c -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_c_compat_i64_char_native_to_hsc
+    "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_i64_char_library.c -o module.ll && grep -Fq 'target datalayout = ' module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_i64_char_native_caller.c -o program && ./program"
   )
   add_hsc_shell_test(hsc_c_compat_mixed_hsc_to_native
     "$<TARGET_FILE:hsc> --c-compat --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_mixed_by_value.c -o module.ll && ${CLANG_EXECUTABLE} -x ir module.ll -x c ${PROJECT_SOURCE_DIR}/runtime/hitsimple_runtime.c -x c ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_aggregate_mixed_by_value_native.c -o program && ./program"
@@ -2357,13 +2388,16 @@ target_link_libraries(hsc_unit_tests
                          PROPERTIES LABELS "phase4;opt-001")
   endif()
 
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     HITSIMPLE_T8_BENCHMARK_TOOLS_AVAILABLE)
     add_hsc_shell_test(hsc_issue_bench_001
       "BENCHMARK_BUILD_DIR=$PWD/benchmark-build BENCHMARK_REPORT=$PWD/benchmark-report.json HSC=$<TARGET_FILE:hsc> CXX=${CLANGXX_EXECUTABLE} OPT=${LLVM_OPT_EXECUTABLE} LLC=${LLVM_LLC_EXECUTABLE} LLVM_OBJDUMP=${LLVM_OBJDUMP_EXECUTABLE} ${PROJECT_SOURCE_DIR}/hsvsc++/hsvsc++/run_benchmark.sh 1 0 0 > benchmark.log && grep -Fq 'resolved hsc path: $<TARGET_FILE:hsc>' benchmark.log && grep -Fq '所有 9 项工作负载均与 C++ 参照一致。' benchmark.log && grep -Fq 'HS/C++ 中位数比:' benchmark.log && grep -Fq '\"version\": 2' benchmark-report.json && grep -Fq '\"checked_loop\"' benchmark-report.json && grep -Fq '\"machine_quality\"' benchmark-report.json"
     )
   else()
     add_test(NAME hsc_issue_bench_001 COMMAND ${CMAKE_COMMAND} -E true)
-    set_tests_properties(hsc_issue_bench_001 PROPERTIES DISABLED TRUE)
+    set_tests_properties(hsc_issue_bench_001 PROPERTIES
+      DISABLED TRUE
+      LABELS "phase0;bench-001")
   endif()
   set_tests_properties(hsc_issue_bench_001 PROPERTIES LABELS "phase0;bench-001")
 endif()

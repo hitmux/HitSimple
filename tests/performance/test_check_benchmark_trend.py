@@ -14,12 +14,26 @@ from pathlib import Path
 SCRIPT = Path(__file__).with_name("check_benchmark_trend.py")
 
 
-def report(mandelbrot: float, memory: float) -> dict[str, object]:
+def report(
+    mandelbrot: float,
+    memory: float,
+    mandelbrot_cpp: float | None = None,
+    memory_cpp: float | None = None,
+) -> dict[str, object]:
     return {
-        "version": 1,
+        "version": 2,
+        "target_triple": "aarch64-unknown-linux-gnu",
+        "cpu": {"model": "remote", "governor": "performance"},
+        "cxx": {"version": "clang 18"},
         "workloads": {
-            "mandelbrot": {"hitsimple": {"median_ns": mandelbrot}},
-            "memory": {"hitsimple": {"median_ns": memory}},
+            "mandelbrot": {
+                "hitsimple": {"median_ns": mandelbrot},
+                "cpp": {"median_ns": mandelbrot / 2 if mandelbrot_cpp is None else mandelbrot_cpp},
+            },
+            "memory": {
+                "hitsimple": {"median_ns": memory},
+                "cpp": {"median_ns": memory / 2 if memory_cpp is None else memory_cpp},
+            },
         },
     }
 
@@ -52,28 +66,41 @@ class BenchmarkTrendTests(unittest.TestCase):
         self.assertEqual(output["status"], "pass")
 
     def test_warning_threshold_is_non_blocking(self) -> None:
-        result, output = self.run_checker(report(104, 200), report(100, 200))
+        result, output = self.run_checker(report(104, 200, 50), report(100, 200, 50))
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output["status"], "warning")
 
     def test_investigation_threshold_is_non_blocking(self) -> None:
-        result, output = self.run_checker(report(106, 200), report(100, 200))
+        result, output = self.run_checker(report(106, 200, 50), report(100, 200, 50))
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output["status"], "investigate")
 
     def test_large_regression_fails(self) -> None:
-        result, output = self.run_checker(report(111, 200), report(100, 200))
+        result, output = self.run_checker(report(111, 200, 50), report(100, 200, 50))
         self.assertEqual(result.returncode, 1)
         self.assertEqual(output["status"], "failure")
 
     def test_new_workload_requires_an_explicit_baseline(self) -> None:
         current = report(100, 200)
-        current["workloads"]["bitops"] = {"hitsimple": {"median_ns": 300}}
+        current["workloads"]["bitops"] = {
+            "hitsimple": {"median_ns": 300},
+            "cpp": {"median_ns": 150},
+        }
         result, output = self.run_checker(current, report(100, 200))
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output["status"], "baseline_incomplete")
         self.assertEqual(output["missing_baseline_workloads"], ["bitops"])
         self.assertEqual(output["workloads"]["bitops"]["status"], "baseline_missing")
+
+    def test_equal_hardware_slowdown_is_diagnostic_not_a_regression(self) -> None:
+        result, output = self.run_checker(report(111, 222, 55.5, 111), report(100, 200, 50, 100))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output["status"], "pass")
+        self.assertEqual(output["workloads"]["mandelbrot"]["ratio_regression_percent"], 0.0)
+        self.assertAlmostEqual(
+            output["workloads"]["mandelbrot"]["hitsimple_absolute_delta_percent"],
+            11.0,
+        )
 
     def test_incompatible_hardware_is_not_compared(self) -> None:
         current = report(200, 400)
@@ -85,6 +112,17 @@ class BenchmarkTrendTests(unittest.TestCase):
         result, output = self.run_checker(current, baseline)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(output["status"], "baseline_incompatible")
+
+    def test_cxx_version_and_cpu_governor_are_required_for_gating(self) -> None:
+        current = report(100, 200)
+        baseline = report(100, 200)
+        current["cxx"] = {"version": "clang 19"}
+        current["cpu"] = {"model": "remote", "governor": "powersave"}
+        result, output = self.run_checker(current, baseline)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(output["status"], "baseline_incompatible")
+        self.assertIn("cxx.version differs: current=clang 19, baseline=clang 18", output["compatibility_differences"])
+        self.assertIn("cpu.governor differs: current=powersave, baseline=performance", output["compatibility_differences"])
 
     def test_instruction_regression_fails_when_quality_baseline_exists(self) -> None:
         current = report(100, 200)

@@ -242,6 +242,7 @@ int runHsc(const std::vector<std::string>& arguments) {
 
   auto options = std::move(*parsed.options);
   options.codegenOptions.targetTriple = targetTriple();
+  options.codegenOptions.optimization = options.backendOptions.optimization;
   auto& shouldDumpTokens = options.shouldDumpTokens;
   auto& shouldDumpAst = options.shouldDumpAst;
   auto& shouldDumpHir = options.shouldDumpHir;

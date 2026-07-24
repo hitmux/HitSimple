@@ -26,10 +26,11 @@ class SandboxPlan:
     command_prefix: tuple[str, ...]
     reason: str
     existing_uid_processes: int = 0
+    resource_limiter: str | None = None
 
 
 def detect(cwd: Path) -> SandboxPlan:
-    """Use bubblewrap when the host permits a network namespace.
+    """Use bubblewrap plus prlimit when the host permits a network namespace.
 
     When an unprivileged user namespace is blocked, CI also tries a
     non-interactive sudo invocation.  The sandboxed command immediately drops
@@ -43,21 +44,38 @@ def detect(cwd: Path) -> SandboxPlan:
     bwrap = shutil.which("bwrap")
     if not bwrap:
         return SandboxPlan(False, False, (), "bubblewrap is unavailable")
+    limiter = shutil.which("prlimit")
+    if not limiter:
+        return SandboxPlan(False, False, (), "prlimit is unavailable")
     prefix = _unprivileged_prefix(bwrap, cwd)
-    if _probe([*prefix, "/bin/true"], cwd):
-        return SandboxPlan(True, True, prefix, "bubblewrap network namespace")
+    if (_probe([*prefix, "/bin/true"], cwd) and
+            _probe([*prefix, limiter, "--cpu=1", "--", "/bin/true"], cwd)):
+        return SandboxPlan(
+            True,
+            True,
+            prefix,
+            "bubblewrap network namespace with prlimit resource limits",
+            resource_limiter=limiter,
+        )
 
     fallback = _sudo_prefix(bwrap, cwd)
-    if fallback and _probe([*fallback, "/bin/true"], cwd):
+    if (fallback and _probe([*fallback, "/bin/true"], cwd) and
+            _probe([*fallback, limiter, "--cpu=1", "--", "/bin/true"], cwd)):
         return SandboxPlan(
             True,
             True,
             fallback,
-            "bubblewrap network namespace via sudo fallback",
+            "bubblewrap network namespace via sudo fallback with prlimit resource limits",
             _uid_process_count(os.getuid()),
+            limiter,
         )
 
-    return SandboxPlan(False, False, (), "bubblewrap network namespace is unavailable")
+    return SandboxPlan(
+        False,
+        False,
+        (),
+        "bubblewrap network namespace or prlimit resource setup is unavailable",
+    )
 
 
 def _probe(command: Sequence[str], cwd: Path) -> bool:
@@ -151,17 +169,13 @@ def _uid_process_count(uid: int) -> int:
 def wrap(plan: SandboxPlan, command: Sequence[str], policy: SandboxPolicy) -> list[str]:
     if not plan.enabled:
         return list(command)
-    limiter = shutil.which("prlimit")
-    if not limiter:
-        # This branch is normally unreachable on a bubblewrap-capable Linux
-        # worker.  The caller still records the plan and applies no wrapper
-        # rlimits rather than breaking namespace setup before the command.
-        return [*plan.command_prefix, *command]
+    if not plan.resource_limiter:
+        raise RuntimeError("enabled sandbox is missing its required prlimit wrapper")
     cpu_limit = max(1, math.ceil(policy.timeout_seconds) + 1)
     process_limit = policy.process_limit + plan.existing_uid_processes
     return [
         *plan.command_prefix,
-        limiter,
+        plan.resource_limiter,
         "--as=" + str(policy.memory_bytes),
         "--nproc=" + str(process_limit),
         "--fsize=" + str(policy.output_limit_bytes),

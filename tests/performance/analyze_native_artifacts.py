@@ -24,22 +24,56 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def classify_instruction(mnemonic: str, line: str, metrics: dict[str, int]) -> None:
+def classify_instruction(
+    mnemonic: str, line: str, metrics: dict[str, int], architecture: str
+) -> None:
     metrics["instruction_count"] += 1
     normalized = mnemonic.lower()
-    if normalized.startswith("j") or normalized in {"b", "bl", "blr", "br", "cbz", "cbnz", "tbz", "tbnz"}:
+    if architecture == "x86_64":
+        is_branch = normalized.startswith("j")
+        is_call = normalized.startswith("call")
+        is_vector = bool(VECTOR_REGISTER.search(line)) or normalized in {
+            "vzeroall",
+            "vzeroupper",
+        }
+    elif architecture == "aarch64":
+        is_branch = normalized == "b" or normalized.startswith("b.") or normalized in {
+            "bl",
+            "blr",
+            "br",
+            "cbz",
+            "cbnz",
+            "tbz",
+            "tbnz",
+        }
+        is_call = normalized in {"bl", "blr"}
+        is_vector = bool(VECTOR_REGISTER.search(line))
+    else:
+        raise ValueError("unsupported disassembly architecture: " + architecture)
+    if is_branch:
         metrics["branch_instructions"] += 1
-    if normalized.startswith("call") or normalized in {"bl", "blr"}:
+    if is_call:
         metrics["call_instructions"] += 1
     if X86_STACK_MEMORY.search(line) or ARM_STACK_MEMORY.search(line):
         metrics["stack_memory_operations"] += 1
-    if VECTOR_REGISTER.search(line) or normalized.startswith(("v", "p")):
+    if is_vector:
         metrics["vector_instructions"] += 1
+
+
+def disassembly_architecture(path: Path, contents: str) -> str:
+    lowered = contents.lower()
+    if "aarch64" in lowered:
+        return "aarch64"
+    if "x86-64" in lowered or "i386:x86-64" in lowered or "x86_64" in lowered:
+        return "x86_64"
+    raise ValueError("cannot identify disassembly architecture: " + str(path))
 
 
 def analyze_disassembly(path: Path) -> dict[str, int]:
     if not path.is_file():
         raise ValueError("missing disassembly: " + str(path))
+    contents = path.read_text(encoding="utf-8")
+    architecture = disassembly_architecture(path, contents)
     metrics = {
         "instruction_count": 0,
         "branch_instructions": 0,
@@ -47,10 +81,10 @@ def analyze_disassembly(path: Path) -> dict[str, int]:
         "stack_memory_operations": 0,
         "vector_instructions": 0,
     }
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in contents.splitlines():
         match = INSTRUCTION.match(line)
         if match:
-            classify_instruction(match.group(1), line, metrics)
+            classify_instruction(match.group(1), line, metrics, architecture)
     if metrics["instruction_count"] == 0:
         raise ValueError("no instructions found in " + str(path))
     return metrics
@@ -98,7 +132,7 @@ def main(argv: Sequence[str]) -> int:
         return 2
 
     output = {
-        "version": 1,
+        "version": 2,
         "artifacts": str(artifacts),
         "workloads": workloads,
     }

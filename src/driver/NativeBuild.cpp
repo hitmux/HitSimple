@@ -253,11 +253,20 @@ private:
   std::filesystem::path path_;
 };
 
-bool emitOptimizedObject(llvm::Module &module,
+bool emitOptimizedObject(hitsimple::codegen::ModuleEmitResult &emission,
                          const std::filesystem::path &objectPath,
                          const NativeBackendOptions &backendOptions,
                          hitsimple::support::CompilationMetrics &metrics) {
   const auto optimizationStarted = metrics.now();
+  if (!emission.module || !emission.nativeTarget.machine) {
+    metrics.fail(metrics.nativeOptimization(), optimizationStarted);
+    metrics.fail("native_optimization");
+    std::cerr << "hsc: internal error: LLVM module has no native target "
+                 "machine\n";
+    return false;
+  }
+  auto &module = *emission.module;
+  auto &targetMachine = *emission.nativeTarget.machine;
   hitsimple::codegen::OptimizationPipelineOptions pipelineOptions;
   pipelineOptions.optimization = backendOptions.optimization;
   pipelineOptions.pgoMode = backendOptions.pgoMode;
@@ -270,25 +279,10 @@ bool emitOptimizedObject(llvm::Module &module,
   pipelineOptions.emitRemarks =
       backendOptions.optimizationRemarksPath.has_value();
 
-  hitsimple::codegen::NativeTargetOptions targetOptions;
-  targetOptions.triple = hitsimple::codegen::moduleTargetTriple(module);
-  targetOptions.optimization = backendOptions.optimization;
-  std::string targetError;
-  const auto nativeTarget =
-      hitsimple::codegen::createNativeTarget(targetOptions, targetError);
-  if (!nativeTarget) {
-    metrics.fail(metrics.nativeOptimization(), optimizationStarted);
-    metrics.fail("native_optimization");
-    std::cerr << "hsc: cannot create native target for object emission: "
-              << targetError << '\n';
-    return false;
-  }
-  module.setDataLayout(nativeTarget->machine->createDataLayout());
-
   hitsimple::codegen::OptimizationPipelineResult optimized;
   std::string pipelineError;
   if (!hitsimple::codegen::runOptimizationPipeline(
-          module, *nativeTarget->machine, pipelineOptions, optimized,
+          module, targetMachine, pipelineOptions, optimized,
           pipelineError)) {
     metrics.fail(metrics.nativeOptimization(), optimizationStarted);
     metrics.fail("native_optimization");
@@ -305,7 +299,7 @@ bool emitOptimizedObject(llvm::Module &module,
   std::string emissionError;
   const auto emissionStarted = metrics.now();
   if (!hitsimple::codegen::emitObjectFile(
-          module, *nativeTarget->machine, objectPath, emissionOptions,
+          module, targetMachine, objectPath, emissionOptions,
           emissionError)) {
     metrics.fail(metrics.objectEmission(), emissionStarted);
     metrics.fail("object_emission");
@@ -422,7 +416,7 @@ int compileStaticLibrary(
         .at((*sourceModules)[index].metricsIndex)
         .llvmIrBytes =
         serializeLlvmModule(*(*sourceModules)[index].emission.module).size();
-    if (!emitOptimizedObject(*(*sourceModules)[index].emission.module,
+    if (!emitOptimizedObject((*sourceModules)[index].emission,
                              objectPath, backendOptions, metrics)) {
       return EXIT_FAILURE;
     }
@@ -642,7 +636,7 @@ int compileExecutable(
         temporaryPath / ("hitsimple-" + std::to_string(index) + ".o");
     metrics.translationUnits().at(units[index].metricsIndex).llvmIrBytes =
         serializeLlvmModule(*units[index].emission.module).size();
-    if (!emitOptimizedObject(*units[index].emission.module, objectPath,
+    if (!emitOptimizedObject(units[index].emission, objectPath,
                              backendOptions, metrics)) {
       return EXIT_FAILURE;
     }
@@ -896,7 +890,7 @@ int compileMixedExecutable(
         .at((*sourceModules)[index].metricsIndex)
         .llvmIrBytes =
         serializeLlvmModule(*(*sourceModules)[index].emission.module).size();
-    if (!emitOptimizedObject(*(*sourceModules)[index].emission.module,
+    if (!emitOptimizedObject((*sourceModules)[index].emission,
                              objectPath, backendOptions, metrics)) {
       return EXIT_FAILURE;
     }

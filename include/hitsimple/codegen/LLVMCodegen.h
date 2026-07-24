@@ -1,5 +1,6 @@
 #pragma once
 
+#include "hitsimple/codegen/NativeTarget.h"
 #include "hitsimple/diagnostic/Diagnostic.h"
 #include "hitsimple/hir/HIR.h"
 
@@ -17,9 +18,15 @@ struct ModuleEmitResult final {
   // Keep the context before the module so that the module is destroyed first.
   std::unique_ptr<llvm::LLVMContext> context;
   std::unique_ptr<llvm::Module> module;
+  // The machine establishes the module DataLayout before LLVM IR emission and
+  // is reused by the native optimization and object-emission stages.
+  NativeTarget nativeTarget;
   std::vector<diagnostic::Diagnostic> diagnostics;
 
-  bool ok() const { return module != nullptr && diagnostics.empty(); }
+  bool ok() const {
+    return module != nullptr && nativeTarget.machine != nullptr &&
+           diagnostics.empty();
+  }
 };
 
 enum class SafetyMode {
@@ -37,6 +44,7 @@ struct CodegenOptions {
   SafetyMode safetyMode = SafetyMode::Unchecked;
   // An empty value selects LLVM's default target triple.
   std::string targetTriple;
+  OptimizationLevel optimization = OptimizationLevel::O2;
   bool emitDebugInfo = false;
 };
 

@@ -3,6 +3,7 @@
 #include "safety/StaticSafetyAnalyzer.h"
 
 #include "hitsimple/codegen/LlvmCompatibility.h"
+#include "hitsimple/codegen/NativeTarget.h"
 #include "hitsimple/literal/Literal.h"
 
 #include <llvm/BinaryFormat/Dwarf.h>
@@ -453,7 +454,7 @@ ModuleEmitResult emitLlvmModule(const hir::TranslationUnit &unit,
                                 CodegenOptions options) {
   auto hirDiagnostics = hir::verifyHIR(unit);
   if (!hirDiagnostics.empty()) {
-    return {{}, {}, std::move(hirDiagnostics)};
+    return {{}, {}, {}, std::move(hirDiagnostics)};
   }
   const safety::StaticSafetyOptions safetyOptions{
       options.safetyMode == SafetyMode::StaticChecked ||
@@ -461,7 +462,7 @@ ModuleEmitResult emitLlvmModule(const hir::TranslationUnit &unit,
       options.safetyMode == SafetyMode::Checked};
   auto safetyResult = safety::analyzeStaticSafety(unit, safetyOptions);
   if (!safetyResult.diagnostics.empty()) {
-    return {{}, {}, std::move(safetyResult.diagnostics)};
+    return {{}, {}, {}, std::move(safetyResult.diagnostics)};
   }
 
   auto context = std::make_unique<llvm::LLVMContext>();
@@ -471,12 +472,27 @@ ModuleEmitResult emitLlvmModule(const hir::TranslationUnit &unit,
                                 : options.targetTriple;
   setModuleTargetTriple(*module, targetTriple);
 
+  NativeTargetOptions targetOptions;
+  targetOptions.triple = targetTriple;
+  targetOptions.optimization = options.optimization;
+  std::string targetError;
+  auto nativeTarget = createNativeTarget(targetOptions, targetError);
+  if (!nativeTarget) {
+    std::vector<diagnostic::Diagnostic> diagnostics;
+    diagnostics.push_back(diagnostic::Diagnostic::error(
+        diagnostic::Stage::Codegen,
+        "cannot create LLVM target for IR emission: " + targetError));
+    return {{}, {}, {}, std::move(diagnostics)};
+  }
+  module->setDataLayout(nativeTarget->machine->createDataLayout());
+
   LlvmEmitter emitter(*context, *module, std::move(moduleName), options);
   auto diagnostics = emitter.emit(unit);
   if (!diagnostics.empty()) {
-    return {{}, {}, std::move(diagnostics)};
+    return {{}, {}, {}, std::move(diagnostics)};
   }
-  return {std::move(context), std::move(module), {}};
+  return {std::move(context), std::move(module), std::move(*nativeTarget),
+          {}};
 }
 
 } // namespace hitsimple::codegen

@@ -18,13 +18,14 @@ struct LlvmArSelection;
 } // namespace support
 namespace codegen {
 struct CodegenOptions;
+struct ModuleEmitResult;
 }
 } // namespace hitsimple
 
 namespace hitsimple::driver {
 
 std::string targetTriple();
-bool emitOptimizedObject(llvm::Module& module,
+bool emitOptimizedObject(hitsimple::codegen::ModuleEmitResult& emission,
                          const std::filesystem::path& objectPath,
                          const NativeBackendOptions& backendOptions,
                          hitsimple::support::CompilationMetrics& metrics);
