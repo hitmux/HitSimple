@@ -110,6 +110,22 @@ HS_TEST(Sema_FoldsTypedIntegerLiteralExpressions) {
                  std::string::npos);
 }
 
+HS_TEST(Sema_FoldsLargeIntegerLiteralExponent) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new x[8]\n"
+                              "    x = 33 %8d** 333333333342\n"
+                              "    return x\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+
+  const std::string dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(
+      dump.find("IntegerLiteral value=2163846777337345985 bytes=8") !=
+      std::string::npos);
+}
+
 HS_TEST(Sema_SelectsCoreHsReferenceProviderAndModule) {
   auto result = analyzePreprocessedSource("$include <ctype.hsh>\n"
                                           "func main() {\n"

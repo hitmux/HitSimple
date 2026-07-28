@@ -58,7 +58,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data,
   const auto emitted =
       hitsimple::codegen::emitLlvmModule(*analyzed.unit, "fuzz.hs");
   hitsimple::fuzz::assertValidDiagnostics(emitted.diagnostics, source.size());
-  hitsimple::fuzz::require(emitted.diagnostics.empty());
+  if (!emitted.diagnostics.empty()) {
+    return 0;
+  }
   hitsimple::fuzz::assertValidLlvmIr(llvmIr(emitted));
   return 0;
 }

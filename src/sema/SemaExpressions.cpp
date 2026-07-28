@@ -177,8 +177,12 @@ foldIntegerOperation(std::string_view op, std::uint64_t left,
   }
   if (op == "**") {
     std::uint64_t value = 1;
-    for (std::uint64_t index = 0; index < right; ++index) {
-      value = (value * left) & mask;
+    while (right != 0) {
+      if ((right & 1U) != 0) {
+        value = (value * left) & mask;
+      }
+      left = (left * left) & mask;
+      right >>= 1U;
     }
     return value;
   }
