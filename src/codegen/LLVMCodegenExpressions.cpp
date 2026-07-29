@@ -8,6 +8,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DataLayout.h>
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/Type.h>
 #include <llvm/Support/Alignment.h>
@@ -2320,10 +2321,12 @@ llvm::Value *LlvmEmitter::convertFloatValue(llvm::Value *value,
 
 llvm::IntegerType *
 LlvmEmitter::integerTypeForByteLength(std::size_t byteLength) {
-  if (byteLength == 0 ||
-      byteLength > std::numeric_limits<unsigned>::max() / 8U) {
+  constexpr auto maxByteLength =
+      static_cast<std::size_t>(llvm::IntegerType::MAX_INT_BITS / 8U);
+  if (byteLength == 0 || byteLength > maxByteLength) {
     addDiagnostic("unsupported integer byte length " +
-                  std::to_string(byteLength));
+                  std::to_string(byteLength) + "; LLVM supports at most " +
+                  std::to_string(maxByteLength) + " bytes");
     return nullptr;
   }
   return llvm::IntegerType::get(context_,

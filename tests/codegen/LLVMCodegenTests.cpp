@@ -4,6 +4,7 @@
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/sema/Sema.h"
 
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -426,6 +427,25 @@ HS_TEST(LLVMCodegen_PreservesUnannotatedOrdinaryReturnInference) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(llvmIr(result).find("define i8 @helper()") !=
                  std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RejectsIntegerViewsBeyondLlvmBitWidth) {
+  const auto byteLength =
+      static_cast<std::size_t>(llvm::IntegerType::MAX_INT_BITS / 8U) + 1U;
+  auto result = emitSource("func main() {\n"
+                           "    new value[" + std::to_string(byteLength) +
+                           "]\n"
+                           "    return value\n"
+                           "}\n");
+
+  HS_EXPECT_TRUE(llvmIr(result).empty());
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_EQ(result.diagnostics.front().stage,
+               hitsimple::diagnostic::Stage::Codegen);
+  HS_EXPECT_TRUE(result.diagnostics.front().message.find(
+                     "unsupported integer byte length") != std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics.front().message.find(
+                     std::to_string(byteLength)) != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_ReportsMissingReturnForExplicitNonI32Main) {

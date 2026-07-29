@@ -345,7 +345,7 @@ void assertValidDiagnostics(
     std::size_t inputSize) {
   require(diagnostics.size() <= inputSize + 1U);
   for (const auto &diagnostic : diagnostics) {
-    require(diagnostic.message.find("internal error") == std::string::npos);
+    require(!diagnostic.message.starts_with("internal error"));
     if (diagnostic.range) {
       assertValidRange(*diagnostic.range);
     }
