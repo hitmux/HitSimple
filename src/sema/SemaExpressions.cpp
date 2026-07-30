@@ -1572,6 +1572,9 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::UnaryExpr &expression) {
     }
     const auto reference = resolveAddressableReference(*expression.operand);
     if (!reference) {
+      if (result_.diagnostics.empty()) {
+        addDiagnostic("address-of operand must be a writable lvalue");
+      }
       return nullptr;
     }
     return std::make_unique<hir::AddressOfExpr>(

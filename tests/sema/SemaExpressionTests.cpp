@@ -1263,6 +1263,19 @@ HS_TEST(Sema_LowersAddressRebindingAndDereference) {
   HS_EXPECT_TRUE(dump.find("DerefExpr bytes=4") != std::string::npos);
 }
 
+HS_TEST(Sema_RejectsAddressOfNonAddressableExpression) {
+  auto result = analyzeSource("func main() {\n"
+                              "    new address as addr = &40\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].find(
+                     "address-of operand must be a writable lvalue") !=
+                 std::string::npos);
+}
+
 HS_TEST(Sema_LowersAddressOfIndexedMemoryForLibraryCalls) {
   auto result = analyzeSource(
       "func main() {\n"
