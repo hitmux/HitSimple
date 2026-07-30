@@ -164,6 +164,18 @@ llvm::Value *LlvmEmitter::emitConditionValue(const hir::Expr &expression) {
       return builder_.CreateICmpNE(value, llvm::ConstantInt::get(type, 0),
                                    "cond.nonzero");
     }
+    // Keep the fast path for small fixed integers, but do not materialize a
+    // byte-at-a-time IR chain for large Views.  The runtime helper has the
+    // same any-nonzero semantics and keeps module size and compiler memory
+    // bounded for valid large objects.
+    if (*view.staticLength > 16U) {
+      auto *any = builder_.CreateCall(
+          declareViewAnyNonZero(),
+          {view.data,
+           builder_.getInt64(static_cast<std::uint64_t>(*view.staticLength))},
+          "cond.any");
+      return builder_.CreateICmpNE(any, builder_.getInt32(0), "cond.nonzero");
+    }
     llvm::Value *any = builder_.getFalse();
     for (std::size_t index = 0; index < *view.staticLength; ++index) {
       auto *byte = builder_.CreateLoad(

@@ -3027,6 +3027,19 @@ HS_TEST(LLVMCodegen_LowersBooleanTestsForCompleteStaticAndDynamicViews) {
                  std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_UsesRuntimeBooleanTestForLargeStaticViews) {
+  const auto result = emitSource("func main() {\n"
+                                 "    new value[1048577]\n"
+                                 "    return !value\n"
+                                 "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("call i32 @hs_view_any_nonzero") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(ir.find("cond.byte.nonzero") == std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_UsesOnlyProvenAlignmentForPackedViews) {
   auto result = emitSource("template Packed {\n"
                            "    marker[1] as u8\n"

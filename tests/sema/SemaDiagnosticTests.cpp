@@ -83,6 +83,16 @@ HS_TEST(Sema_RejectsUndeclaredAssignmentTarget) {
                  std::string::npos);
 }
 
+HS_TEST(Sema_DeduplicatesNestedAssignmentDiagnostics) {
+  auto result = analyzeSource(
+      "func main() {\n"
+      "    new x as f16 = handlel = x =andlel = x = x as f16 = handlel = x =n as bool = x = 1-2 -1\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 10U);
+}
+
 HS_TEST(Sema_RejectsUndeclaredCallArgument) {
   auto result = analyzeSource("func main() {\n"
                               "    printf(\"%d\\n\", x)\n"

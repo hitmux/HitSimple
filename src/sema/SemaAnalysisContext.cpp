@@ -65,6 +65,41 @@ bool isVariableLengthStandardTemplate(std::string_view name) {
   return name == "bytes" || name == "cstr";
 }
 
+bool sameSourceLocation(const diagnostic::SourceLocation &left,
+                        const diagnostic::SourceLocation &right) {
+  return left.file == right.file && left.line == right.line &&
+         left.column == right.column;
+}
+
+bool sameSourceRange(const diagnostic::SourceRange &left,
+                     const diagnostic::SourceRange &right) {
+  return sameSourceLocation(left.begin, right.begin) &&
+         sameSourceLocation(left.end, right.end);
+}
+
+bool sameDiagnostic(const diagnostic::Diagnostic &left,
+                    const diagnostic::Diagnostic &right) {
+  if (left.severity != right.severity || left.stage != right.stage ||
+      left.message != right.message || left.range.has_value() !=
+          right.range.has_value()) {
+    return false;
+  }
+  if (left.range && !sameSourceRange(*left.range, *right.range)) {
+    return false;
+  }
+  if (left.labels.size() != right.labels.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.labels.size(); ++index) {
+    if (left.labels[index].message != right.labels[index].message ||
+        !sameSourceRange(left.labels[index].range,
+                         right.labels[index].range)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool isReservedIdentifier(std::string_view name) {
   if (name == "_") {
     return true;
@@ -755,6 +790,13 @@ void Analyzer::addDiagnostic(
     entry.labels.push_back(
         diagnostic::DiagnosticLabel{std::move(*relatedRange),
                                      std::move(relatedMessage)});
+  }
+  if (entry.range) {
+    for (const auto &existing : result_.diagnostics) {
+      if (sameDiagnostic(existing, entry)) {
+        return;
+      }
+    }
   }
   result_.diagnostics.push_back(std::move(entry));
 }
