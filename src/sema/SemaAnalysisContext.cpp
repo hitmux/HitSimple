@@ -688,9 +688,14 @@ Analyzer::parseReturnSignature(const std::vector<ast::ReturnItem> &returns,
     std::size_t length = 0;
     const auto &templateName = item.templateName;
     if (!item.length.empty()) {
+      const auto diagnosticCount = result_.diagnostics.size();
       const auto declaredLength =
           parseDeclaredLength(item.length, templateName);
       if (!declaredLength) {
+        if (result_.diagnostics.size() == diagnosticCount) {
+          addDiagnostic("invalid return byte length for '" +
+                        std::string(owner) + "'");
+        }
         return std::nullopt;
       }
       length = *declaredLength;

@@ -136,6 +136,20 @@ HS_TEST(Sema_LowersFunctionReturnSignatures) {
   HS_EXPECT_TRUE(dump.find("ReturnSignature bytes=4") != std::string::npos);
 }
 
+HS_TEST(Sema_RejectsInvalidExplicitReturnByteLength) {
+  auto result = analyzeSource("func main() -> [b32] {\n"
+                              "    return 0\n"
+                              "}\n");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].find(
+                     "invalid return byte length for 'main'") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].find("internal error") ==
+                 std::string::npos);
+}
+
 HS_TEST(Sema_LowersTemplateReturnSignatures) {
   auto result = analyzeSource("extern host_scale(value as f64) -> f64\n"
                               "func main() {\n"
