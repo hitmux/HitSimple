@@ -1,0 +1,12 @@
+# name: codegen-dynamic-view-length-check-removed
+# category: codegen
+# summary: a dynamic View read in a fixed context no longer emits its length check
+
+--- edit: src/codegen/LLVMCodegenExpressions.cpp ---
+--- anchor ---
+    if (hasRuntimeSafetyChecks()) {
+      (void)emitCheckedRuntimeCall(
+          declareCheckViewLength(),
+          {view.length, builder_.getInt64(byteLength)});
+    }
+--- replacement ---

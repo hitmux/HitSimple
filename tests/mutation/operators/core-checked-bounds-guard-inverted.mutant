@@ -1,0 +1,13 @@
+# name: core-checked-bounds-guard-inverted
+# category: core
+# summary: the checked bounds guard rejects in-range access and accepts out-of-range access
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  if (size > entry->size || address - begin > entry->size - size) {
+    hs_fail(message);
+  }
+--- replacement ---
+  if (!(size > entry->size || address - begin > entry->size - size)) {
+    hs_fail(message);
+  }

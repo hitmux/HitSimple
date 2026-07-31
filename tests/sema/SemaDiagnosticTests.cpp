@@ -90,7 +90,7 @@ HS_TEST(Sema_DeduplicatesNestedAssignmentDiagnostics) {
       "}\n");
 
   HS_EXPECT_TRUE(result.unit == nullptr);
-  HS_EXPECT_EQ(result.diagnostics.size(), 10U);
+  HS_EXPECT_EQ(result.diagnostics.size(), 9U);
 }
 
 HS_TEST(Sema_RejectsUndeclaredCallArgument) {

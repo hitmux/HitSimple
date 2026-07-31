@@ -1,0 +1,16 @@
+# name: core-checked-bounds-guard-removed
+# category: core
+# summary: checked load and store accept any offset inside a tracked object
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  uintptr_t address = (uintptr_t)ptr;
+  uintptr_t begin = (uintptr_t)entry->ptr;
+  if (size > entry->size || address - begin > entry->size - size) {
+    hs_fail(message);
+  }
+--- replacement ---
+  uintptr_t address = (uintptr_t)ptr;
+  uintptr_t begin = (uintptr_t)entry->ptr;
+  (void)address;
+  (void)begin;

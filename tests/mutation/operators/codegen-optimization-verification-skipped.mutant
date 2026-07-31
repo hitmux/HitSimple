@@ -1,0 +1,23 @@
+# name: codegen-optimization-verification-skipped
+# category: codegen
+# summary: the optimization pipeline runs without any LLVM module verification
+
+--- edit: src/codegen/OptimizationPipeline.cpp ---
+--- anchor ---
+  if (!verifyModule(module, "before optimization", error)) {
+    return false;
+  }
+
+--- replacement ---
+
+--- edit: src/codegen/OptimizationPipeline.cpp occurrences: 4 ---
+--- anchor ---
+  pipeline.addPass(llvm::VerifierPass());
+--- replacement ---
+
+--- edit: src/codegen/OptimizationPipeline.cpp ---
+--- anchor ---
+  return verifyModule(module, "after optimization", error);
+--- replacement ---
+  (void)error;
+  return true;

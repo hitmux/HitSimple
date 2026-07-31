@@ -1,0 +1,12 @@
+# name: core-checked-double-free-accepted
+# category: core
+# summary: releasing an already released tracked object is no longer rejected
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  if (entry->freed) {
+    hs_fail("double free");
+  }
+  entry->freed = 1;
+--- replacement ---
+  entry->freed = 1;

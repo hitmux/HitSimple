@@ -1850,6 +1850,24 @@ HS_TEST(LLVMCodegen_MaterializesDynamicViewsAndGenericByteSwap) {
   HS_EXPECT_TRUE(llvmIr(result).find("@hs_reverse_bytes") != std::string::npos);
 }
 
+HS_TEST(LLVMCodegen_CheckedGuardsDynamicViewsReadAsFixedIntegers) {
+  const auto result = emitSource(
+      "func dynamic_length() -> u64 {\n"
+      "    return 4\n"
+      "}\n"
+      "func main() -> u64 {\n"
+      "    new source as u64 = 1\n"
+      "    new requested as u64 = dynamic_length()\n"
+      "    new value as u64 = (resize_bytes(source, requested) as u64) + 1\n"
+      "    return value\n"
+      "}\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_view_length") !=
+                 std::string::npos);
+}
+
 HS_TEST(LLVMCodegen_CheckedUsesMemoryAndStringRuntimeBridges) {
   auto result = emitSource("func main() {\n"
                            "    new source[4] = 0x03020100\n"
@@ -3002,6 +3020,27 @@ HS_TEST(LLVMCodegen_UsesSourceSemanticsForIntegerWidening) {
   HS_EXPECT_TRUE(llvmIr(result).find("sext i32") == std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("call ptr @malloc(i64") !=
                  std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_PreservesViewSignednessDuringWidening) {
+  const auto result = emitSource(
+      "func main() -> i32 {\n"
+      "    new raw as u8 = 255\n"
+      "    new unsigned as u64 = raw as u8\n"
+      "    new signed as i64 = raw as i8\n"
+      "    if (unsigned != 255) {\n"
+      "        return 1\n"
+      "    }\n"
+      "    if (signed != -1) {\n"
+      "        return 2\n"
+      "    }\n"
+      "    return 0\n"
+      "}\n");
+
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("intcast.zext") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("intcast.sext") != std::string::npos);
 }
 
 HS_TEST(LLVMCodegen_LowersBooleanTestsForCompleteStaticAndDynamicViews) {

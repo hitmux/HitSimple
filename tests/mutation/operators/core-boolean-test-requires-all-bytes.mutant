@@ -1,0 +1,19 @@
+# name: core-boolean-test-requires-all-bytes
+# category: core
+# summary: Boolean-test is true only when every byte of a View is non-zero
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  for (uint64_t index = 0; index < length; ++index) {
+    if (bytes[index] != 0U) {
+      return 1;
+    }
+  }
+  return 0;
+--- replacement ---
+  for (uint64_t index = 0; index < length; ++index) {
+    if (bytes[index] == 0U) {
+      return 0;
+    }
+  }
+  return length != 0U ? 1 : 0;

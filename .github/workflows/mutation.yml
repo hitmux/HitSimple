@@ -1,0 +1,64 @@
+name: Mutation campaign
+
+on:
+  schedule:
+    # Weekly, after the weekly fuzz campaign has started.
+    - cron: "47 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      operators:
+        description: "Space separated operator names (default: every operator)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-score:
+    name: Compiler mutation score
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison bubblewrap ccache clang-18 llvm-18-dev re2c
+
+      - name: Run the mutation campaign
+        shell: bash
+        env:
+          MUTATION_OPERATORS: ${{ inputs.operators }}
+        run: |
+          selection=()
+          if [[ -n "$MUTATION_OPERATORS" ]]; then
+            read -r -a operator_names <<< "$MUTATION_OPERATORS"
+            selection=(--select "${operator_names[@]}")
+          fi
+          python3 tests/mutation/run_mutations.py \
+            --work-dir "${RUNNER_TEMP}/mutation" \
+            --report "${RUNNER_TEMP}/mutation/mutation-report.json" \
+            --jobs "$(nproc)" \
+            --cmake-arg "-DLLVM_DIR=$(llvm-config-18 --cmakedir)" \
+            "${selection[@]}"
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: |
+            ${{ runner.temp }}/mutation/mutation-report.json
+            ${{ runner.temp }}/mutation/configure.log
+            ${{ runner.temp }}/mutation/baseline-build.log
+            ${{ runner.temp }}/mutation/baseline-ctest.log
+            ${{ runner.temp }}/mutation/baseline.xml
+            ${{ runner.temp }}/mutation/mutants/*/ctest.log
+            ${{ runner.temp }}/mutation/mutants/*/ctest.xml
+            ${{ runner.temp }}/mutation/mutants/*/build.log
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,10 @@
+# name: core-checked-realloc-keeps-stale-address
+# category: core
+# summary: realloc keeps the previous address registered instead of the new one
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  entry->ptr = next;
+  entry->size = size;
+--- replacement ---
+  entry->size = size;

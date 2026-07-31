@@ -1,0 +1,11 @@
+# name: codegen-view-load-always-zero-extends
+# category: codegen
+# summary: a widened View load uses zext even for a signed interpretation
+
+--- edit: src/codegen/LLVMCodegenExpressions.cpp ---
+--- anchor ---
+      castValue = sourceUnsigned
+                      ? builder_.CreateZExt(source, castType, "intcast.zext")
+                      : builder_.CreateSExt(source, castType, "intcast.sext");
+--- replacement ---
+      castValue = builder_.CreateZExt(source, castType, "intcast.zext");

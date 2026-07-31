@@ -1,0 +1,15 @@
+# name: core-checked-use-after-free-undetected
+# category: core
+# summary: checked access no longer consults the lifetime state of the tracked object
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  HsAlloc *entry = hs_find(ptr);
+  if (entry == NULL || entry->freed) {
+    hs_fail(message);
+  }
+--- replacement ---
+  HsAlloc *entry = hs_find(ptr);
+  if (entry == NULL) {
+    hs_fail(message);
+  }

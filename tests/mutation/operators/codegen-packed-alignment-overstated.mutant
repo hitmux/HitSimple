@@ -1,0 +1,18 @@
+# name: codegen-packed-alignment-overstated
+# category: codegen
+# summary: a member at a packed offset claims the natural alignment of its container
+
+--- edit: src/codegen/LLVMCodegenExpressions.cpp ---
+--- anchor ---
+      loaded = builder_.CreateLoad(
+          sourceType, bytePointer(storage->storageType, storage->storage,
+                                  variable->offset, variable->name + ".addr"),
+          variable->name + ".value");
+      llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
+          alignmentAt(storage->alignment, variable->offset));
+--- replacement ---
+      loaded = builder_.CreateLoad(
+          sourceType, bytePointer(storage->storageType, storage->storage,
+                                  variable->offset, variable->name + ".addr"),
+          variable->name + ".value");
+      llvm::cast<llvm::LoadInst>(loaded)->setAlignment(llvm::Align(8));

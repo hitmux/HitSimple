@@ -1,0 +1,10 @@
+# name: core-checked-lifetime-state-not-updated
+# category: core
+# summary: free releases the host allocation but leaves the tracked object marked alive
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  entry->freed = 1;
+  free(ptr);
+--- replacement ---
+  free(ptr);

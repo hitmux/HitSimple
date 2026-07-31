@@ -1,0 +1,9 @@
+# name: core-checked-error-class-substituted
+# category: core
+# summary: a double free is reported under the invalid free error class
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+    hs_fail("double free");
+--- replacement ---
+    hs_fail("invalid free");

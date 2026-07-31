@@ -1,0 +1,13 @@
+# name: core-checked-interior-free-accepted
+# category: core
+# summary: an interior address is treated as a base address by free
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  if (entry == NULL || entry->ptr != ptr || entry->kind != HS_OBJECT_HEAP) {
+    hs_fail("invalid free");
+  }
+--- replacement ---
+  if (entry == NULL || entry->kind != HS_OBJECT_HEAP) {
+    hs_fail("invalid free");
+  }

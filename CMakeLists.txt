@@ -40,6 +40,10 @@ option(HS_SMITH_REQUIRE_NETWORK_ISOLATION
   "Require bubblewrap network isolation for the HS-Smith CTest runner"
   OFF
 )
+option(HS_ENABLE_MUTATION_TESTING
+  "Register the mutation campaign; it rebuilds one mutant compiler per operator"
+  OFF
+)
 if(HITSIMPLE_ENABLE_SANITIZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang|GNU" OR
      NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -662,6 +666,12 @@ target_link_libraries(hsc_unit_tests
   endif()
 
   set(HSC_CTEST_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/ctest-output")
+  # The mutation campaign builds its mutants outside this build tree so that a
+  # mutated compiler never replaces the binaries under test here.
+  set(HSC_MUTATION_WORK_DIR "${CMAKE_CURRENT_BINARY_DIR}/mutation-workspace"
+    CACHE PATH "Scratch tree and build directory for the mutation campaign")
+  set(HSC_MUTATION_PARALLEL "4"
+    CACHE STRING "Build and test parallelism inside the mutation campaign")
 
   function(add_hsc_shell_test name shell_command)
     set(output_dir "${HSC_CTEST_OUTPUT_ROOT}/${name}")
@@ -829,6 +839,31 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_fuzz_campaign_unit_tests
     PROPERTIES LABELS "testing;fuzz;campaign;phase-p5")
+  add_test(
+    NAME hsc_mutation_operator_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/mutation/test_run_mutations.py
+  )
+  set_tests_properties(hsc_mutation_operator_unit_tests
+    PROPERTIES LABELS "testing;mutation;phase-m6")
+  if(HS_ENABLE_MUTATION_TESTING)
+    # Every operator rebuilds a mutant compiler in its own tree below
+    # ${HSC_MUTATION_WORK_DIR}, so this gate belongs to the scheduled tiers
+    # rather than to a per-commit run.
+    add_test(
+      NAME hsc_mutation_campaign
+      COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/mutation/run_mutations.py
+        --source-root ${PROJECT_SOURCE_DIR}
+        --work-dir ${HSC_MUTATION_WORK_DIR}
+        --report ${HSC_CTEST_OUTPUT_ROOT}/mutation/mutation-report.json
+        --jobs ${HSC_MUTATION_PARALLEL}
+    )
+    set_tests_properties(hsc_mutation_campaign PROPERTIES
+      LABELS "testing;mutation;phase-m6"
+      TIMEOUT 14400
+      RUN_SERIAL TRUE)
+  endif()
   add_test(
     NAME hsc_t8_benchmark_trend_unit_tests
     COMMAND ${Python3_EXECUTABLE}
@@ -1466,6 +1501,12 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_checked_view_deref_copy_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_view_deref_copy.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
   )
+  add_hsc_shell_test(hsc_checked_dynamic_interior_free_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_interior_free.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid free' stderr"
+  )
+  add_hsc_shell_test(hsc_checked_realloc_tracks_new_address_runtime
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_realloc_tracks_new_address.hs -o program && ./program"
+  )
   set_tests_properties(
     hsc_static_checked_null_view_deref_condition_diagnostic
     hsc_static_checked_null_view_deref_copy_diagnostic
@@ -1480,6 +1521,8 @@ target_link_libraries(hsc_unit_tests
     hsc_static_checked_realloc_alias_not_provably_dangling
     hsc_checked_view_deref_condition_runtime_error
     hsc_checked_view_deref_copy_runtime_error
+    hsc_checked_dynamic_interior_free_runtime_error
+    hsc_checked_realloc_tracks_new_address_runtime
     PROPERTIES LABELS "phase5;safe-001"
   )
   add_hsc_shell_test(hsc_checked_fread_overflow_runtime_error

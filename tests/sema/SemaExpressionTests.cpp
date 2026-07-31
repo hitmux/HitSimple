@@ -1216,6 +1216,23 @@ HS_TEST(Sema_LowersStageFChainMultiIgnoreAndAnnotatedTargets) {
                  std::string::npos);
 }
 
+HS_TEST(Sema_LowersDeepFloatingAssignmentChainWithoutRepeatedLowering) {
+  std::string source = "func main() {\n"
+                       "    new value as f16 = 0.0\n"
+                       "    ";
+  for (std::size_t index = 0; index < 32U; ++index) {
+    source += "value = ";
+  }
+  source += "1.0\n"
+            "    return 0\n"
+            "}\n";
+
+  auto result = analyzeSource(source);
+
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+}
+
 HS_TEST(Sema_RejectsMultiAssignmentCountMismatch) {
   auto result = analyzeSource("func main() {\n"
                               "    new a[4], b[4]\n"

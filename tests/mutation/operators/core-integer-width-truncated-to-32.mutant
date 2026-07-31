@@ -1,0 +1,12 @@
+# name: core-integer-width-truncated-to-32
+# category: core
+# summary: integer Views wider than four bytes are lowered as 32-bit integers
+
+--- edit: src/codegen/LLVMCodegenExpressions.cpp ---
+--- anchor ---
+  return llvm::IntegerType::get(context_,
+                                static_cast<unsigned>(byteLength * 8U));
+--- replacement ---
+  return llvm::IntegerType::get(
+      context_,
+      static_cast<unsigned>((byteLength > 4U ? 4U : byteLength) * 8U));

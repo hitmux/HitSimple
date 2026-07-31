@@ -38,6 +38,9 @@ set(ctest_arguments
 if(DEFINED TEST_REGEX AND NOT TEST_REGEX STREQUAL "")
   list(APPEND ctest_arguments --tests-regex "${TEST_REGEX}")
 endif()
+if(DEFINED STOP_ON_FAILURE AND STOP_ON_FAILURE)
+  list(APPEND ctest_arguments --stop-on-failure)
+endif()
 
 execute_process(
   COMMAND "${ctest_command}" ${ctest_arguments}
@@ -58,6 +61,13 @@ if(NOT EXISTS "${junit_file}")
 endif()
 
 file(READ "${junit_file}" junit)
+if(DEFINED JUNIT_OUTPUT_FILE AND NOT JUNIT_OUTPUT_FILE STREQUAL "")
+  get_filename_component(junit_output_directory "${JUNIT_OUTPUT_FILE}" DIRECTORY)
+  if(NOT junit_output_directory STREQUAL "")
+    file(MAKE_DIRECTORY "${junit_output_directory}")
+  endif()
+  file(COPY_FILE "${junit_file}" "${JUNIT_OUTPUT_FILE}" ONLY_IF_DIFFERENT)
+endif()
 file(REMOVE "${junit_file}")
 
 string(REGEX MATCH [[tests="([0-9]+)"]] matched_tests "${junit}")

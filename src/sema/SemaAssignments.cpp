@@ -256,18 +256,36 @@ Analyzer::lowerFixedViewAssignment(
     std::unique_ptr<hir::Expr> floatingValue;
     const auto sourceTemplateName = operatorTemplateName(value).value_or("");
     if (isFloatTemplate(sourceTemplateName)) {
-      auto source = analyze(value);
-      if (!source || !hir::isFloatingNumeric(source->result)) {
+      if (!loweredValue) {
+        loweredValue = analyze(value);
+      }
+      if (!loweredValue || !hir::isFloatingNumeric(loweredValue->result)) {
         addDiagnostic("floating assignment source is not a floating View");
         return std::nullopt;
       }
-      if (source->result.staticByteLength == target.byteLength) {
-        floatingValue = std::move(source);
+      if (loweredValue->result.staticByteLength == target.byteLength) {
+        floatingValue = std::move(loweredValue);
       } else {
         floatingValue = std::make_unique<hir::ToFloatExpr>(
-            std::move(source), false, true,
+            std::move(loweredValue), false, true,
             fixedResult(target.templateName, target.byteLength));
       }
+    } else if (loweredValue &&
+               dynamic_cast<const ast::FloatLiteral *>(&value) == nullptr) {
+      if (!isFloatExpression(*loweredValue)) {
+        addDiagnostic("float operand is not a float expression");
+        return std::nullopt;
+      }
+      const auto operandLength =
+          floatExpressionByteLength(*loweredValue).value_or(0);
+      if (operandLength != target.byteLength) {
+        addDiagnostic("float operand byte length " +
+                      std::to_string(operandLength) +
+                      " does not match required byte length " +
+                      std::to_string(target.byteLength));
+        return std::nullopt;
+      }
+      floatingValue = std::move(loweredValue);
     } else {
       floatingValue = analyzeFloatOperand(value, target.byteLength);
     }
@@ -666,7 +684,12 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
                                 target->templateName};
   }
 
-  if (!loweredValue && op != "&=") {
+  const bool deferFloatLowering =
+      floatAssignmentByteLength(op).has_value() ||
+      (op == "=" &&
+       (isFloatTemplate(targetRef.templateName) ||
+        dynamic_cast<const ast::FloatLiteral *>(&value) != nullptr));
+  if (!loweredValue && op != "&=" && !deferFloatLowering) {
     loweredValue = analyze(value);
     if (!loweredValue) {
       return nullptr;

@@ -1,0 +1,19 @@
+# name: core-boolean-test-lowest-byte-only
+# category: core
+# summary: Boolean-test inspects only the lowest byte of a View
+
+--- edit: runtime/hitsimple_runtime.c ---
+--- anchor ---
+  for (uint64_t index = 0; index < length; ++index) {
+    if (bytes[index] != 0U) {
+      return 1;
+    }
+  }
+  return 0;
+--- replacement ---
+  for (uint64_t index = 0; index < (length != 0U ? 1U : 0U); ++index) {
+    if (bytes[index] != 0U) {
+      return 1;
+    }
+  }
+  return 0;
