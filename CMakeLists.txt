@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(HitSimple
-  VERSION 0.3.7
+  VERSION 0.3.8
   LANGUAGES C CXX
 )
 
