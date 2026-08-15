@@ -43,7 +43,7 @@ jobs:
             --work-dir "${RUNNER_TEMP}/mutation" \
             --report "${RUNNER_TEMP}/mutation/mutation-report.json" \
             --jobs "$(nproc)" \
-            --cmake-arg "-DLLVM_DIR=$(llvm-config-18 --cmakedir)" \
+            --cmake-arg="-DLLVM_DIR=$(llvm-config-18 --cmakedir)" \
             "${selection[@]}"
 
       - name: Upload mutation report

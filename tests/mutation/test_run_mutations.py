@@ -252,6 +252,10 @@ class ArgumentTests(unittest.TestCase):
         self.assertEqual(arguments.codegen_threshold, 0.8)
         self.assertEqual(arguments.source_root, SOURCE_ROOT)
 
+    def test_cmake_argument_that_begins_with_a_dash_uses_an_equals_assignment(self) -> None:
+        arguments = parse_arguments(["--cmake-arg=-DLLVM_DIR=/opt/llvm/lib/cmake/llvm"])
+        self.assertEqual(arguments.cmake_arg, ["-DLLVM_DIR=/opt/llvm/lib/cmake/llvm"])
+
     def test_a_threshold_outside_the_unit_interval_is_rejected(self) -> None:
         with self.assertRaises(SystemExit):
             parse_arguments(["--core-threshold", "1.5"])
