@@ -27,7 +27,8 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '29 2 * * 1-6' || github.event_name == 'workflow_dispatch' && inputs.campaign == 'daily'
     name: Daily fuzz (${{ matrix.target }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # 3600s campaign plus an hour of headroom for ASan/UBSan configure and build.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

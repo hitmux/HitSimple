@@ -172,7 +172,13 @@ def wrap(plan: SandboxPlan, command: Sequence[str], policy: SandboxPolicy) -> li
     if not plan.resource_limiter:
         raise RuntimeError("enabled sandbox is missing its required prlimit wrapper")
     cpu_limit = max(1, math.ceil(policy.timeout_seconds) + 1)
-    process_limit = policy.process_limit + plan.existing_uid_processes
+    # sudo fallback shares RLIMIT_NPROC with the runner UID, so recount at
+    # wrap time. User-namespace isolation keeps a private nproc.
+    host_tasks = plan.existing_uid_processes
+    if host_tasks or (plan.command_prefix and
+                      Path(plan.command_prefix[0]).name == "sudo"):
+        host_tasks = _uid_process_count(os.getuid())
+    process_limit = policy.process_limit + host_tasks
     return [
         *plan.command_prefix,
         plan.resource_limiter,

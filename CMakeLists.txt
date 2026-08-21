@@ -810,8 +810,11 @@ target_link_libraries(hsc_unit_tests
         --cases 8
         ${hs_smith_network_isolation_argument}
     )
+    # Sandbox RLIMIT_NPROC is shared with the runner UID under sudo fallback.
     set_tests_properties(hsc_hs_smith_first_phase
-      PROPERTIES LABELS "testing;hs-smith;oracle;checked;phase1")
+      PROPERTIES
+        LABELS "testing;hs-smith;oracle;checked;phase1"
+        RUN_SERIAL TRUE)
   else()
     # bubblewrap's isolated address space cannot reserve ASan's shadow memory.
     # HS-Smith keeps its own non-sanitized network-isolated CI gate.

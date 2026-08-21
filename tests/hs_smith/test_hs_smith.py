@@ -102,10 +102,13 @@ class HsSmithTests(unittest.TestCase):
         self.assertIn("--reuid", plan.command_prefix)
         self.assertIn("--regid", plan.command_prefix)
         self.assertIn("--no-new-privs", plan.command_prefix)
-        with patch("sandbox.shutil.which", return_value="/usr/bin/prlimit"):
+        with (
+            patch("sandbox.shutil.which", return_value="/usr/bin/prlimit"),
+            patch("sandbox._uid_process_count", return_value=12),
+        ):
             command = wrap(plan, ("run",), SandboxPolicy())
         self.assertLess(command.index("/usr/bin/setpriv"), command.index("/usr/bin/prlimit"))
-        self.assertIn("--nproc=25", command)
+        self.assertIn("--nproc=28", command)
         self.assertEqual(run.call_count, 3)
         self.assertIn("--cpu=1", run.call_args_list[-1].args[0])
 
