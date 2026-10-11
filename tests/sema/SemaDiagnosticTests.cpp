@@ -14,7 +14,10 @@ using hitsimple::testing::sema::analyzeSource;
 using hitsimple::testing::sema::minimalProgram;
 
 HS_TEST(Sema_ReportsDiagnosticForNonAddressableIndexBase) {
-  auto result = analyzeSource("func main(){}new x=4-4[2]");
+  auto result = analyzeSource("func main() {\n"
+                              "    new x[4] = 4 - 4[2]\n"
+                              "    return 0\n"
+                              "}\n");
 
   HS_EXPECT_TRUE(result.unit == nullptr);
   HS_EXPECT_EQ(result.diagnostics.size(), 1U);
