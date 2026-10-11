@@ -13,6 +13,16 @@ using hitsimple::testing::sema::allStandardHeaders;
 using hitsimple::testing::sema::analyzeSource;
 using hitsimple::testing::sema::minimalProgram;
 
+HS_TEST(Sema_ReportsDiagnosticForNonAddressableIndexBase) {
+  auto result = analyzeSource("func main(){}new x=4-4[2]");
+
+  HS_EXPECT_TRUE(result.unit == nullptr);
+  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(result.diagnostics[0].find(
+                     "index base must be an addressable memory View") !=
+                 std::string::npos);
+}
+
 HS_TEST(Sema_RejectsUnsupportedCompoundAssignmentWidth) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[1]\n"
