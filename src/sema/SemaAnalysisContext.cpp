@@ -1630,6 +1630,9 @@ std::unique_ptr<hir::Expr>
 Analyzer::lowerIndexAddress(const ast::IndexExpr &expr) {
   const auto reference = resolveAddressableReference(*expr.base);
   if (!reference) {
+    if (result_.diagnostics.empty()) {
+      addDiagnostic("index base must be an addressable memory View");
+    }
     return nullptr;
   }
   if (reference->templateName == "handle") {
@@ -1657,6 +1660,9 @@ Analyzer::lowerIndexAddress(const ast::IndexExpr &expr) {
 std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
   const auto reference = resolveAddressableReference(*expr.base);
   if (!reference) {
+    if (result_.diagnostics.empty()) {
+      addDiagnostic("slice base must be an addressable memory View");
+    }
     return std::nullopt;
   }
   if (reference->templateName == "handle") {
