@@ -1971,6 +1971,13 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_run_handle_io
     "${CMAKE_CURRENT_BINARY_DIR}/handle_io_smoke >stdout; test $? -eq 1"
   )
+  add_test(NAME hsc_compile_checked_handle_io
+    COMMAND hsc --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/handle_io.hs
+            -o ${CMAKE_CURRENT_BINARY_DIR}/checked_handle_io_smoke
+  )
+  add_hsc_shell_test(hsc_run_checked_handle_io
+    "${CMAKE_CURRENT_BINARY_DIR}/checked_handle_io_smoke >stdout; test $? -eq 1"
+  )
   add_test(NAME hsc_compile_c_compat_unsigned_integer
     COMMAND hsc --c-compat ${PROJECT_SOURCE_DIR}/tests/cases/compat/c_unsigned_integer.c
             -o ${CMAKE_CURRENT_BINARY_DIR}/c_compat_unsigned_integer_smoke
@@ -2309,6 +2316,12 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_run_handle_io
     PROPERTIES FIXTURES_REQUIRED handle_io_executable
+  )
+  set_tests_properties(hsc_compile_checked_handle_io
+    PROPERTIES FIXTURES_SETUP checked_handle_io_executable
+  )
+  set_tests_properties(hsc_run_checked_handle_io
+    PROPERTIES FIXTURES_REQUIRED checked_handle_io_executable
   )
   set_tests_properties(hsc_compile_c_compat_unsigned_integer
     PROPERTIES FIXTURES_SETUP c_compat_unsigned_integer_executable
