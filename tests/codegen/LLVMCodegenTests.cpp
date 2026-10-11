@@ -1389,7 +1389,7 @@ HS_TEST(LLVMCodegen_CheckedDoesNotTrustExternGlobalAddresses) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_load") != std::string::npos);
-  HS_EXPECT_TRUE(llvmIr(result).find("@hs_register_static") ==
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_register_static") !=
                  std::string::npos);
 }
 

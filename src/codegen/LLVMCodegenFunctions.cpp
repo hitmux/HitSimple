@@ -229,6 +229,8 @@ void LlvmEmitter::emit(const hir::GlobalMemory &global) {
                            global.abiType,
                            global.abiType ? global.abiType->alignment
                                           : std::size_t{1}});
+    internalGlobals_.push_back(
+        RuntimeObject{storage, storageType, global.byteLength});
     return;
   }
 
