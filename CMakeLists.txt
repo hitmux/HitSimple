@@ -1502,6 +1502,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_checked_null_file_handle_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_null_file_handle.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid file handle' stderr"
   )
+  add_hsc_shell_test(hsc_checked_extern_global_pointer
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_extern_global_pointer.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/extern_global_helper.c -o program && ./program"
+  )
   add_hsc_shell_test(hsc_checked_calloc_overflow_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_calloc_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: calloc size overflow' stderr"
   )
