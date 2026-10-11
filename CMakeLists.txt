@@ -1514,6 +1514,9 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_checked_view_deref_copy_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_view_deref_copy.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
   )
+  add_hsc_shell_test(hsc_checked_ffi_address_boundary_runtime_error
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/interop/checked_ffi_buffer.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/interop/checked_ffi_buffer_helper.c -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid checked load' stderr"
+  )
   add_hsc_shell_test(hsc_checked_dynamic_interior_free_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_interior_free.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid free' stderr"
   )
