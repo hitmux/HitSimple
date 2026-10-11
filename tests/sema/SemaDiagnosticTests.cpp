@@ -24,6 +24,7 @@ HS_TEST(Sema_ReportsDiagnosticForNonAddressableIndexBase) {
   HS_EXPECT_TRUE(result.diagnostics[0].find(
                      "index base must be an addressable memory View") !=
                  std::string::npos);
+  HS_EXPECT_TRUE(result.diagnostics[0].range.has_value());
 }
 
 HS_TEST(Sema_RejectsUnsupportedCompoundAssignmentWidth) {
