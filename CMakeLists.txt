@@ -967,6 +967,23 @@ target_link_libraries(hsc_unit_tests
     )
     add_test(NAME software_f128_runtime COMMAND hitsimple_f128_runtime_tests)
   endif()
+  add_executable(hitsimple_checked_file_handle_tests
+    tests/runtime/CheckedFileHandleTests.c
+  )
+  set_target_properties(hitsimple_checked_file_handle_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON)
+  add_test(NAME hsc_runtime_file_handles
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/runtime/run_checked_file_handles.py
+      $<TARGET_FILE:hitsimple_checked_file_handle_tests>)
+  add_test(NAME hsc_harness_file_handles
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite file-handles
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness)
+  set_tests_properties(hsc_runtime_file_handles hsc_harness_file_handles
+    PROPERTIES LABELS "testing;file-handles;safety-mode")
   add_test(NAME hsc_help COMMAND hsc --help)
   add_test(NAME hsc_version COMMAND hsc --version)
   add_test(NAME hsc_target_info COMMAND hsc --target-info)
@@ -986,7 +1003,7 @@ target_link_libraries(hsc_unit_tests
     set(HITSIMPLE_EXPECTED_F128_BACKEND "native.fp128")
   endif()
   add_hsc_shell_test(hsc_target_info_documents_checked_and_calloc_status
-    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: ${HITSIMPLE_EXPECTED_F128_BACKEND}' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider' target-info.out && grep -Fq 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics and declared extern globals persist; FFI raw addresses and file handles are not registered' target-info.out && grep -Fq 'checked.file_handle_coverage: null handles are rejected by checked file I/O; handle ownership and open/closed state are not tracked' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
+    "$<TARGET_FILE:hsc> --target-info > target-info.out && grep -Fq 'runtime.kind: static-library' target-info.out && grep -Fq 'f128.backend: ${HITSIMPLE_EXPECTED_F128_BACKEND}' target-info.out && grep -Fq 'stdlib.headers: stdlib.hsh, string.hsh, stdio.hsh, math.hsh, ctype.hsh, time.hsh, and assert.hsh; each standard function requires its owning system header' target-info.out && grep -Fq 'stdlib.provider.selection: optimized is the default; reference uses a manifest-declared reference implementation when available and otherwise keeps the default provider' target-info.out && grep -Fq 'stdlib.provider.dispatch: provider selection is compile-time and does not change the public View contract or safety mode' target-info.out && grep -Fq 'checked.address_coverage: local objects are removed when their function frame exits; internal globals/statics and declared extern globals persist; FFI raw addresses and FILE storage are not registered' target-info.out && grep -Fq 'checked.file_handle_coverage: null and observed-closed handles are rejected; checked fopen/fclose track FILE* addresses; external closes, address-reused stale aliases, and concurrent runtime operations are not covered' target-info.out && grep -Fq 'stdlib.formatting: native printf, print, fprintf, scanf, and fscanf use runtime descriptors; C compatibility does not accept variadic declarations' target-info.out && grep -Fq 'stdlib.raw_output: print(view as none), put, and fput write the complete View and return the written byte count' target-info.out && grep -Fq 'float.fallback: f16 math evaluates as f32 and rounds back to binary16; f128 uses the target-specific runtime backend' target-info.out && grep -Fq 'abi.c_compat.aggregate_by_value: only x86_64 SysV ELF targets; other targets reject C struct by-value parameters and returns; supported direct aggregates up to 16 bytes use at most two INTEGER/SSE eightbytes' target-info.out && grep -Fq 'abi.c_compat.aggregate_indirect: on supported x86_64 SysV ELF targets, aggregates larger than 16 bytes use sret returns and byval parameters' target-info.out && grep -Fq 'abi.c_compat.aggregate_limits:' target-info.out && grep -Fq 'C compatibility validates external ABI shapes before link' target-info.out"
   )
   add_test(NAME hsc_compile_with_explicit_clang
     COMMAND hsc --clang ${CLANG_EXECUTABLE} ${PROJECT_SOURCE_DIR}/examples/hello.hs
