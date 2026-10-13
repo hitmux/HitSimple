@@ -1314,7 +1314,10 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: needs.release_request.outputs.publish == 'true'
+    if: >-
+      needs.release_request.outputs.publish == 'true' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.publish))
     permissions:
       contents: write
     needs: [assemble, release_request]

@@ -72,7 +72,9 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("        type: boolean\n", publish.group("body"))
         self.assertIn("        default: false\n", publish.group("body"))
         release = workflow.split("\n  release:\n", 1)[1]
-        self.assertIn("    if: needs.release_request.outputs.publish == 'true'\n", release)
+        self.assertIn("      needs.release_request.outputs.publish == 'true' &&\n", release)
+        self.assertIn("      (github.event_name == 'push' ||\n", release)
+        self.assertIn("       (github.event_name == 'workflow_dispatch' && inputs.publish))\n", release)
         self.assertIn("    needs: [assemble, release_request]\n", release)
         self.assertIn("RELEASE_TAG: ${{ needs.release_request.outputs.tag }}", release)
         self.assertIn("group: hitsimple-release-${{ needs.release_request.outputs.tag }}", release)
