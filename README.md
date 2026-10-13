@@ -14,7 +14,10 @@ source -> preprocessor -> lexer -> parser -> AST -> sema -> HIR -> LLVM IR -> ex
 
 ## Current Status
 
-`v0.3.8` is the current Beta release with builds for:
+This source tree targets the `v0.3.9` Beta patch release. See the
+[patch notes](docs/releases/0.3.9.md) for changes since `v0.3.8`, and
+[GitHub Releases](https://github.com/hitmux/HitSimple/releases) for published builds.
+The release packaging covers:
 
 - Linux x86_64/aarch64 tar.gz archives.
 - Linux amd64/arm64 DEB packages.
@@ -88,17 +91,17 @@ The DEB installation layout is:
 Install a local DEB package:
 
 ```bash
-sudo apt install ./hitsimple_0.3.8_amd64.deb
+sudo apt install ./hitsimple_0.3.9_amd64.deb
 ```
 
-Use `hitsimple_0.3.8_arm64.deb` on arm64. The package depends exactly on `clang-18`, matching its embedded LLVM 18. Debian 13's default `clang` is version 19, so it is not interchangeable; `apt` installs `clang-18` as part of the package transaction. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
+Use `hitsimple_0.3.9_arm64.deb` on arm64. The package depends exactly on `clang-18`, matching its embedded LLVM 18. Debian 13's default `clang` is version 19, so it is not interchangeable; `apt` installs `clang-18` as part of the package transaction. When the default Ubuntu 22.04 or Debian 12 repositories do not provide Clang 18, first configure the corresponding `jammy` or `bookworm` repository from [apt.llvm.org](https://apt.llvm.org/); the DEB package does not modify system package sources.
 
 The tar.gz archive is a relocatable directory package. Run its `bin/hsc` directly after extraction. The compiler locates the preprocessor, standard library, and runtime relative to its own location.
 
 Fedora 44 and EL9 each provide x86_64/aarch64 RPM packages, for example:
 
 ```bash
-sudo dnf install ./hitsimple-0.3.8-1.fc44.x86_64.rpm
+sudo dnf install ./hitsimple-0.3.9-1.fc44.x86_64.rpm
 ```
 
 EL9 uses the `1.el9` release suffix. RPM packages install to `/usr/bin`, `/usr/libexec/hitsimple`, the distribution library directory (`/usr/lib64/hitsimple` on x86_64/aarch64), and `/usr/share/hitsimple`; the system must already provide `clang >= 18`. They do not bundle Clang or provide a GPG signature. Fedora 44 and EL9 are the only currently supported RPM baselines.
@@ -106,8 +109,8 @@ EL9 uses the `1.el9` release suffix. RPM packages install to `/usr/bin`, `/usr/l
 ## macOS Distribution Packages
 
 ```text
-hitsimple-0.3.8-macos-arm64.tar.gz
-hitsimple-0.3.8-macos-x86_64.tar.gz
+hitsimple-0.3.9-macos-arm64.tar.gz
+hitsimple-0.3.9-macos-x86_64.tar.gz
 ```
 
 After extraction, use `bin/hsc` directly. The package locates `hsc_mcpp`, the static runtime, and the standard library relative to the executable, so the extracted directory remains usable after being moved. The system must provide a Clang toolchain matching the embedded LLVM major version, selected through `--clang`, `HITSIMPLE_CLANG`, or PATH.
@@ -119,7 +122,7 @@ macOS provides only unsigned relocatable tar.gz archives; no signing, notarizati
 Full package:
 
 ```text
-hitsimple-0.3.8-windows-x86_64-full.zip
+hitsimple-0.3.9-windows-x86_64-full.zip
 ```
 
 It includes `hsc.exe`, the standard library, the static runtime, and the pinned `llvm-mingw-20240619-ucrt-x86_64` toolchain. No Visual Studio or system Clang installation is required after extraction.
@@ -127,7 +130,7 @@ It includes `hsc.exe`, the standard library, the static runtime, and the pinned 
 Slim package:
 
 ```text
-hitsimple-0.3.8-windows-x86_64-slim.zip
+hitsimple-0.3.9-windows-x86_64-slim.zip
 ```
 
 The slim package requires a compatible llvm-mingw/Clang 18 installation. Toolchain lookup order is:
@@ -182,7 +185,7 @@ cd vscode/hitsimple
 npm ci
 npm test
 npm run package:vsix
-code --install-extension dist/hitsimple-vscode-0.3.8.vsix --force
+code --install-extension dist/hitsimple-vscode-0.3.9.vsix --force
 ```
 
 Key settings:

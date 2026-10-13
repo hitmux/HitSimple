@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -12,6 +13,57 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def release_version(self) -> str:
+        cmake = (SOURCE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        match = re.search(r"^  VERSION (\d+\.\d+\.\d+)$", cmake, re.MULTILINE)
+        self.assertIsNotNone(match)
+        assert match is not None
+        return match.group(1)
+
+    def test_release_versions_match_compiler_extension_and_dispatch(self) -> None:
+        version = self.release_version()
+        extension = SOURCE_ROOT / "vscode/hitsimple"
+        package = json.loads((extension / "package.json").read_text(encoding="utf-8"))
+        lock = json.loads((extension / "package-lock.json").read_text(encoding="utf-8"))
+        self.assertEqual(package["version"], version)
+        self.assertEqual(lock["version"], version)
+        self.assertEqual(lock["packages"][""]["version"], version)
+
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        dispatch_version = re.search(
+            r'^      version:\n(?:(?!^      \w).)*?^        default: "(\d+\.\d+\.\d+)"$',
+            workflow,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(dispatch_version)
+        assert dispatch_version is not None
+        self.assertEqual(dispatch_version.group(1), version)
+
+    def test_release_package_documentation_matches_compiler(self) -> None:
+        version = self.release_version()
+        for name in ("README.md", "USAGE.md"):
+            with self.subTest(document=name):
+                document = (SOURCE_ROOT / name).read_text(encoding="utf-8")
+                versions = re.findall(r"hitsimple(?:-vscode)?[-_](\d+\.\d+\.\d+)", document)
+                self.assertTrue(versions)
+                self.assertEqual(set(versions), {version})
+
+    def test_release_bundle_uses_versioned_patch_notes(self) -> None:
+        version = self.release_version()
+        notes = (SOURCE_ROOT / "docs/releases" / f"{version}.md").read_text(encoding="utf-8")
+        self.assertTrue(notes.startswith(f"# HitSimple {version}\n"))
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            'cp "$GITHUB_WORKSPACE/docs/releases/${HITSIMPLE_VERSION}.md" ../release-notes.txt',
+            workflow,
+        )
+        cmake = (SOURCE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn(
+            "install(FILES docs/releases/${PROJECT_VERSION}.md\n"
+            "  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/releases\n)",
+            cmake,
+        )
+
     def test_mutation_cmake_argument_binds_a_dash_prefixed_value(self) -> None:
         workflow = (SOURCE_ROOT / ".github/workflows/mutation.yml").read_text(encoding="utf-8")
         self.assertIn(

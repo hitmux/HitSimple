@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(HitSimple
-  VERSION 0.3.8
+  VERSION 0.3.9
   LANGUAGES C CXX
 )
 
@@ -517,6 +517,9 @@ install(FILES
 )
 install(FILES LICENSE README.md USAGE.md Standard.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
+)
+install(FILES docs/releases/${PROJECT_VERSION}.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/releases
 )
 install(FILES third_party/mcpp/LICENSE
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
