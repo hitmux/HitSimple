@@ -47,7 +47,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -82,7 +82,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -117,7 +117,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -152,7 +152,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -187,7 +187,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -222,7 +222,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -257,7 +257,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -292,7 +292,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -327,7 +327,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -362,7 +362,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -397,7 +397,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -432,7 +432,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -467,7 +467,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -502,7 +502,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
           }
         }
       }
@@ -536,7 +536,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_file_handle_argument_close\\.hs:10:5\\n$"
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_file_handle_argument_close\\.hs:10:5\\r?\\n$"
           }
         }
       }

@@ -76,6 +76,21 @@ class WorkflowContractTests(unittest.TestCase):
         for name in ("README.md", "USAGE.md"):
             self.assertIn(f"]({document})", (SOURCE_ROOT / name).read_text(encoding="utf-8"))
 
+    def test_file_handle_diagnostics_accept_only_native_line_endings(self) -> None:
+        manifest = json.loads((SOURCE_ROOT / "tests/support/harness/manifests/file-handles.json").read_text(encoding="utf-8"))
+        for case in manifest["tests"]:
+            pattern = case["expect_by_mode"]["checked"]["run"].get("stderr_regex")
+            if pattern is None:
+                continue
+            name = Path(case["source"]).name
+            for ending in ("\n", "\r\n"):
+                diagnostic = f"hitsimple runtime error: closed file handle at D:/src/{name}:10:5{ending}"
+                with self.subTest(case=case["name"], ending=repr(ending)):
+                    self.assertIsNotNone(re.fullmatch(pattern, diagnostic))
+                    self.assertIsNone(re.fullmatch(pattern, diagnostic.replace("closed file handle", "invalid file handle")))
+                    self.assertIsNone(re.fullmatch(pattern, diagnostic.replace(":10:5", "")))
+                    self.assertIsNone(re.fullmatch(pattern, diagnostic + "unexpected output"))
+
     def test_file_handle_cases_run_in_selective_platform_suites(self) -> None:
         workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         for start, end in (
