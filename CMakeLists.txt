@@ -853,6 +853,13 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_ci_workflow_contract_unit_tests
     PROPERTIES LABELS "testing;ci;workflow")
   add_test(
+    NAME hsc_release_guard_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/ci/ReleaseGuardTests.py
+  )
+  set_tests_properties(hsc_release_guard_unit_tests
+    PROPERTIES LABELS "testing;ci;workflow;release")
+  add_test(
     NAME hsc_mutation_operator_unit_tests
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/mutation/test_run_mutations.py

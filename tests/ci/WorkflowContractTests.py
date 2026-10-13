@@ -64,6 +64,33 @@ class WorkflowContractTests(unittest.TestCase):
             cmake,
         )
 
+    def test_manual_publication_is_opt_in_and_gated_by_the_complete_bundle(self) -> None:
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        publish = re.search(r"^      publish:\n(?P<body>.*?)(?=^      \w)", workflow, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(publish)
+        assert publish is not None
+        self.assertIn("        type: boolean\n", publish.group("body"))
+        self.assertIn("        default: false\n", publish.group("body"))
+        release = workflow.split("\n  release:\n", 1)[1]
+        self.assertIn("      needs.release_request.outputs.publish == 'true' &&\n", release)
+        self.assertIn("      (github.event_name == 'push' ||\n", release)
+        self.assertIn("       (github.event_name == 'workflow_dispatch' && inputs.publish))\n", release)
+        self.assertIn("    needs: [assemble, release_request]\n", release)
+        self.assertIn("RELEASE_TAG: ${{ needs.release_request.outputs.tag }}", release)
+        self.assertIn("group: hitsimple-release-${{ needs.release_request.outputs.tag }}", release)
+        self.assertIn("cancel-in-progress: false", release)
+        self.assertIn("python3 .github/scripts/release_guard.py prepare", release)
+        self.assertNotIn("$GITHUB_REF_NAME", release)
+        self.assertNotIn("gh release delete", release)
+        self.assertEqual(workflow.count("      contents: write\n"), 1)
+        self.assertNotIn("actions: write", workflow)
+        self.assertNotIn("secrets.", workflow)
+        for job in ("linux", "macos", "rpm", "windows"):
+            self.assertIn(f"  {job}:\n    needs: release_request\n", workflow)
+        for value in ("PUBLISH", "VERSION", "SCOPE", "EXPECTED_COMMIT"):
+            self.assertEqual(workflow.count(f"HITSIMPLE_{value}: ${{{{ inputs."), 2)
+
+
     def test_mutation_cmake_argument_binds_a_dash_prefixed_value(self) -> None:
         workflow = (SOURCE_ROOT / ".github/workflows/mutation.yml").read_text(encoding="utf-8")
         self.assertIn(
