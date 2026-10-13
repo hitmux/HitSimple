@@ -92,6 +92,8 @@ enum {
 static HsAlloc hs_allocs[HS_MAX_OBJECTS];
 static uint64_t hs_current_frame;
 static uint64_t hs_frame_scopes[HS_MAX_FRAMES];
+/* Error reporting must not write through an observed-closed diagnostic stream. */
+static int hs_stderr_closed;
 
 #if defined(_WIN32)
 #define HS_THREAD_LOCAL __declspec(thread)
@@ -114,6 +116,9 @@ void hs_set_source_location(const char *file, uint64_t line, uint64_t column) {
 }
 
 static void hs_fail(const char *message) {
+  if (hs_stderr_closed) {
+    exit(HS_RUNTIME_ERROR);
+  }
   fprintf(stderr, "hitsimple runtime error: %s", message);
   if (hs_runtime_source_location.file != NULL &&
       hs_runtime_source_location.line != 0 &&
@@ -629,6 +634,9 @@ FILE *hs_fopen(const char *name, const char *mode) {
   FILE *file = fopen(name, mode);
   if (file != NULL) {
     hs_track_file(file)->closed = 0;
+    if (file == stderr) {
+      hs_stderr_closed = 0;
+    }
   }
   return file;
 }
@@ -638,8 +646,13 @@ int32_t hs_fclose(FILE *file) {
   /* fclose consumes the stream even when a flush/close error is returned.
      Record this before libc, including for a previously untracked FFI stream. */
   hs_track_file(file)->closed = 1;
+  if (file == stderr) {
+    hs_stderr_closed = 1;
+  }
   return fclose(file);
 }
+
+int32_t hs_get(void) { return fgetc(hs_require_file(stdin)); }
 
 int32_t hs_fget(FILE *file) { return fgetc(hs_require_file(file)); }
 
@@ -689,11 +702,12 @@ uint64_t hs_fwrite(const void *src, uint64_t size, uint64_t count,
 }
 
 int32_t hs_put(const void *src, uint64_t size) {
+  FILE *file = hs_require_file(stdout);
   hs_check((void *)src, size, "invalid put source range");
   if (size == 0) {
     return 0;
   }
-  return (int32_t)fwrite(src, 1, (size_t)size, stdout);
+  return (int32_t)fwrite(src, 1, (size_t)size, file);
 }
 
 int32_t hs_fput(FILE *file, const void *src, uint64_t size) {
@@ -860,7 +874,8 @@ int32_t hs_format_output(FILE *file, const char *format,
                           int checked) {
   if (file == NULL) {
     file = stdout;
-  } else if (checked) {
+  }
+  if (checked) {
     /* Argument evaluation can close a stream after the codegen precheck. */
     file = hs_require_file(file);
   }
@@ -1257,10 +1272,10 @@ static uint64_t hs_validate_scan_format(const char *format,
 int32_t hs_scan_input(FILE *file, const char *format,
                       HsScanTarget *targets, uint64_t targetCount,
                       int checked) {
-  if (checked && file != NULL) {
-    file = hs_require_file(file);
-  }
   FILE *input = hs_input_file(file);
+  if (checked) {
+    input = hs_require_file(input);
+  }
   const uint64_t formatLength =
       hs_validate_scan_format(format, targets, targetCount, checked);
   uint64_t targetIndex = 0;
@@ -1425,7 +1440,9 @@ uint64_t hs_clock_ms(void) {
 }
 
 void hs_panic(int32_t code) {
-  fprintf(stderr, "hitsimple panic: %d\n", code);
+  if (!hs_stderr_closed) {
+    fprintf(stderr, "hitsimple panic: %d\n", code);
+  }
   exit(code);
 }
 

@@ -1430,7 +1430,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern get() -> i32"
     },
     {
@@ -1472,7 +1474,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern put(value as u64) -> i32"
     },
     {
@@ -1514,7 +1518,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern print(value as addr) -> i32"
     },
     {
@@ -1559,7 +1565,8 @@
       ],
       "checkedObligations": [
         "format_descriptor",
-        "cstr_termination"
+        "cstr_termination",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern printf(format as cstr) -> i32"
     },
@@ -1604,7 +1611,8 @@
       ],
       "checkedObligations": [
         "format_descriptor",
-        "scan_targets"
+        "scan_targets",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern scanf(format as cstr) -> i32"
     },

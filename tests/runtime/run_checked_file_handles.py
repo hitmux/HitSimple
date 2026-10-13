@@ -34,13 +34,14 @@ def main() -> int:
         ((scenario,), 0, "")
         for scenario in (
             "open", "unknown", "reuse", "growth", "console", "unchecked",
-            "failed_open",
+            "failed_open", "standard_streams", "stderr_closed_console",
+            "unchecked_console",
         )
     ]
     closed_error = "hitsimple runtime error: closed file handle\n"
     for scenario in (
         "closed", "failed_close", "alias", "growth_closed", "unknown_closed",
-        "unknown_failed_close",
+        "unknown_failed_close", "stdin_closed", "stdout_closed",
     ):
         cases.extend(((scenario, operation), 120, closed_error)
                      for operation in OPERATIONS)
@@ -50,6 +51,33 @@ def main() -> int:
         for operation in OPERATIONS if operation not in CONSOLE_OPERATIONS
     )
     cases.append((("close_reentrant",), 120, closed_error))
+    cases.extend(
+        (("stdin_closed", operation), 120, closed_error)
+        for operation in (
+            "default_scan", "default_scan_target", "default_scan_empty", "console_get",
+        )
+    )
+    cases.extend(
+        (("stdout_closed", operation), 120, closed_error)
+        for operation in (
+            "default_format", "default_format_empty", "console_put", "console_put_zero",
+        )
+    )
+    # Once stderr has been closed, runtime failures must exit without trying
+    # to print through that invalid stream. The driver detects any such access.
+    for scenario in ("stderr_closed", "stderr_failed_close"):
+        cases.extend(((scenario, operation), 120, "")
+                     for operation in OPERATIONS)
+    for scenario in ("stderr_closed_null", "stderr_failed_close_null"):
+        cases.extend(((scenario, operation), 120, "")
+                     for operation in ("check", "get"))
+    cases.append((("stderr_reopened_null", "check"), 120,
+                  "hitsimple runtime error: invalid file handle\n"))
+    for operation in ("panic", "assert_fail"):
+        cases.append((("diagnostic", operation), 17, "hitsimple panic: 17\n"))
+        cases.extend(((scenario, operation), 17, "")
+                     for scenario in ("stderr_closed", "stderr_failed_close"))
+    cases.append((("diagnostic", "assert_true"), 0, ""))
 
     failures = 0
     for case, expected_code, expected_error in cases:

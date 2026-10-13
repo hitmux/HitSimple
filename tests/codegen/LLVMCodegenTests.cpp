@@ -1935,6 +1935,7 @@ HS_TEST(LLVMCodegen_CheckedUsesFileRuntimeBridges) {
 HS_TEST(LLVMCodegen_FileStateChecksAreCheckedOnly) {
   constexpr std::string_view source =
       "func main() {\n"
+      "    new input = get()\n"
       "    new file as handle = fopen(\"file.tmp\", \"w+\")\n"
       "    fprintf(file, \"ok\")\n"
       "    new closed = fclose(file)\n"
@@ -1947,7 +1948,7 @@ HS_TEST(LLVMCodegen_FileStateChecksAreCheckedOnly) {
     HS_EXPECT_TRUE(result.diagnostics.empty());
     const bool checked = mode == hitsimple::codegen::SafetyMode::Checked;
     for (const std::string_view symbol :
-         {"@hs_fopen", "@hs_fclose", "@hs_check_file_handle"}) {
+         {"@hs_fopen", "@hs_fclose", "@hs_check_file_handle", "@hs_get"}) {
       HS_EXPECT_EQ(llvmIr(result).find(symbol) != std::string::npos, checked);
     }
   }

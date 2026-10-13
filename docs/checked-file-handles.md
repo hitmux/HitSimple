@@ -33,7 +33,11 @@ do not gain file-state checks or registry maintenance.
 Null handles retain `hitsimple runtime error: invalid file handle`. An observed
 closed handle reports `hitsimple runtime error: closed file handle`. Both exit
 with status 120, append the compiler-provided call-site location when available,
-and are not converted into a language `throw`.
+and are not converted into a language `throw`. If checked `fclose` has already
+consumed `stderr`, runtime failure exits with status 120 without printing a
+diagnostic, so reporting the error cannot access the closed stream. Likewise,
+`panic` and failed `assert` preserve their exit code but omit the diagnostic
+when `stderr` is observed closed.
 
 ## Detection limits and interoperability
 
@@ -50,8 +54,11 @@ and are not converted into a language `throw`.
   an externally opened stream reusing an observed-closed address can be
   rejected because the runtime cannot observe that reopening. No generation
   token or wrapper pointer is substituted because that would change the ABI.
-- Console runtime calls retain their existing null-as-default-stream convention;
-  a null *explicit* file argument is still rejected by generated checked code.
+- Console runtime calls retain their existing null-as-default-stream convention.
+  Checked `get`/`scanf` validate the selected `stdin`; checked
+  `put`/`print`/`printf` validate the selected `stdout`. The same observed-close
+  rules apply after mapping a default stream. A null *explicit* file argument
+  is still rejected by generated checked code.
 - The registry is process-global and unsynchronized, matching the current
   object-registration runtime. Concurrent calls into checked runtime operations
   are unsupported, even on different streams. Thread-local diagnostic locations
@@ -86,6 +93,8 @@ Issues: SAFE-001
 | No unchecked/static-checked instrumentation | LLVM codegen test and mode-specific compile-only invalid cases |
 | No undefined libc use in negative runtime tests | Stubbed native stream operations exit with a distinct failure marker if reached |
 | Close error, reentry, address reuse, unknown/native streams, null, table growth | `CheckedFileHandleTests.c` and its subprocess runner |
+| Closed default stdin/stdout and safe diagnostics after closing stderr | Native runtime stubs cover get/put, formatting/scanning, panic/assert and silent failure |
+| Installed documentation and actual selective-platform execution | `hsc_installed_file_handle_docs`, workflow contract tests, Linux AArch64/Windows file-handle CTest selection |
 
 Focused commands after building this source tree:
 

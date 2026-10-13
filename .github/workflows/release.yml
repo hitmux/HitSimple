@@ -190,7 +190,7 @@ jobs:
           fi
           grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr
           cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_sanitize_address_(heap_runtime|stack_runtime|global_runtime|disabled_has_no_instrumentation)|hsc_sanitize_undefined_runtime|hsc_emits_default_target_object|hsc_object_and_staticlib_succeed_without_clang|hsc_optimization_levels_build_all_artifact_types|hsc_native_object_emission_skips_clang_backend|hsc_pgo_instrument_and_use)$' -P cmake/RunQuietTests.cmake
-          cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy)$' -P cmake/RunQuietTests.cmake
+          cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^(hsc_debug_info_gdb|hsc_emits_target_object|hsc_c_abi_object_native_to_hsc|hsc_c_abi_object_hsc_to_native|hsc_c_abi_staticlib_native_to_hsc|hsc_rejects_multifile_object_output|hsc_rejects_object_with_llvm_ir_action|hsc_reports_missing_llvm_ar|hsc_mixed_.*|hsc_cxx_staticlib_calls_hsc|hsc_cargo_.*|hsc_checked_runtime_source_locations|hsc_runtime_source_location_ir_policy|hsc_runtime_file_handles|hsc_harness_file_handles|hsc_installed_file_handle_docs)$' -P cmake/RunQuietTests.cmake
           cmake -DBUILD_DIR=build-release '-DTEST_REGEX=^hsc_t8_.*$' \
             -P cmake/RunQuietTests.cmake
 
@@ -922,7 +922,8 @@ jobs:
       - name: Run portable Windows CTest cases
         shell: pwsh
         run: |
-          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm)$' -P cmake/RunQuietTests.cmake
+          $env:HITSIMPLE_CLANG = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
+          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm|hsc_runtime_file_handles|hsc_harness_file_handles)$' -P cmake/RunQuietTests.cmake
 
       - name: Assemble full and slim packages
         shell: pwsh
@@ -933,6 +934,13 @@ jobs:
           New-Item -ItemType Directory -Force "dist/$fullName", "dist/$slimName" | Out-Null
           cmake --install build-windows --prefix "dist/$fullName"
           cmake --install build-windows --prefix "dist/$slimName"
+          $expectedDocHash = (Get-FileHash docs/checked-file-handles.md).Hash
+          foreach ($packageName in @($fullName, $slimName)) {
+            $docPath = "dist/$packageName/share/doc/HitSimple/docs/checked-file-handles.md"
+            if (-not (Test-Path $docPath) -or (Get-FileHash $docPath).Hash -ne $expectedDocHash) {
+              throw "Installed file-handle coverage documentation is missing or stale: $docPath"
+            }
+          }
           Copy-Item tools/llvm-mingw-20240619-ucrt-x86_64 "dist/$fullName/toolchain" -Recurse
 
           $crt = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'

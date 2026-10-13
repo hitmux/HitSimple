@@ -518,6 +518,9 @@ install(FILES
 install(FILES LICENSE README.md USAGE.md Standard.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
 )
+install(FILES docs/checked-file-handles.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs
+)
 install(FILES docs/releases/${PROJECT_VERSION}.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/releases
 )
@@ -984,6 +987,11 @@ target_link_libraries(hsc_unit_tests
       --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness)
   set_tests_properties(hsc_runtime_file_handles hsc_harness_file_handles
     PROPERTIES LABELS "testing;file-handles;safety-mode")
+  add_hsc_shell_test(hsc_installed_file_handle_docs
+    "${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix $PWD/install && ${CMAKE_COMMAND} -E compare_files ${PROJECT_SOURCE_DIR}/docs/checked-file-handles.md $PWD/install/${CMAKE_INSTALL_DOCDIR}/docs/checked-file-handles.md"
+  )
+  set_tests_properties(hsc_installed_file_handle_docs
+    PROPERTIES LABELS "testing;file-handles;installation")
   add_test(NAME hsc_help COMMAND hsc --help)
   add_test(NAME hsc_version COMMAND hsc --version)
   add_test(NAME hsc_target_info COMMAND hsc --target-info)

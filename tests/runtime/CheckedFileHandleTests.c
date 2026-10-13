@@ -9,6 +9,7 @@
 #define HITSIMPLE_SOFTWARE_F128 1
 
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,7 @@ static FILE *expectedFile;
 static int forbidCalls;
 static int closeResult;
 static int checkDuringClose;
+static int forbidStderr;
 static unsigned calls;
 static unsigned opens;
 static unsigned closes;
@@ -50,12 +52,18 @@ static FILE *testFopen(const char *name, const char *mode) {
   require(strcmp(name, "test-file") == 0, "fopen name changed");
   require(strcmp(mode, "r+") == 0, "fopen mode changed");
   ++opens;
+  if (nextOpen == stderr) {
+    forbidStderr = 0;
+  }
   return nextOpen;
 }
 
 static int testFclose(FILE *file) {
   recordCall(file, "fclose");
   ++closes;
+  if (file == stderr) {
+    forbidStderr = 1;
+  }
   if (checkDuringClose) {
     /* Check the ordering without asking the real libc to close anything. */
     forbidCalls = 1;
@@ -120,27 +128,55 @@ static int testUngetc(int value, FILE *file) {
   return value;
 }
 
+static void requireDiagnosticStream(FILE *file) {
+  if (file == stderr && forbidStderr) {
+    /* Never report a diagnostic-stream violation through that same stream. */
+    fputs("FORBIDDEN_STDERR_CALL\n", stdout);
+    exit(TEST_FAILURE);
+  }
+}
+
+static int testFprintf(FILE *file, const char *format, ...) {
+  requireDiagnosticStream(file);
+  va_list arguments;
+  va_start(arguments, format);
+  int result = vfprintf(file, format, arguments);
+  va_end(arguments);
+  return result;
+}
+
+static int testFputc(int value, FILE *file) {
+  requireDiagnosticStream(file);
+  return fputc(value, file);
+}
+
 /* Some C libraries define these names as macros. Include stdio first and
- * replace them only while compiling the runtime under test. Diagnostics still
- * use real fprintf/fputc on stderr, never on a synthetic FILE token. */
+ * replace them only while compiling the runtime under test. Diagnostic stubs
+ * forward to real stderr only while that stream remains logically open. */
 #undef fopen
 #undef fclose
 #undef fgetc
+#undef getchar
 #undef fflush
 #undef feof
 #undef ferror
 #undef fread
 #undef fwrite
 #undef ungetc
+#undef fprintf
+#undef fputc
 #define fopen testFopen
 #define fclose testFclose
 #define fgetc testFgetc
+#define getchar() testFgetc(stdin)
 #define fflush testFflush
 #define feof testFeof
 #define ferror testFerror
 #define fread testFread
 #define fwrite testFwrite
 #define ungetc testUngetc
+#define fprintf testFprintf
+#define fputc testFputc
 #if defined(_WIN32)
 #define _fseeki64 testFseek
 #define _ftelli64 testFtell
@@ -155,12 +191,15 @@ static int testUngetc(int value, FILE *file) {
 #undef fopen
 #undef fclose
 #undef fgetc
+#undef getchar
 #undef fflush
 #undef feof
 #undef ferror
 #undef fread
 #undef fwrite
 #undef ungetc
+#undef fprintf
+#undef fputc
 #if defined(_WIN32)
 #undef _fseeki64
 #undef _ftelli64
@@ -250,6 +289,20 @@ static void consume(const char *operation, FILE *file) {
   } else if (strcmp(operation, "scan_empty") == 0) {
     require(hs_scan_input(file, emptyFormat, NULL, 0, 1) == 0,
             "empty scan result changed");
+  } else if (strcmp(operation, "console_get") == 0) {
+    require(hs_get() == 'x', "console get result changed");
+  } else if (strcmp(operation, "console_put") == 0) {
+    require(hs_put(bytes, sizeof(bytes)) == 4, "console put result changed");
+  } else if (strcmp(operation, "console_put_zero") == 0) {
+    require(hs_put(NULL, 0) == 0, "empty console put result changed");
+  } else if (strncmp(operation, "default_", 8) == 0) {
+    consume(operation + 8, NULL);
+  } else if (strcmp(operation, "panic") == 0) {
+    hs_panic(17);
+  } else if (strcmp(operation, "assert_fail") == 0) {
+    hs_assert(0, 17);
+  } else if (strcmp(operation, "assert_true") == 0) {
+    hs_assert(1, 17);
   } else {
     require(0, "unknown operation");
   }
@@ -314,11 +367,50 @@ int main(int argc, char **argv) {
     expectedFile = stdout;
     consume("format", NULL);
     consume("format_empty", NULL);
+    consume("console_put", NULL);
+    consume("console_put_zero", NULL);
     expectedFile = stdin;
     consume("scan", NULL);
     consume("scan_target", NULL);
     consume("scan_empty", NULL);
-    require(calls == 3, "console null sentinel was not forwarded");
+    consume("console_get", NULL);
+    require(calls == 5, "console stream was not forwarded");
+  } else if (strcmp(argv[1], "standard_streams") == 0) {
+    /* These actual FILE pointers remain unknown until hs_fclose sees them.
+     * All stdio operations, including close, are still intercepted by stubs. */
+    expectedFile = stdin;
+    consumeOpen(stdin);
+    expectedFile = stdout;
+    consumeOpen(stdout);
+    expectedFile = stderr;
+    consumeOpen(stderr);
+    require(opens == 0 && closes == 3, "standard streams were not forwarded");
+  } else if (strcmp(argv[1], "stderr_closed_console") == 0) {
+    expectedFile = stderr;
+    consume("close", stderr);
+    consume("assert_true", NULL);
+    /* Closing one standard stream must not poison the other two. */
+    expectedFile = stdout;
+    consume("default_format", NULL);
+    consume("console_put", NULL);
+    expectedFile = stdin;
+    consume("default_scan", NULL);
+    consume("console_get", NULL);
+    require(calls == 5, "closing stderr changed stdin/stdout behavior");
+  } else if (strcmp(argv[1], "unchecked_console") == 0) {
+    expectedFile = stdout;
+    consume("close", stdout);
+    require(hs_format_output(NULL, literalFormat, NULL, 0, 0) == 1,
+            "unchecked default output unexpectedly checked stdout");
+    require(hs_format_output(NULL, emptyFormat, NULL, 0, 0) == 0,
+            "unchecked empty default output unexpectedly checked stdout");
+    expectedFile = stdin;
+    consume("close", stdin);
+    require(hs_scan_input(NULL, literalFormat, NULL, 0, 0) == 0,
+            "unchecked default input unexpectedly checked stdin");
+    require(hs_scan_input(NULL, emptyFormat, NULL, 0, 0) == 0,
+            "unchecked empty default input unexpectedly checked stdin");
+    require(calls == 4, "unchecked default stdio was not forwarded");
   } else if (strcmp(argv[1], "unchecked") == 0) {
     FILE *file = openToken(0);
     consume("close", file);
@@ -333,6 +425,11 @@ int main(int argc, char **argv) {
     nextOpen = NULL;
     require(hs_fopen(fileName, fileMode) == NULL, "failed fopen result changed");
     consumeOpen(openToken(0));
+  } else if (strcmp(argv[1], "diagnostic") == 0) {
+    require(argc == 3, "expected a diagnostic operation");
+    consume(argv[2], NULL);
+    require(strcmp(argv[2], "assert_true") == 0,
+            "panic or failing assertion returned");
   } else if (strcmp(argv[1], "close_reentrant") == 0) {
     FILE *file = openToken(0);
     checkDuringClose = 1;
@@ -357,6 +454,29 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[1], "growth_closed") == 0) {
       growRegistry();
       file = &tokens[0];
+    } else if (strcmp(argv[1], "stdin_closed") == 0 ||
+               strcmp(argv[1], "stdout_closed") == 0 ||
+               strcmp(argv[1], "stderr_closed") == 0 ||
+               strcmp(argv[1], "stderr_failed_close") == 0 ||
+               strcmp(argv[1], "stderr_closed_null") == 0 ||
+               strcmp(argv[1], "stderr_failed_close_null") == 0 ||
+               strcmp(argv[1], "stderr_reopened_null") == 0) {
+      file = strcmp(argv[1], "stdin_closed") == 0 ? stdin :
+             strcmp(argv[1], "stdout_closed") == 0 ? stdout : stderr;
+      expectedFile = file;
+      if (strncmp(argv[1], "stderr_failed_close", 19) == 0) {
+        closeResult = EOF;
+      }
+      consume("close", file);
+      if (strcmp(argv[1], "stderr_reopened_null") == 0) {
+        nextOpen = stderr;
+        require(hs_fopen(fileName, fileMode) == stderr,
+                "reopening stderr did not preserve its address");
+        consume("get", stderr);
+      }
+      if (strstr(argv[1], "_null") != NULL) {
+        file = NULL;
+      }
     } else if (strcmp(argv[1], "null") == 0) {
       file = NULL;
     } else {
