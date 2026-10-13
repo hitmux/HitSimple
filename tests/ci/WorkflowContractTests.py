@@ -57,6 +57,12 @@ class WorkflowContractTests(unittest.TestCase):
             'cp "$GITHUB_WORKSPACE/docs/releases/${HITSIMPLE_VERSION}.md" ../release-notes.txt',
             workflow,
         )
+        cmake = (SOURCE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn(
+            "install(FILES docs/releases/${PROJECT_VERSION}.md\n"
+            "  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/releases\n)",
+            cmake,
+        )
 
     def test_mutation_cmake_argument_binds_a_dash_prefixed_value(self) -> None:
         workflow = (SOURCE_ROOT / ".github/workflows/mutation.yml").read_text(encoding="utf-8")
