@@ -64,6 +64,47 @@ class WorkflowContractTests(unittest.TestCase):
             cmake,
         )
 
+    def test_checked_file_handle_documentation_is_installed(self) -> None:
+        document = "docs/checked-file-handles.md"
+        self.assertTrue((SOURCE_ROOT / document).is_file())
+        cmake = (SOURCE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn(
+            f"install(FILES {document}\n"
+            "  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs\n)", cmake,
+        )
+        self.assertIn("hsc_installed_file_handle_docs", cmake)
+        for name in ("README.md", "USAGE.md"):
+            self.assertIn(f"]({document})", (SOURCE_ROOT / name).read_text(encoding="utf-8"))
+
+    def test_file_handle_diagnostics_accept_only_native_line_endings(self) -> None:
+        manifest = json.loads((SOURCE_ROOT / "tests/support/harness/manifests/file-handles.json").read_text(encoding="utf-8"))
+        for case in manifest["tests"]:
+            pattern = case["expect_by_mode"]["checked"]["run"].get("stderr_regex")
+            if pattern is None:
+                continue
+            name = Path(case["source"]).name
+            for ending in ("\n", "\r\n"):
+                diagnostic = f"hitsimple runtime error: closed file handle at D:/src/{name}:10:5{ending}"
+                with self.subTest(case=case["name"], ending=repr(ending)):
+                    self.assertIsNotNone(re.fullmatch(pattern, diagnostic))
+                    self.assertIsNone(re.fullmatch(pattern, diagnostic.replace("closed file handle", "invalid file handle")))
+                    self.assertIsNone(re.fullmatch(pattern, diagnostic.replace(":10:5", "")))
+                    self.assertIsNone(re.fullmatch(pattern, diagnostic + "unexpected output"))
+
+    def test_file_handle_cases_run_in_selective_platform_suites(self) -> None:
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        for start, end in (
+            ("      - name: Run aarch64 front-end and executable regression", "      - name: Verify native preprocessor macro"),
+            ("      - name: Run portable Windows CTest cases", "      - name: Assemble full and slim packages"),
+        ):
+            block = workflow.split(start, 1)[1].split(end, 1)[0]
+            patterns = re.findall(r"-DTEST_REGEX=([^']+)", block)
+            for case in ("hsc_runtime_file_handles", "hsc_harness_file_handles"):
+                self.assertTrue(any(re.fullmatch(pattern, case) for pattern in patterns), case)
+        windows = workflow.split("      - name: Run portable Windows CTest cases", 1)[1]
+        windows = windows.split("      - name: Assemble full and slim packages", 1)[0]
+        self.assertIn("$env:HITSIMPLE_CLANG = (Resolve-Path tools/llvm-mingw-", windows)
+
     def test_manual_publication_is_opt_in_and_gated_by_the_complete_bundle(self) -> None:
         workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         publish = re.search(r"^      publish:\n(?P<body>.*?)(?=^      \w)", workflow, re.MULTILINE | re.DOTALL)

@@ -1775,8 +1775,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return emitCheckedRuntimeCall(callee, {file}, call.callee + ".ret");
   }
   if (builtin == stdlib::BuiltinId::Get) {
-    auto callee = declareCFunction("getchar", i32Ty, {});
-    return builder_.CreateCall(callee, {}, "get.ret");
+    auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_get"
+                                                          : "getchar",
+                                   i32Ty, {});
+    return emitCheckedRuntimeCall(callee, {}, "get.ret");
   }
   if (builtin == stdlib::BuiltinId::Fget) {
     auto *file = emitPointerValue(*call.arguments[0], "fget.file");

@@ -228,7 +228,7 @@ xvfb-run -a npm run test:extension
 
 ## Known Boundaries
 
-- Checked mode registers declared `extern` globals for pointer bounds checks, but does not yet track raw FFI addresses or file-handle ownership/open state; null handles passed to checked file I/O are rejected.
+- Checked mode registers declared `extern` globals for pointer bounds checks. Checked file I/O rejects null handles and handles observed closed through its runtime wrappers, including copied aliases. This preserves the native `FILE*` ABI; raw FFI addresses, external closes, address-reused stale aliases, and concurrent runtime operations remain outside its detection guarantees. See [file-handle coverage](docs/checked-file-handles.md).
 - C compatibility is a restricted subset. C struct pass-by-value ABI supports only covered x86_64 SysV ELF layouts; Windows and Darwin reject it explicitly.
 - `f16` arithmetic computes through `f32` before writing back. Linux `f128` depends on platform binary128/glibc support; Windows and macOS use the software backend.
 - `mut self` and ordinary `mut` parameters remain reserved semantics and produce explicit diagnostics.

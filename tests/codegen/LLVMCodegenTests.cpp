@@ -1932,6 +1932,28 @@ HS_TEST(LLVMCodegen_CheckedUsesFileRuntimeBridges) {
   }
 }
 
+HS_TEST(LLVMCodegen_FileStateChecksAreCheckedOnly) {
+  constexpr std::string_view source =
+      "func main() {\n"
+      "    new input = get()\n"
+      "    new file as handle = fopen(\"file.tmp\", \"w+\")\n"
+      "    fprintf(file, \"ok\")\n"
+      "    new closed = fclose(file)\n"
+      "    return closed\n"
+      "}\n";
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    const auto result = emitSource(source, optionsFor(mode));
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    const bool checked = mode == hitsimple::codegen::SafetyMode::Checked;
+    for (const std::string_view symbol :
+         {"@hs_fopen", "@hs_fclose", "@hs_check_file_handle", "@hs_get"}) {
+      HS_EXPECT_EQ(llvmIr(result).find(symbol) != std::string::npos, checked);
+    }
+  }
+}
+
 HS_TEST(LLVMCodegen_RuntimeSourceLocationsFollowCheckedModePolicy) {
   constexpr std::string_view source =
       "func main() {\n"

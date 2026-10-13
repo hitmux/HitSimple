@@ -251,6 +251,15 @@ paths plus line and column data. Treat source paths as build metadata when
 distributing binaries. A runtime call made without compiler-provided context
 falls back to the original `hitsimple runtime error: <message>` form.
 
+Checked file I/O reports `closed file handle` (exit status 120) when its runtime
+has observed a close of that native handle address, including uses through a
+copied alias. A failed `fclose` also consumes the stream. This is runtime state
+observation, not static ownership analysis: non-null FFI handles still pass
+through, and external closes, native address reuse, and concurrent runtime
+operations have limitations. The handle remains a `P`-byte native `FILE*`.
+See [checked file-handle coverage](docs/checked-file-handles.md) for the exact
+scope, error policy, metadata cost, and tests.
+
 Use `--target-info` to inspect the actual coverage. `Standard.md` is the authority for the normative contract.
 
 ## Select a Clang Toolchain

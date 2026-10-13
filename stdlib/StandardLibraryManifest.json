@@ -1430,7 +1430,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern get() -> i32"
     },
     {
@@ -1472,7 +1474,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern put(value as u64) -> i32"
     },
     {
@@ -1514,7 +1518,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern print(value as addr) -> i32"
     },
     {
@@ -1559,7 +1565,8 @@
       ],
       "checkedObligations": [
         "format_descriptor",
-        "cstr_termination"
+        "cstr_termination",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern printf(format as cstr) -> i32"
     },
@@ -1604,7 +1611,8 @@
       ],
       "checkedObligations": [
         "format_descriptor",
-        "scan_targets"
+        "scan_targets",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern scanf(format as cstr) -> i32"
     },
@@ -1654,7 +1662,8 @@
         "official_signature"
       ],
       "checkedObligations": [
-        "cstr_termination"
+        "cstr_termination",
+        "file_handle_registration"
       ],
       "headerDeclaration": "extern fopen(name as cstr, mode as cstr) -> handle"
     },
@@ -1697,7 +1706,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern fclose(file as handle) -> i32"
     },
     {
@@ -1739,7 +1750,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern fget(file as handle) -> i32"
     },
     {
@@ -1787,7 +1800,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern fput(file as handle, value as u64) -> i32"
     },
     {
@@ -1849,7 +1864,8 @@
       ],
       "checkedObligations": [
         "multiplication_overflow",
-        "view_bounds"
+        "view_bounds",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern fread(dst as addr, size as u64, count as u64, file as handle) -> u64"
     },
@@ -1912,7 +1928,8 @@
       ],
       "checkedObligations": [
         "multiplication_overflow",
-        "view_bounds"
+        "view_bounds",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern fwrite(src as addr, size as u64, count as u64, file as handle) -> u64"
     },
@@ -1964,7 +1981,8 @@
       ],
       "checkedObligations": [
         "format_descriptor",
-        "cstr_termination"
+        "cstr_termination",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern fprintf(file as handle, format as cstr) -> i32"
     },
@@ -2015,7 +2033,8 @@
       ],
       "checkedObligations": [
         "format_descriptor",
-        "scan_targets"
+        "scan_targets",
+        "observed_file_handle_state"
       ],
       "headerDeclaration": "extern fscanf(file as handle, format as cstr) -> i32"
     },
@@ -2058,7 +2077,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern fflush(file as handle) -> i32"
     },
     {
@@ -2112,7 +2133,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern fseek(file as handle, offset as i64, whence as i32) -> i32"
     },
     {
@@ -2154,7 +2177,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern ftell(file as handle) -> i64"
     },
     {
@@ -2196,7 +2221,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern feof(file as handle) -> bool"
     },
     {
@@ -2238,7 +2265,9 @@
         "header_required",
         "official_signature"
       ],
-      "checkedObligations": [],
+      "checkedObligations": [
+        "observed_file_handle_state"
+      ],
       "headerDeclaration": "extern ferror(file as handle) -> i32"
     },
     {

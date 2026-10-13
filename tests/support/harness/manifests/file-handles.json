@@ -1,0 +1,587 @@
+{
+  "version": 2,
+  "suite": "file-handles",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "closed_alias_fclose",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "a",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fget",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "b",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fput",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "c",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fread",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "d",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fwrite",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "e",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fprintf",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "f",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fscanf",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "g",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fflush",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "h",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fseek",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "i",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_ftell",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "j",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_feof",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "k",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_ferror",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "l",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fread_zero",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "m",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "closed_alias_fwrite_zero",
+      "source": "../../../cases/run/checked_closed_file_handle.hs",
+      "stdin": "n",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_closed_file_handle\\.hs:[0-9]+:[0-9]+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "formatted_argument_closes_file",
+      "source": "../../../cases/run/checked_file_handle_argument_close.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "closed file-handle use is undefined outside checked mode; compile only"
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: closed file handle at .*/checked_file_handle_argument_close\\.hs:10:5\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "open_alias_close_reopen",
+      "source": "../../../cases/run/checked_file_handle_lifecycle.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "handle lifecycle ok",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "handle lifecycle ok",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "handle lifecycle ok",
+            "stderr": ""
+          }
+        }
+      }
+    }
+  ]
+}
