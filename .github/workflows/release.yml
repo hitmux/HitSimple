@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to validate without publishing
+        description: Version to validate or explicitly publish
         required: true
         default: "0.3.9"
       scope:
@@ -19,11 +19,40 @@ on:
           - all
           - windows
         default: all
+      publish:
+        description: Publish only after full validation (master and exact expected_commit required)
+        required: true
+        type: boolean
+        default: false
+      expected_commit:
+        description: Exact reviewed 40-character master commit SHA (required only when publishing)
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
+  release_request:
+    name: Release request guard
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.request.outputs.publish }}
+      tag: ${{ steps.request.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate release intent and source identity
+        id: request
+        env:
+          HITSIMPLE_PUBLISH: ${{ inputs.publish }}
+          HITSIMPLE_VERSION: ${{ inputs.version }}
+          HITSIMPLE_SCOPE: ${{ inputs.scope }}
+          HITSIMPLE_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: python3 .github/scripts/release_guard.py request
+
   traceability:
     name: PR traceability
     if: github.event_name == 'pull_request'
@@ -43,6 +72,7 @@ jobs:
           grep -Eq '^Acceptance: .+$' "$body_file"
 
   linux:
+    needs: release_request
     name: Linux ${{ matrix.architecture }}
     if: github.event_name == 'push' || inputs.scope != 'windows'
     strategy:
@@ -334,6 +364,7 @@ jobs:
             '
 
   macos:
+    needs: release_request
     name: macOS ${{ matrix.architecture }}
     if: github.event_name == 'push' || inputs.scope != 'windows'
     strategy:
@@ -478,6 +509,7 @@ jobs:
           if-no-files-found: error
 
   rpm:
+    needs: release_request
     name: RPM ${{ matrix.distribution }} ${{ matrix.architecture }}
     if: github.event_name == 'push' || inputs.scope != 'windows'
     strategy:
@@ -663,6 +695,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: release_request
     name: Windows x64 compiler
     runs-on: windows-2022
 
@@ -1281,30 +1314,43 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: github.event_name == 'push'
+    if: needs.release_request.outputs.publish == 'true'
     permissions:
       contents: write
-    needs: assemble
+    needs: [assemble, release_request]
     runs-on: ubuntu-24.04
+    concurrency:
+      group: hitsimple-release-${{ needs.release_request.outputs.tag }}
+      cancel-in-progress: false
+    env:
+      RELEASE_TAG: ${{ needs.release_request.outputs.tag }}
+      HITSIMPLE_PUBLISH: ${{ inputs.publish }}
+      HITSIMPLE_VERSION: ${{ inputs.version }}
+      HITSIMPLE_SCOPE: ${{ inputs.scope }}
+      HITSIMPLE_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: hitsimple-release-bundle
           path: release-bundle
 
+      - name: Verify target and create only a missing manually requested tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release_guard.py prepare
+
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
-          fi
-          gh release create "$GITHUB_REF_NAME" release-bundle/assets/* \
+          gh release create "$RELEASE_TAG" release-bundle/assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "HitSimple $GITHUB_REF_NAME" \
+            --title "HitSimple $RELEASE_TAG" \
             --notes-file release-bundle/release-notes.txt \
             --draft
 
@@ -1313,8 +1359,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
-          version="${GITHUB_REF_NAME#v}"
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          version="${RELEASE_TAG#v}"
           printf '%s\n' SHA256SUMS \
             "hitsimple-${version}-linux-aarch64.tar.gz" \
             "hitsimple-${version}-linux-x86_64.tar.gz" \
@@ -1329,11 +1375,11 @@ jobs:
             "hitsimple-${version}-windows-x86_64-full.zip" \
             "hitsimple-${version}-windows-x86_64-slim.zip" \
             "hitsimple-vscode-${version}.vsix" | sort > "$RUNNER_TEMP/expected-assets"
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name' | sort > "$RUNNER_TEMP/actual-assets"
           diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
           mkdir -p "$RUNNER_TEMP/downloaded-release"
-          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --dir "$RUNNER_TEMP/downloaded-release"
           cd "$RUNNER_TEMP/downloaded-release"
           sha256sum -c SHA256SUMS
@@ -1342,7 +1388,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release edit "$GITHUB_REF_NAME" \
+          gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --draft=false \
             --latest
