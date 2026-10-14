@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "suite": "floating-ternary-views",
   "defaults": {
     "targets": [
@@ -31,8 +31,8 @@
         },
         "run": {
           "exit_code": 0,
-          "stdout": "f16 0\nf32 0\nf64 0\nf128 0\ncontrols 0\n",
-          "stderr": ""
+          "stderr": "",
+          "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
         }
       }
     },
@@ -50,8 +50,8 @@
         },
         "run": {
           "exit_code": 0,
-          "stdout": "f16 0\nf32 0\nf64 0\nf128 0\ncontrols 0\n",
-          "stderr": ""
+          "stderr": "",
+          "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
         }
       }
     }
