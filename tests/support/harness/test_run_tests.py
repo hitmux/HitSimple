@@ -477,6 +477,48 @@ class HarnessTests(unittest.TestCase):
                                 self.assertEqual(record["exit_code"],
                                                  7 if target == "reference/checked/O2/compile" else 0)
 
+    def test_floating_ternary_manifest_accepts_only_portable_zero_output(self) -> None:
+        from run_tests import ProcessResult, _process_mismatch, load_manifest
+
+        manifest = RUNNER.parent / "manifests/floating-ternary-views.json"
+        result = subprocess.run(
+            [sys.executable, str(RUNNER), "--hsc", sys.executable,
+             "--manifest", str(manifest), "--list"],
+            text=True, capture_output=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(result.stdout.splitlines()), 12)
+        self.assertEqual(set(result.stdout.splitlines()), {
+            "floating-ternary-views/" + provider + " [host, " + mode + ", " + level + "]"
+            for provider in ("optimized", "reference")
+            for mode in ("unchecked", "static-checked", "checked")
+            for level in ("O0", "O2")
+        })
+        output = "f16 0\nf32 0\nf64 0\nf128 0\ncontrols 0\n"
+        cases = load_manifest(manifest)
+        self.assertEqual(len(cases), 2)
+        for case in cases:
+            self.assertEqual(set(case.expect_by_mode),
+                             {"unchecked", "static-checked", "checked"})
+            for mode, expected in case.expect_by_mode.items():
+                for stdout, stderr, code, accepted in (
+                    (output, "", 0, True),
+                    (output.replace("\n", "\r\n"), "", 0, True),
+                    (output.replace("f32 0", "f32 1"), "", 0, False),
+                    (output.replace("f128 0\n", ""), "", 0, False),
+                    (output + "extra\n", "", 0, False),
+                    (output[:-1], "", 0, False),
+                    (output, "unexpected\n", 0, False),
+                    (output, "", 1, False),
+                ):
+                    with self.subTest(provider=case.name, mode=mode,
+                                      stdout=stdout, stderr=stderr, code=code):
+                        actual = ProcessResult((), code, stdout, stderr, False)
+                        self.assertEqual(
+                            _process_mismatch(actual, expected.run, "run") is None,
+                            accepted,
+                        )
+
     def test_safety_mode_manifest_requires_expectations_for_each_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

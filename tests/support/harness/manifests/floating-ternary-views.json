@@ -23,16 +23,42 @@
       "compile_args": [
         "--stdlib-provider=optimized"
       ],
-      "expect": {
-        "compile": {
-          "exit_code": 0,
-          "stdout": "",
-          "stderr": ""
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
         },
-        "run": {
-          "exit_code": 0,
-          "stderr": "",
-          "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
         }
       }
     },
@@ -42,16 +68,42 @@
       "compile_args": [
         "--stdlib-provider=reference"
       ],
-      "expect": {
-        "compile": {
-          "exit_code": 0,
-          "stdout": "",
-          "stderr": ""
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
         },
-        "run": {
-          "exit_code": 0,
-          "stderr": "",
-          "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
         }
       }
     }
