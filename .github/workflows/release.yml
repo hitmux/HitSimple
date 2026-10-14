@@ -148,6 +148,9 @@ jobs:
         if: matrix.architecture == 'x86_64'
         run: cmake -DBUILD_DIR=build-release -P cmake/RunQuietTests.cmake
 
+      - name: Run documented practical examples on the native target
+        run: python3 examples/practical/run.py cli --hsc build-release/hsc
+
       - name: Run aarch64 front-end and executable regression
         if: matrix.architecture == 'aarch64'
         run: |
@@ -1084,7 +1087,7 @@ jobs:
           sudo apt-get install -y gdb xvfb
           npm ci
           npm test
-          xvfb-run -a npm run test:extension
+          xvfb-run -a python3 ../../examples/practical/run.py vscode-debug --hsc "$HSC_PATH"
           npm run verify:vsix
           mkdir -p dist
           npm run package:vsix
@@ -1129,7 +1132,7 @@ jobs:
           sudo apt-get install -y gdb xvfb
           npm ci
           npm test
-          xvfb-run -a npm run test:extension
+          xvfb-run -a python3 ../../examples/practical/run.py vscode-debug --hsc "$HSC_PATH"
 
   extension_macos:
     name: VS Code extension macOS ${{ matrix.architecture }}
@@ -1198,6 +1201,12 @@ jobs:
           cache: npm
           cache-dependency-path: vscode/hitsimple/package-lock.json
 
+      - name: Verify Windows npm failure propagation
+        shell: pwsh
+        run: |
+          python tests/ci/WorkflowContractTests.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test extension with Windows release compiler
         shell: pwsh
         env:
@@ -1208,11 +1217,16 @@ jobs:
           $env:HSC_PATH = (Resolve-Path "compiler/hitsimple-$version-windows-x86_64-full/bin/hsc.exe").Path
           Push-Location vscode/hitsimple
           npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:extension
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run verify:vsix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force dist | Out-Null
           npm run package:vsix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path "dist/hitsimple-vscode-$version.vsix")) { throw 'missing Windows-built VSIX' }
           Pop-Location
           if ($env:VALIDATION_SCOPE -ne 'windows' -and -not (Test-Path "vsix-asset/hitsimple-vscode-$version.vsix")) {

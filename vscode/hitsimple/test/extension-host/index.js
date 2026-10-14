@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const vscode = require("vscode");
+const { frameHasFunctionName } = require("../debug-assertions.cjs");
 
 const workspacePath = process.env.HITSIMPLE_TEST_WORKSPACE;
 const compilerPath = process.env.HITSIMPLE_TEST_COMPILER;
@@ -108,7 +109,13 @@ async function verifyBuildAndRun(mainUri, extension) {
   const configuration = vscode.workspace.getConfiguration("hitsimple", mainUri);
   assert.equal(configuration.get("compilerPath"), compilerPath);
   assert.equal(configuration.get("outputDirectory"), outputDirectory);
-  const expectedOutput = path.join(workspacePath, outputDirectory, "main");
+  // VS Code normalizes Windows drive letters in Uri.fsPath; use that same
+  // workspace identity and the native executable suffix for the expectation.
+  const folder = vscode.workspace.getWorkspaceFolder(mainUri);
+  assert.ok(folder, "main source must belong to the test workspace");
+  const expectedOutput = path.join(
+    folder.uri.fsPath, outputDirectory, process.platform === "win32" ? "main.exe" : "main",
+  );
   const modeFlags = {
     unchecked: "--unchecked",
     "static-checked": "--static-checked",
@@ -285,8 +292,13 @@ async function verifyDebug() {
   if (platform.miMode === "gdb") {
     assert.equal(configuration.get("gdbPath"), process.env.HITSIMPLE_TEST_GDB_PATH);
   }
+  // Use the tutorial's canonical fixture and stop after value is initialized.
+  const breakpointLine = document.getText().split(/\r?\n/).findIndex(
+    (line) => line.trim().startsWith('printf("%d\\n", value)'),
+  );
+  assert.ok(breakpointLine >= 0, "debug fixture must contain the printf breakpoint");
   const breakpoint = new vscode.SourceBreakpoint(
-    new vscode.Location(document.uri, new vscode.Position(2, 0)),
+    new vscode.Location(document.uri, new vscode.Position(breakpointLine, 0)),
   );
   vscode.debug.addBreakpoints([breakpoint]);
   await configuration.update(
@@ -347,7 +359,9 @@ async function verifyDebug() {
       document.uri.fsPath,
       trace,
     );
-    assert.match(frame.name, /(?:^|!)helper(?:\(\))?$/);
+    assert.equal(frame.line, breakpointLine + 1, "debugger must stop at the requested source line");
+    assert.ok(frameHasFunctionName(frame, "helper", platform.adapterType),
+      `expected helper frame, got ${frame.name}`);
     assert.ok(frame.source, "helper must be a HitSimple source frame");
     assert.ok(
       frame.source.name === path.basename(document.uri.fsPath) ||
@@ -356,7 +370,7 @@ async function verifyDebug() {
     );
     assert.ok(
       (stack.stackFrames || []).some((candidate) =>
-        /(?:^|!)main(?:\(\))?$/.test(candidate.name) && candidate.source &&
+        frameHasFunctionName(candidate, "main", platform.adapterType) && candidate.source &&
         (candidate.source.name === path.basename(document.uri.fsPath) ||
           (candidate.source.path &&
             path.resolve(candidate.source.path) === document.uri.fsPath))),
@@ -530,9 +544,10 @@ async function verifySnippet() {
     (text) => text.includes("func main()"),
     "the contributed main snippet",
   );
+  const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   assert.equal(
     document.getText(),
-    "func main() {\n    // code\n    return 0\n}",
+    ["func main() {", "    // code", "    return 0", "}"].join(eol),
   );
 }
 

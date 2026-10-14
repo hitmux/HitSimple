@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -13,6 +16,55 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def windows_npm_commands(self) -> list[str]:
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        block = workflow.split("      - name: Test extension with Windows release compiler", 1)[1]
+        block = block.split("\n  assemble:", 1)[0]
+        lines = [line.strip() for line in block.splitlines()]
+        commands = []
+        for index, line in enumerate(lines):
+            if line.startswith("npm "):
+                self.assertEqual(lines[index + 1], "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }")
+                commands.extend([line, lines[index + 1]])
+        self.assertEqual(commands[::2], ["npm ci", "npm test", "npm run test:extension",
+                                       "npm run verify:vsix", "npm run package:vsix"])
+        return commands
+
+    def test_windows_npm_steps_check_each_native_exit(self) -> None:
+        self.windows_npm_commands()
+
+    def test_windows_npm_nonzero_exit_stops_later_commands(self) -> None:
+        powershell = shutil.which("pwsh")
+        if powershell is None:
+            if sys.platform == "win32":
+                self.fail("Windows CI must provide pwsh for npm failure-injection tests")
+            self.skipTest("native PowerShell failure injection runs in the Windows extension job")
+        python = sys.executable.replace("'", "''")
+        commands = "\n".join(self.windows_npm_commands())
+        # Execute the exact npm/guard pairs extracted from the workflow. The
+        # fake npm invokes a real child process so LASTEXITCODE behaves like
+        # npm.cmd; each possible failure must stop before the next npm call.
+        for failed_step in range(6):
+            with self.subTest(failed_step=failed_step):
+                script = (
+                    "$script:step = 0\n"
+                    "function npm {\n"
+                    "  $script:step++\n"
+                    "  Write-Output ('NPM ' + $script:step)\n"
+                    f"  $code = if ($script:step -eq {failed_step}) {{ 37 }} else {{ 0 }}\n"
+                    f"  & '{python}' -c \"import sys; sys.exit($code)\"\n"
+                    "}\n" + commands
+                )
+                result = subprocess.run(
+                    [powershell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+                    capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(result.returncode, 37 if failed_step else 0,
+                                 result.stdout + result.stderr)
+                expected_calls = failed_step or 5
+                self.assertEqual(result.stdout.splitlines(),
+                                 [f"NPM {index}" for index in range(1, expected_calls + 1)])
+
     def release_version(self) -> str:
         cmake = (SOURCE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         match = re.search(r"^  VERSION (\d+\.\d+\.\d+)$", cmake, re.MULTILINE)

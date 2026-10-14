@@ -560,3 +560,10 @@ sha256sum -c SHA256SUMS
 ```
 
 Only when every hash verification passes can the downloaded contents be considered identical to the release assets.
+
+## Practical Examples
+
+The [six-example guide](examples/practical/README.md) provides runnable recipes
+for C/C++/Rust interoperability, an expected checked runtime failure, ctype
+provider equivalence and Debug Current File. Its entry commands are also run
+by CI on native Linux x86_64 and AArch64.
