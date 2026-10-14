@@ -329,3 +329,46 @@ HS_TEST(Sema_RejectsStageGFunctionSignatureErrors) {
   HS_EXPECT_TRUE(multiExpression.diagnostics[0].find("multi-return") !=
                  std::string::npos);
 }
+
+HS_TEST(Sema_ReturnConversionPlansUseExplicitNumericResultViews) {
+  using namespace hitsimple::hir;
+  auto result = analyzeSource(
+      "func direct(value as i8) -> i32 { return to_i32(value); }\n"
+      "func nested(value as i8) -> i64 { return to_i64(to_i32(value)); }\n"
+      "func widen(value as i8) -> i64 { return to_i32(value); }\n"
+      "func reinterpret_result(value as i8) -> u32 { return to_i32(value); }\n"
+      "func boolean(value as bool) -> i64 { return to_i64(value); }\n"
+      "func floating(value as f64) -> i32 { return to_i32(value); }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+  for (std::size_t index = 0; index < 6U; ++index) {
+    const auto *ret = dynamic_cast<const Return *>(
+        result.unit->functions[index]->body->statements.back().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    HS_EXPECT_EQ(ret->conversionPlans.size(), 1U);
+    const auto &plan = ret->conversionPlans[0];
+    const auto *cast = dynamic_cast<const IntegerCastExpr *>(ret->values[0].get());
+    // Float-to-integer conversion has its own HIR expression; it must remain
+    // a valid identity-return source too.
+    if (index == 5U) {
+      HS_EXPECT_EQ(plan.kind, ConversionKind::Identity);
+      HS_EXPECT_EQ(plan.source.templateName, std::string("i32"));
+      continue;
+    }
+    HS_EXPECT_TRUE(cast != nullptr);
+    if (index == 2U) {
+      HS_EXPECT_EQ(plan.kind, ConversionKind::IntegerWidth);
+      HS_EXPECT_EQ(plan.source.templateName, std::string("i32"));
+      HS_EXPECT_EQ(plan.destination.templateName, std::string("i64"));
+      HS_EXPECT_TRUE(dynamic_cast<const IntegerCastExpr *>(cast->operand.get()) !=
+                     nullptr);
+    } else {
+      HS_EXPECT_EQ(plan.kind, index == 3U ? ConversionKind::IntegerWidth
+                                         : ConversionKind::Identity);
+      HS_EXPECT_EQ(plan.source.templateName, cast->result.templateName);
+      HS_EXPECT_EQ(plan.source.staticByteLength, cast->result.staticByteLength);
+    }
+  }
+}
