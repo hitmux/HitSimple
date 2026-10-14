@@ -3192,7 +3192,10 @@ HS_TEST(LLVMCodegen_CheckedArithmeticGuardsAvoidPoison) {
 HS_TEST(LLVMCodegen_ReadsBooleanValuesOnlyAtSemanticBoundaries) {
   auto result = emitSource(
       "func equal(a as bool, b as bool) -> u8 { return (a == b) as u8; }\n"
-      "func integral(value as bool) -> i64 { return to_i64(value); }\n"
+      "func integral(value as bool) -> i64 {\n"
+      "  new converted as i64 = to_i64(value)\n"
+      "  return converted\n"
+      "}\n"
       "func floating(value as bool) -> f64 { return to_f64(value); }\n"
       "func returned(value as bool) -> bool { return value; }\n"
       "func bytes_of(value as bool) -> u8 { return value as u8; }\n"
@@ -3251,9 +3254,25 @@ HS_TEST(LLVMCodegen_NormalizesFeofBeforeNarrowing) {
           HS_EXPECT_TRUE(compare->getOperand(0)->getType()->isIntegerTy(32));
           const auto *call = llvm::dyn_cast<llvm::CallInst>(compare->getOperand(0));
           HS_EXPECT_TRUE(call != nullptr);
-          const std::string callee = mode == hitsimple::codegen::SafetyMode::Checked
-                                         ? "hs_feof" : "feof";
-          HS_EXPECT_EQ(call->getCalledFunction()->getName().str(), callee);
+          const auto *callee = call->getCalledFunction();
+          HS_EXPECT_TRUE(callee != nullptr);
+          if (mode == hitsimple::codegen::SafetyMode::Checked) {
+            // Checked calls go through a source-location wrapper.
+            unsigned runtimeCalls = 0;
+            for (const auto &wrapperBlock : *callee) {
+              for (const auto &wrapperInstruction : wrapperBlock) {
+                const auto *runtimeCall =
+                    llvm::dyn_cast<llvm::CallInst>(&wrapperInstruction);
+                if (runtimeCall != nullptr && runtimeCall->getCalledFunction() != nullptr &&
+                    runtimeCall->getCalledFunction()->getName() == "hs_feof") {
+                  ++runtimeCalls;
+                }
+              }
+            }
+            HS_EXPECT_EQ(runtimeCalls, 1U);
+          } else {
+            HS_EXPECT_EQ(callee->getName().str(), std::string("feof"));
+          }
           ++normalized;
         }
       }

@@ -51,7 +51,10 @@ HS_TEST(Sema_RejectsBoolUnaryMinusAndBitwiseNot) {
 HS_TEST(Sema_RecordsBooleanValueReadBoundaries) {
   auto result = analyzeSource(
       "func equal(a as bool, b as bool) -> bool { return a == b; }\n"
-      "func integral(value as bool) -> i64 { return to_i64(value); }\n"
+      "func integral(value as bool) -> i64 {\n"
+      "  new converted as i64 = to_i64(value)\n"
+      "  return converted\n"
+      "}\n"
       "func floating(value as bool) -> f64 { return to_f64(value); }\n"
       "func bytes_of(value as bool) -> u8 { return value as u8; }\n"
       "func main() -> i32 { return 0; }\n");
@@ -78,10 +81,11 @@ HS_TEST(Sema_RecordsBooleanValueReadBoundaries) {
   HS_EXPECT_TRUE(dynamic_cast<const hitsimple::hir::BooleanTestExpr *>(
                      comparison->right.get()) != nullptr);
 
-  ret = dynamic_cast<const hitsimple::hir::Return *>(
-      functions[1]->body->statements.back().get());
+  const auto *store = dynamic_cast<const hitsimple::hir::IntegerStore *>(
+      functions[1]->body->statements[1].get());
+  HS_EXPECT_TRUE(store != nullptr);
   const auto *integer = dynamic_cast<const hitsimple::hir::IntegerCastExpr *>(
-      ret->values[0].get());
+      store->value.get());
   HS_EXPECT_TRUE(integer != nullptr);
   HS_EXPECT_TRUE(dynamic_cast<const hitsimple::hir::BooleanTestExpr *>(
                      integer->operand.get()) != nullptr);

@@ -19,10 +19,18 @@ func return_f128_sum(left as f128, right as f128) -> bool { return left + right;
 func return_f32_sum(left as f32, right as f32) -> bool { return left + right; }
 func return_f64_sum(left as f64, right as f64) -> bool { return left + right; }
 func return_f32_choice(choose as bool, left as f32, right as f32) -> bool {
-    return choose ? left : right
+    // Preserve the existing raw-View ternary path using local storage.
+    // Direct floating ABI parameter ternaries are a separate unsupported case.
+    new left_copy as f32 = left
+    new right_copy as f32 = right
+    return choose ? left_copy : right_copy
 }
 func return_f64_choice(choose as bool, left as f64, right as f64) -> bool {
-    return choose ? left : right
+    // Preserve the existing raw-View ternary path using local storage.
+    // Direct floating ABI parameter ternaries are a separate unsupported case.
+    new left_copy as f64 = left
+    new right_copy as f64 = right
+    return choose ? left_copy : right_copy
 }
 func return_converted(value as i32) -> bool { return to_f64(value); }
 func return_bytes(value[16] as bytes) -> bool { return value; }
