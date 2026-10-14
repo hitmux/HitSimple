@@ -18,8 +18,12 @@ HS_TEST(Sema_RejectsOrdinaryBoolArithmeticBitwiseAndShiftOperations) {
 
     HS_EXPECT_TRUE(result.unit == nullptr);
     HS_EXPECT_EQ(result.diagnostics.size(), 1U);
+    const std::string expectedDiagnostic =
+        operation == "%"
+            ? "typed integer operation requires integer operands"
+            : "bool only supports == and != ordinary operations";
     HS_EXPECT_TRUE(result.diagnostics.front().message.find(
-                       "bool only supports == and != ordinary operations") !=
+                       expectedDiagnostic) !=
                    std::string::npos);
   }
 }
@@ -29,7 +33,7 @@ HS_TEST(Sema_RejectsBoolUnaryMinusAndBitwiseNot) {
     const auto result = analyzeSource(
         "func main() -> i32 {\n"
         "    new flag as bool = true\n"
-        "    new value = " +
+        "    new value as bool = " +
         operation + "flag\n"
                     "    return 0\n"
                     "}\n");
