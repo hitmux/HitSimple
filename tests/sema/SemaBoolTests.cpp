@@ -81,8 +81,11 @@ HS_TEST(Sema_RecordsBooleanValueReadBoundaries) {
   HS_EXPECT_TRUE(dynamic_cast<const hitsimple::hir::BooleanTestExpr *>(
                      comparison->right.get()) != nullptr);
 
+  const auto *declaration = dynamic_cast<const hitsimple::hir::StatementList *>(
+      functions[1]->body->statements.front().get());
+  HS_EXPECT_TRUE(declaration != nullptr);
   const auto *store = dynamic_cast<const hitsimple::hir::IntegerStore *>(
-      functions[1]->body->statements[1].get());
+      declaration->statements.back().get());
   HS_EXPECT_TRUE(store != nullptr);
   const auto *integer = dynamic_cast<const hitsimple::hir::IntegerCastExpr *>(
       store->value.get());
