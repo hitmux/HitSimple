@@ -1946,23 +1946,27 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto *isDigit = inRange(byte, '0', '9', "ctype.digit");
     auto *isUpper = inRange(byte, 'A', 'Z', "ctype.upper");
     auto *isLower = inRange(byte, 'a', 'z', "ctype.lower");
+    // The declared bool result is a canonical one-byte View. Materialize it
+    // here so consumers never sign-extend an i1 true to 0xff.
+    const auto boolByte = [this](llvm::Value *predicate) {
+      return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");
+    };
     if (builtin == stdlib::BuiltinId::IsDigit) {
-      return isDigit;
+      return boolByte(isDigit);
     }
     if (builtin == stdlib::BuiltinId::IsAlpha) {
-      return builder_.CreateOr(isUpper, isLower, "ctype.alpha");
+      return boolByte(builder_.CreateOr(isUpper, isLower, "ctype.alpha"));
     }
     if (builtin == stdlib::BuiltinId::IsAlnum) {
-      return builder_.CreateOr(isDigit,
-                               builder_.CreateOr(isUpper, isLower,
-                                                 "ctype.alpha"),
-                               "ctype.alnum");
+      return boolByte(builder_.CreateOr(
+          isDigit, builder_.CreateOr(isUpper, isLower, "ctype.alpha"),
+          "ctype.alnum"));
     }
     if (builtin == stdlib::BuiltinId::IsSpace) {
       auto *control = inRange(byte, '\t', '\r', "ctype.control_space");
       auto *space = builder_.CreateICmpEQ(
           byte, llvm::ConstantInt::get(i32Ty, ' '), "ctype.space");
-      return builder_.CreateOr(control, space, "ctype.is_space");
+      return boolByte(builder_.CreateOr(control, space, "ctype.is_space"));
     }
     const auto delta = builtin == stdlib::BuiltinId::ToUpper ? -32 : 32;
     auto *adjusted = builder_.CreateAdd(
