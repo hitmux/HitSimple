@@ -14,16 +14,23 @@ import os
 from pathlib import Path
 import platform
 import statistics
+import struct
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+
+from check_benchmark_trend import quality_metrics
 
 REVISIONS = {
     "v0.3.8": "e5fc8060c311c1e5cda71c3090e8a64d26060acf",
     "v0.3.9": "26c5a5c13c8f6ec47c020234f5e442055eea53c7",
     "master-2026-10-14": "d89c280a8e223a49dc21214977f3d33a9ef029d3",
 }
+WORKLOADS = {"mandelbrot", "memory", "bitops", "integer_sum", "branch",
+             "function_call", "stdlib", "checked_loop", "c_abi"}
+OBJECT_WORKLOADS = WORKLOADS - {"checked_loop"}
+COMPILE_KEYS = {name + "/executable" for name in WORKLOADS} | {name + "/object" for name in OBJECT_WORKLOADS}
 T8_REGEX = (
     r"^(hsc_harness_(runtime|differential|output_differential|checked_differential|"
     r"p3_host_semantics|aarch64_semantics)|hsc_property_metamorphic|"
@@ -89,6 +96,10 @@ def source_hashes(source):
 def verify_reports(reports, source_manifests, runs, warmups):
     baseline = reports["v0.3.8"]
     for label, report in reports.items():
+        if report.get("version") != 2:
+            raise ValueError("unsupported benchmark schema")
+        if set(report["workloads"]) != WORKLOADS or set(quality_metrics(report)) != OBJECT_WORKLOADS:
+            raise ValueError("incomplete T8 runtime or native-quality workload set")
         if report["git_commit"] != REVISIONS[label]:
             raise ValueError(f"wrong compiler/source revision for {label}")
         for field in ("target_triple", "optimization_level", "cpu", "runs", "warmups",
@@ -106,6 +117,9 @@ def verify_reports(reports, source_manifests, runs, warmups):
         if report["workloads"].keys() != baseline["workloads"].keys():
             raise ValueError("workload set differs")
         for name, item in report["workloads"].items():
+            expected_mode = "checked" if name == "checked_loop" else "unchecked"
+            if item["safety_mode"] != expected_mode or not isinstance(item["checksum"], str) or not item["checksum"].strip():
+                raise ValueError(f"invalid safety mode or checksum: {label}/{name}")
             for field in ("checksum", "safety_mode"):
                 if item[field] != baseline["workloads"][name][field]:
                     raise ValueError(f"incompatible {name}.{field}: {label}")
@@ -147,6 +161,32 @@ def timing_total(path):
     return value
 
 
+def verify_elf(path, kind):
+    with path.open("rb") as handle:
+        header = handle.read(64)
+    if len(header) != 64 or header[:6] != b"\x7fELF\x02\x01":
+        raise ValueError(f"not a nonempty little-endian ELF64 artifact: {path}")
+    elf_type, machine = struct.unpack_from("<HH", header, 16)
+    if machine != 183 or elf_type not in ({1} if kind == "object" else {2, 3}):
+        raise ValueError(f"wrong native ELF architecture or type: {path}")
+    return {"type": elf_type, "machine": machine}
+
+
+def verify_compilations(samples, runs, warmups):
+    if set(samples) != set(REVISIONS):
+        raise ValueError("incomplete compiler revision set")
+    for label, measurements in samples.items():
+        if set(measurements) != COMPILE_KEYS:
+            raise ValueError(f"incomplete compiler workload set: {label}")
+        for key, values in measurements.items():
+            if len(values) != runs + warmups:
+                raise ValueError(f"incomplete compiler samples: {label}/{key}")
+            for index, value in enumerate(values):
+                if value["iteration"] != index or value["warmup"] != (index < warmups):
+                    raise ValueError("incorrect compile sample/warmup order")
+                stats([value["total_duration_ns"], value["wall_duration_ns"], value["bytes"]])
+
+
 def collect_compilations(states, reports, output, cpu, runs, warmups):
     samples = {label: {} for label in states}
     labels = list(states)
@@ -170,6 +210,7 @@ def collect_compilations(states, reports, output, cpu, runs, warmups):
                     wall = time.perf_counter_ns() - start
                     sample = {"iteration": iteration, "warmup": iteration < warmups,
                               "total_duration_ns": timing_total(timing), "wall_duration_ns": wall,
+                              "elf": verify_elf(binary, kind),
                               "bytes": binary.stat().st_size, "sha256": digest(binary),
                               "timing_file": str(timing.relative_to(output)), "command": command}
                     samples[label].setdefault(key, []).append(sample)
@@ -193,6 +234,7 @@ def summarize(reports, samples):
         for key, values in samples[label].items():
             measured = [v for v in values if not v["warmup"]]
             baseline = [v for v in samples["v0.3.8"][key] if not v["warmup"]]
+            stats([v["bytes"] for v in measured])
             if len({v["bytes"] for v in measured}) != 1:
                 raise ValueError(f"inconsistent emitted size for {label}/{key}")
             internal = stats([v["total_duration_ns"] for v in measured])
@@ -235,8 +277,10 @@ def main():
         metadata[command[0]] = subprocess.check_output(command, text=True)
     write_json(output / "session.json", metadata)
     states, manifests = {}, {}
-    for label, sha in REVISIONS.items():
-        source, build = output.parent / (output.name + "-sources") / label, output / label / "build"
+    for index, (label, sha) in enumerate(REVISIONS.items()):
+        # Checked programs embed source paths. Equal-length neutral directories
+        # prevent release-label length from changing emitted bytes.
+        source, build = output.parent / (output.name + "-sources") / f"r{index:02d}", output / label / "build"
         source.parent.mkdir(parents=True, exist_ok=True)
         run(["git", "worktree", "add", "--detach", str(source), sha], cwd=root)
         actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
@@ -269,6 +313,7 @@ def main():
         reports[label] = read_json(bench / "report.json")
     verify_reports(reports, manifests, args.runtime_runs, args.runtime_warmups)
     samples = collect_compilations(states, reports, output, cpu, args.compile_runs, args.compile_warmups)
+    verify_compilations(samples, args.compile_runs, args.compile_warmups)
     summary = {"baseline": "v0.3.8", "session": metadata, "versions": summarize(reports, samples), "trend_exit_codes": {}}
     for label in list(REVISIONS)[1:]:
         summary["trend_exit_codes"][label] = run([
