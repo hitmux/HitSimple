@@ -285,8 +285,13 @@ async function verifyDebug() {
   if (platform.miMode === "gdb") {
     assert.equal(configuration.get("gdbPath"), process.env.HITSIMPLE_TEST_GDB_PATH);
   }
+  // Use the tutorial's canonical fixture and stop after value is initialized.
+  const breakpointLine = document.getText().split(/\r?\n/).findIndex(
+    (line) => line.trim().startsWith('printf("%d\\n", value)'),
+  );
+  assert.ok(breakpointLine >= 0, "debug fixture must contain the printf breakpoint");
   const breakpoint = new vscode.SourceBreakpoint(
-    new vscode.Location(document.uri, new vscode.Position(2, 0)),
+    new vscode.Location(document.uri, new vscode.Position(breakpointLine, 0)),
   );
   vscode.debug.addBreakpoints([breakpoint]);
   await configuration.update(
@@ -347,6 +352,7 @@ async function verifyDebug() {
       document.uri.fsPath,
       trace,
     );
+    assert.equal(frame.line, breakpointLine + 1, "debugger must stop at the requested source line");
     assert.match(frame.name, /(?:^|!)helper(?:\(\))?$/);
     assert.ok(frame.source, "helper must be a HitSimple source frame");
     assert.ok(

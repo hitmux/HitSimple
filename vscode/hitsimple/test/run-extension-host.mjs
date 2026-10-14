@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,9 +112,9 @@ async function prepareWorkspace(root) {
       path.join(workspacePath, "sema-error.hs"),
       "func main() {\n    return add_two(1)\n}\n",
     ),
-    writeFile(
+    copyFile(
+      path.join(repoRoot, "tests/cases/run/debug_info.hs"),
       path.join(workspacePath, "debug.hs"),
-      "func helper() {\n    new value[4]\n    value %d= 41\n}\n\nfunc main() {\n    helper()\n    return 0\n}\n",
     ),
     writeFile(
       path.join(workspacePath, "missing-main.hs"),

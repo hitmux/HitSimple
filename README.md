@@ -76,6 +76,11 @@ func main() {
 ./hello
 ```
 
+For hands-on next steps, the [six practical examples](examples/practical/README.md)
+cover C imports, C++ wrappers, Cargo static libraries, checked diagnostics,
+ctype provider equivalence and VS Code debugging. Each has a verified entry
+command, prerequisites, source links and expected results.
+
 ## Linux Distribution Packages
 
 The DEB installation layout is:

@@ -692,6 +692,26 @@ target_link_libraries(hsc_unit_tests
   endfunction()
 
   add_test(NAME unit_tests COMMAND hsc_unit_tests)
+  add_test(
+    NAME hsc_practical_example_unit_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/examples/test_practical_examples.py
+  )
+  set_tests_properties(hsc_practical_example_unit_tests PROPERTIES LABELS "testing;examples")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|aarch64|arm64|ARM64)$")
+    add_test(
+      NAME hsc_practical_examples
+      COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/examples/practical/run.py cli
+        --hsc $<TARGET_FILE:hsc>
+        --artifacts ${HSC_CTEST_OUTPUT_ROOT}/practical-examples
+    )
+    set_tests_properties(hsc_practical_examples PROPERTIES
+      LABELS "testing;examples;interop;checked;stdlib"
+      ENVIRONMENT "RUSTC_WRAPPER=;RUSTC_WORKSPACE_WRAPPER=")
+  endif()
+
   set(hs_smith_network_isolation_argument)
   if(HS_SMITH_REQUIRE_NETWORK_ISOLATION)
     list(APPEND hs_smith_network_isolation_argument --require-network-isolation)
