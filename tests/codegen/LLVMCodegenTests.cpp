@@ -1221,7 +1221,8 @@ HS_TEST(LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes) {
         "    new signed_cast as i32 = to_i32(" + call + ")\n"
         "    new unsigned_cast as u32 = to_u32(" + call + ")\n"
         "    return integer\n"
-        "}\n";
+        "}\n"
+        "func main() -> i32 { return probe(9, true); }\n";
     auto result = emitSource(source);
     HS_EXPECT_TRUE(result.diagnostics.empty());
     HS_EXPECT_TRUE(result.module != nullptr);
