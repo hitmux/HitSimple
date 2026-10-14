@@ -20,14 +20,14 @@ func return_f32_sum(left as f32, right as f32) -> bool { return left + right; }
 func return_f64_sum(left as f64, right as f64) -> bool { return left + right; }
 func return_f32_choice(choose as bool, left as f32, right as f32) -> bool {
     // Preserve the existing raw-View ternary path using local storage.
-    // Direct floating ABI parameter ternaries are a separate unsupported case.
+    // Direct ABI parameters are covered by floating_ternary_views.hs.
     new left_copy as f32 = left
     new right_copy as f32 = right
     return choose ? left_copy : right_copy
 }
 func return_f64_choice(choose as bool, left as f64, right as f64) -> bool {
     // Preserve the existing raw-View ternary path using local storage.
-    // Direct floating ABI parameter ternaries are a separate unsupported case.
+    // Direct ABI parameters are covered by floating_ternary_views.hs.
     new left_copy as f64 = left
     new right_copy as f64 = right
     return choose ? left_copy : right_copy
