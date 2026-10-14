@@ -630,6 +630,7 @@ if(BUILD_TESTING)
     tests/parser/ParserTests.cpp
     tests/preprocessor/PreprocessorTests.cpp
     tests/sema/SemaAggregateTests.cpp
+    tests/sema/SemaBoolTests.cpp
     tests/sema/SemaCoreTests.cpp
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
@@ -1182,6 +1183,18 @@ target_link_libraries(hsc_unit_tests
       --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
   )
   set_tests_properties(hsc_ctype_provider_modes_match PROPERTIES
+    LABELS "testing;harness;stdlib")
+  add_test(
+    NAME hsc_ctype_bool_representation
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite ctype-bool-representation
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_ctype_bool_representation PROPERTIES
     LABELS "testing;harness;stdlib")
   add_hsc_shell_test(hsc_ctype_reference_emit_llvm_injects_module
     "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && grep -Fq 'call i8 @__hs_stdlib_ctype_is_digit(i32' module.ll"

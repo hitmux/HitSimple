@@ -157,6 +157,9 @@ jobs:
           ./build-release/hsc_unit_tests \
             SourceLocation_ Diagnostic_ CCompat_ Lexer_ Parser_ \
             Preprocessor_ Sema_ ResourcePaths_ Process_ Toolchain_
+          cmake -DBUILD_DIR=build-release \
+            '-DTEST_REGEX=^hsc_ctype_bool_representation$' \
+            -P cmake/RunQuietTests.cmake
           ./build-release/hsc --checked examples/hello.hs -o hello-checked
           ./hello-checked | grep -Fx 42
           ./build-release/hsc tests/cases/run/f16_f128_fallback.hs -o f128-smoke

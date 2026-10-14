@@ -5,6 +5,7 @@
 #include "hitsimple/sema/Sema.h"
 
 #include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -1201,6 +1202,51 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
   HS_EXPECT_TRUE(llvmIr(result).find("@hs_reverse_bytes") != std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("@toupper") == std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("ctype.to_upper") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes) {
+  for (const std::string predicate :
+       {"is_digit", "is_alpha", "is_alnum", "is_space"}) {
+    // Nonconstant parameters keep the predicate and its widening visible.
+    const auto call = predicate + "(ch)";
+    const auto source =
+        "func bytes_of(value as bool) -> u8 { return value as u8; }\n"
+        "func wrapped(ch as i32) -> bool { return " + call + "; }\n"
+        "func probe(ch as i32, expected as bool) -> i32 {\n"
+        "    new equal as bool = " + call + " == expected\n"
+        "    new different as bool = expected != " + call + "\n"
+        "    new argument as u8 = bytes_of(" + call + ")\n"
+        "    new choice as bool = expected ? " + call + " : false\n"
+        "    new integer as i32 = " + call + "\n"
+        "    new signed_cast as i32 = to_i32(" + call + ")\n"
+        "    new unsigned_cast as u32 = to_u32(" + call + ")\n"
+        "    return integer\n"
+        "}\n"
+        "func main() -> i32 { return probe(9, true); }\n";
+    auto result = emitSource(source);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+
+    unsigned canonicalResults = 0;
+    for (const auto &function : *result.module) {
+      for (const auto &block : function) {
+        for (const auto &instruction : block) {
+          if (instruction.getName().str().rfind("ctype.bool", 0) == 0) {
+            HS_EXPECT_EQ(instruction.getOpcode(), llvm::Instruction::ZExt);
+            HS_EXPECT_TRUE(instruction.getOperand(0)->getType()->isIntegerTy(1));
+            HS_EXPECT_TRUE(instruction.getType()->isIntegerTy(8));
+            ++canonicalResults;
+          }
+          if (instruction.getOpcode() == llvm::Instruction::SExt) {
+            HS_EXPECT_TRUE(
+                !instruction.getOperand(0)->getType()->isIntegerTy(1));
+          }
+        }
+      }
+    }
+    HS_EXPECT_EQ(canonicalResults, 8U);
+  }
 }
 
 HS_TEST(LLVMCodegen_LowersFputWithFileBeforeValue) {
