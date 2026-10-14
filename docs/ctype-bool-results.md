@@ -44,16 +44,10 @@ ctest --test-dir build -R '^hsc_ctype_' --output-on-failure
 cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
-## Separate known gaps
+## Related Boolean-value boundaries
 
-This change does not claim general bool conformance. Noncanonical bytes
-reinterpreted `as bool` have separate equality, numeric-conversion, and return
-assignment normalization gaps. For example, a raw byte 2 passed to an ordinary
-bool parameter must preserve its byte (Standard §§6.7, 12.1), while Boolean
-equality must compare truth values, numeric conversions must read 0 or 1, and
-return-View assignment must normalize (§§11.5, 12.2, 14.2; Appendix 21).
-
-`feof` also has an independent result-width gap: its host `i32` result is
-truncated before Boolean normalization. A legal nonzero host result such as
-256 can therefore be lost. These cases need separately scoped fixes and
-regression witnesses, without normalizing arbitrary bool Views globally.
+The independently scoped [Boolean value-read correction](bool-value-reads.md)
+handles noncanonical raw bool equality, explicit numeric conversions, explicit
+bool return assignment, and full-width host `feof` results. It preserves raw
+View reinterpretation and ordinary argument copying rather than globally
+normalizing every bool-typed View.

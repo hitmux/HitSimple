@@ -258,7 +258,7 @@ func check_space(ch as i32, expected as bool) -> i32 {
 
 func check_controls() -> i32 {
     // An arbitrary bool View is not a predicate result: as and argument copying
-    // must preserve its bytes. Do not impose equality/conversion normalization.
+    // must preserve its bytes even though value-reading operations normalize.
     new raw as u8 = 2
     if (bool_byte(raw as bool) != 2) {
         return 1
