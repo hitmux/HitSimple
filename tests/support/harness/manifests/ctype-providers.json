@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "suite": "ctype-providers",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 10
+  },
+  "tests": [
+    {
+      "name": "optimized",
+      "source": "../../../cases/run/ctype_reference.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "reference",
+      "source": "../../../cases/run/ctype_reference.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    }
+  ]
+}

@@ -19,6 +19,7 @@ def write_fake_hsc(directory: Path) -> Path:
     compiler = directory / "fake_hsc.py"
     compiler.write_text(
         """#!/usr/bin/env python3
+import os
 import pathlib
 import sys
 
@@ -43,6 +44,20 @@ elif 'file-output' in source.read_text(encoding='utf-8'):
     program += \"sys.stdout.write('ok\\\\n')\\n\"
 else:
     program += \"sys.stdout.write('ok\\\\n')\\n\"
+if any(arg.startswith('--stdlib-provider=') for arg in arguments):
+    provider = next(arg.split('=', 1)[1] for arg in arguments if arg.startswith('--stdlib-provider='))
+    mode = next(arg[2:] for arg in arguments if arg in ('--unchecked', '--static-checked', '--checked'))
+    level = next((arg[1:] for arg in arguments if arg in ('-O0', '-O2')), 'O2')
+    target = provider + '/' + mode + '/' + level
+    failure = os.environ.get('HSC_CTYPE_FAILURE', '').removeprefix(target + '/')
+    if os.environ.get('HSC_CTYPE_FAILURE', '').startswith(target + '/') and failure == 'compile':
+        raise SystemExit(7)
+    program = "#!/usr/bin/env python3\\nimport sys\\n"
+    if os.environ.get('HSC_CTYPE_FAILURE', '').startswith(target + '/'):
+        if failure == 'run':
+            program += "raise SystemExit(17)\\n"
+        elif failure in ('stdout', 'stderr'):
+            program += "sys." + failure + ".write('unexpected output')\\n"
 output.write_text(program, encoding='utf-8')
 output.chmod(0o755)
 """,
@@ -413,6 +428,54 @@ class HarnessTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
             self.assertIn("safety mode unchecked vs checked run stdout differs", result.stdout)
+
+    def test_ctype_matrix_rejects_each_compile_and_run_failure(self) -> None:
+        # Exercise the same manifest and harness entry point used by CTest.
+        # A later successful cell must never hide an earlier failed cell.
+        manifest = RUNNER.parent / "manifests/ctype-providers.json"
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        self.assertEqual(data["defaults"]["safety"],
+                         ["unchecked", "static-checked", "checked"])
+        self.assertEqual(data["defaults"]["optimization"], ["O0", "O2"])
+        self.assertEqual([case["name"] for case in data["tests"]],
+                         ["optimized", "reference"])
+        for case in data["tests"]:
+            self.assertEqual(case["compile_args"], ["--stdlib-provider=" + case["name"]])
+            self.assertEqual(case["source"], "../../../cases/run/ctype_reference.hs")
+            self.assertEqual(case["expect"], {
+                "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
+                "run": {"exit_code": 0, "stdout": "", "stderr": ""},
+            })
+        with tempfile.TemporaryDirectory(prefix="ctype matrix ") as temporary:
+            directory = Path(temporary)
+            compiler = write_fake_hsc(directory)
+            command = [sys.executable, str(RUNNER), "--hsc", str(compiler),
+                       "--suite", "ctype-providers", "--differential", "--safety-mode",
+                       "--artifacts", str(directory / "artifacts")]
+            environment = dict(os.environ)
+            environment.pop("HSC_CTYPE_FAILURE", None)
+            result = subprocess.run(command, env=environment, text=True,
+                                    capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("12/12 PASS", result.stdout)
+            for provider in ("optimized", "reference"):
+                for mode in ("unchecked", "static-checked", "checked"):
+                    for level in ("O0", "O2"):
+                        for phase in ("compile", "run", "stdout", "stderr"):
+                            target = "/".join((provider, mode, level, phase))
+                            with self.subTest(failure=target):
+                                result = subprocess.run(
+                                    command, env={**environment, "HSC_CTYPE_FAILURE": target},
+                                    text=True, capture_output=True, timeout=30)
+                                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                                label = "ctype-providers/" + provider + " [host, " + mode + ", " + level + "]"
+                                self.assertIn("[FAIL] " + label, result.stdout)
+                                self.assertNotIn("12/12 PASS", result.stdout)
+                                # The last variant is still executed even after early failures.
+                                last = directory / "artifacts/ctype-providers/reference/host/checked/O2"
+                                record = json.loads((last / "compile.result.json").read_text())
+                                self.assertEqual(record["exit_code"],
+                                                 7 if target == "reference/checked/O2/compile" else 0)
 
     def test_safety_mode_manifest_requires_expectations_for_each_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -1171,9 +1171,18 @@ target_link_libraries(hsc_unit_tests
   add_hsc_shell_test(hsc_ctype_optimized_matches_reference
     "$<TARGET_FILE:hsc> --stdlib-provider=optimized ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program"
   )
-  add_hsc_shell_test(hsc_ctype_provider_modes_match
-    "for mode in --unchecked --static-checked --checked; do for provider in optimized reference; do $<TARGET_FILE:hsc> --stdlib-provider=$provider $mode ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program-$provider-$mode && ./program-$provider-$mode; done; done"
+  add_test(
+    NAME hsc_ctype_provider_modes_match
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite ctype-providers
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
   )
+  set_tests_properties(hsc_ctype_provider_modes_match PROPERTIES
+    LABELS "testing;harness;stdlib")
   add_hsc_shell_test(hsc_ctype_reference_emit_llvm_injects_module
     "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && grep -Fq 'call i8 @__hs_stdlib_ctype_is_digit(i32' module.ll"
   )
