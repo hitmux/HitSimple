@@ -1201,6 +1201,12 @@ jobs:
           cache: npm
           cache-dependency-path: vscode/hitsimple/package-lock.json
 
+      - name: Verify Windows npm failure propagation
+        shell: pwsh
+        run: |
+          python tests/ci/WorkflowContractTests.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test extension with Windows release compiler
         shell: pwsh
         env:
@@ -1211,11 +1217,16 @@ jobs:
           $env:HSC_PATH = (Resolve-Path "compiler/hitsimple-$version-windows-x86_64-full/bin/hsc.exe").Path
           Push-Location vscode/hitsimple
           npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:extension
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run verify:vsix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force dist | Out-Null
           npm run package:vsix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (-not (Test-Path "dist/hitsimple-vscode-$version.vsix")) { throw 'missing Windows-built VSIX' }
           Pop-Location
           if ($env:VALIDATION_SCOPE -ne 'windows' -and -not (Test-Path "vsix-asset/hitsimple-vscode-$version.vsix")) {

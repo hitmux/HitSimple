@@ -847,7 +847,7 @@ test("debug workflow builds first, launches cppdbg, and reports every preflight 
   assert.equal(bundledMacosResult.ok, true);
   assert.equal(
     bundledMacosResult.launchConfiguration.miDebuggerPath,
-    "/extensions/ms-vscode.cpptools/debugAdapters/lldb-mi/bin/lldb-mi",
+    path.join("/extensions/ms-vscode.cpptools", "debugAdapters", "lldb-mi", "bin", "lldb-mi"),
   );
 
   const customMacos = createDebugHarness({

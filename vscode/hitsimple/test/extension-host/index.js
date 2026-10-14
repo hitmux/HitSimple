@@ -108,7 +108,13 @@ async function verifyBuildAndRun(mainUri, extension) {
   const configuration = vscode.workspace.getConfiguration("hitsimple", mainUri);
   assert.equal(configuration.get("compilerPath"), compilerPath);
   assert.equal(configuration.get("outputDirectory"), outputDirectory);
-  const expectedOutput = path.join(workspacePath, outputDirectory, "main");
+  // VS Code normalizes Windows drive letters in Uri.fsPath; use that same
+  // workspace identity and the native executable suffix for the expectation.
+  const folder = vscode.workspace.getWorkspaceFolder(mainUri);
+  assert.ok(folder, "main source must belong to the test workspace");
+  const expectedOutput = path.join(
+    folder.uri.fsPath, outputDirectory, process.platform === "win32" ? "main.exe" : "main",
+  );
   const modeFlags = {
     unchecked: "--unchecked",
     "static-checked": "--static-checked",
