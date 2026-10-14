@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const vscode = require("vscode");
+const { frameHasFunctionName } = require("../debug-assertions.cjs");
 
 const workspacePath = process.env.HITSIMPLE_TEST_WORKSPACE;
 const compilerPath = process.env.HITSIMPLE_TEST_COMPILER;
@@ -359,7 +360,8 @@ async function verifyDebug() {
       trace,
     );
     assert.equal(frame.line, breakpointLine + 1, "debugger must stop at the requested source line");
-    assert.match(frame.name, /(?:^|!)helper(?:\(\))?$/);
+    assert.ok(frameHasFunctionName(frame, "helper", platform.adapterType),
+      `expected helper frame, got ${frame.name}`);
     assert.ok(frame.source, "helper must be a HitSimple source frame");
     assert.ok(
       frame.source.name === path.basename(document.uri.fsPath) ||
@@ -368,7 +370,7 @@ async function verifyDebug() {
     );
     assert.ok(
       (stack.stackFrames || []).some((candidate) =>
-        /(?:^|!)main(?:\(\))?$/.test(candidate.name) && candidate.source &&
+        frameHasFunctionName(candidate, "main", platform.adapterType) && candidate.source &&
         (candidate.source.name === path.basename(document.uri.fsPath) ||
           (candidate.source.path &&
             path.resolve(candidate.source.path) === document.uri.fsPath))),

@@ -9,6 +9,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
+const { frameHasFunctionName } = require("./debug-assertions.cjs");
 const {
   BuildPlanError,
   MODE_FLAGS,
@@ -916,4 +917,21 @@ test("extension registers and returns both commands", async () => {
   await registrations.get("hitsimple.runCurrentFile")();
   await registrations.get("hitsimple.debugCurrentFile")();
   assert.deepEqual(calls, ["build", "run", "debug"]);
+});
+
+
+test("native debug frame names remain exact across adapters", () => {
+  for (const name of ["helper", "helper()", "module!helper", "module!helper()"]) {
+    assert.equal(frameHasFunctionName({ name, line: 6 }, "helper", "cppdbg"), true);
+  }
+  assert.equal(frameHasFunctionName(
+    { name: "debug.exe!helper() Line 6", line: 6 }, "helper", "cppvsdbg"), true);
+  assert.equal(frameHasFunctionName(
+    { name: "debug.exe!main() Line 10", line: 10 }, "main", "cppvsdbg"), true);
+  for (const name of ["not_helper", "helper_extra()", "debug.exe!main() Line 6",
+      "debug.exe!helper() Line 7", "debug.exe!helper() Line 6 trailing"]) {
+    assert.equal(frameHasFunctionName({ name, line: 6 }, "helper", "cppvsdbg"), false);
+  }
+  assert.equal(frameHasFunctionName(
+    { name: "debug.exe!helper() Line 6", line: 6 }, "helper", "cppdbg"), false);
 });
