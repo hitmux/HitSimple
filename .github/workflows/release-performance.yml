@@ -1,0 +1,49 @@
+name: Release performance comparison
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/release-performance.yml
+      - tests/performance/compare_releases.py
+      - tests/performance/test_compare_releases.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: Pinned native AArch64 release comparison
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install existing T8 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison bubblewrap clang-18 llvm-18-dev ninja-build re2c
+      - name: Test the comparison coordinator
+        run: python3 -m unittest discover -s tests/performance -p 'test_*.py'
+      - name: Compare pinned releases in one native session
+        run: python3 tests/performance/compare_releases.py --output "$PWD/release-performance-artifacts"
+      - name: Upload raw samples and native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-performance-aarch64-${{ github.run_id }}
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            release-performance-artifacts/*.json
+            release-performance-artifacts/*/*.json
+            release-performance-artifacts/*/*.xml
+            release-performance-artifacts/*/*.log
+            release-performance-artifacts/*/benchmark/**
+            release-performance-artifacts/*/compile-samples/**
+            release-performance-artifacts/*/build/ctest-output/**
+            release-performance-artifacts/*/build/Testing/**
+            release-performance-artifacts/*/build/strict-alignment*
+            release-performance-artifacts/*/build/CMakeCache.txt
