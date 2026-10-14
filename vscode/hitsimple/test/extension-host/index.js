@@ -544,9 +544,10 @@ async function verifySnippet() {
     (text) => text.includes("func main()"),
     "the contributed main snippet",
   );
+  const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   assert.equal(
     document.getText(),
-    "func main() {\n    // code\n    return 0\n}",
+    ["func main() {", "    // code", "    return 0", "}"].join(eol),
   );
 }
 
