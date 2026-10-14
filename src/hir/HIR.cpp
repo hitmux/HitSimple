@@ -1979,6 +1979,19 @@ verifyHIR(const TranslationUnit &unit) {
           const auto &plan = value->conversionPlans[index];
           const bool normalizesBoolean =
               plan.kind == ConversionKind::BooleanNormalize;
+          // Sema adds an IntegerCastExpr only for a return width change.
+          // An explicit to_iN/to_uN in the source is already the source View
+          // of an identity or same-width return conversion.
+          const bool adjustsIntegerWidth =
+              plan.kind == ConversionKind::IntegerWidth &&
+              plan.source.staticByteLength != plan.destination.staticByteLength;
+          if (adjustsIntegerWidth &&
+              (cast == nullptr ||
+               cast->result.staticByteLength !=
+                   plan.destination.staticByteLength)) {
+            addDiagnostic(*value->values[index],
+                          "Integer return width conversion requires a matching IntegerCastExpr");
+          }
           if (normalizesBoolean &&
               (boolean == nullptr ||
                !sameSemantics(plan.destination, booleanTestResultSemantics()))) {
@@ -1988,8 +2001,9 @@ verifyHIR(const TranslationUnit &unit) {
           checkConversionPlan(*value->values[index], plan,
                               normalizesBoolean && boolean
                                   ? boolean->operand->result
-                                  : cast ? cast->operand->result
-                                         : value->values[index]->result,
+                                  : adjustsIntegerWidth && cast
+                                        ? cast->operand->result
+                                        : value->values[index]->result,
                               "Return");
         }
         verifyExpr(*value->values[index]);

@@ -3192,10 +3192,7 @@ HS_TEST(LLVMCodegen_CheckedArithmeticGuardsAvoidPoison) {
 HS_TEST(LLVMCodegen_ReadsBooleanValuesOnlyAtSemanticBoundaries) {
   auto result = emitSource(
       "func equal(a as bool, b as bool) -> u8 { return (a == b) as u8; }\n"
-      "func integral(value as bool) -> i64 {\n"
-      "  new converted as i64 = to_i64(value)\n"
-      "  return converted\n"
-      "}\n"
+      "func integral(value as bool) -> i64 { return to_i64(value); }\n"
       "func floating(value as bool) -> f64 { return to_f64(value); }\n"
       "func returned(value as bool) -> bool { return value; }\n"
       "func bytes_of(value as bool) -> u8 { return value as u8; }\n"
@@ -3297,4 +3294,34 @@ HS_TEST(LLVMCodegen_BooleanReturnsReadComputedFloatAndDynamicViewBytes) {
   HS_EXPECT_TRUE(ir.find("sitofp i32") != std::string::npos);
   HS_EXPECT_TRUE(ir.find("fcmp") == std::string::npos);
   HS_EXPECT_TRUE(ir.find("call i32 @hs_view_any_nonzero") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_EmitsExplicitNumericReturnConversions) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    auto result = emitSource(
+        "func direct(value as i8) -> i32 { return to_i32(value); }\n"
+        "func nested(value as i8) -> i64 { return to_i64(to_i32(value)); }\n"
+        "func widen(value as i8) -> i64 { return to_i32(value); }\n"
+        "func unsigned_value(value as u8) -> u64 { return to_u64(value); }\n"
+        "func floating(value as f64) -> i32 { return to_i32(value); }\n"
+        "func main() -> i32 { return 0; }\n", optionsFor(mode));
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    for (const auto &[name, width] :
+         std::vector<std::pair<std::string, unsigned>>{
+             {"direct", 32}, {"nested", 64}, {"widen", 64},
+             {"unsigned_value", 64}, {"floating", 32}}) {
+      const auto *function = result.module->getFunction(name);
+      HS_EXPECT_TRUE(function != nullptr);
+      HS_EXPECT_TRUE(function->getReturnType()->isIntegerTy(width));
+    }
+    const auto ir = llvmIr(result);
+    HS_EXPECT_TRUE(ir.find("sext i8") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("sext i32") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("zext i8") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fptosi double") != std::string::npos);
+  }
 }

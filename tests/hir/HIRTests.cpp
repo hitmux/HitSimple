@@ -9,12 +9,14 @@
 namespace {
 
 std::unique_ptr<hitsimple::hir::TranslationUnit>
-unitWithReturn(std::unique_ptr<hitsimple::hir::Expr> expression) {
+unitWithReturn(std::unique_ptr<hitsimple::hir::Expr> expression,
+               std::vector<hitsimple::hir::ConversionPlan> plans = {}) {
   using namespace hitsimple::hir;
   std::vector<std::unique_ptr<Stmt>> statements;
   std::vector<std::unique_ptr<Expr>> values;
   values.push_back(std::move(expression));
-  statements.push_back(std::make_unique<Return>(std::move(values)));
+  statements.push_back(std::make_unique<Return>(
+      std::move(values), std::move(plans)));
 
   std::vector<std::unique_ptr<Function>> functions;
   functions.push_back(std::make_unique<Function>(
@@ -221,5 +223,65 @@ HS_TEST(Hir_VerifierRejectsIntegerCandidateWithBytesOperand) {
   const auto diagnostics = verifyHIR(*unit);
   HS_EXPECT_EQ(diagnostics.size(), 1U);
   HS_EXPECT_TRUE(diagnostics.front().message.find("UntemplatedInteger") !=
+                 std::string::npos);
+}
+
+HS_TEST(Hir_ReturnPlansKeepExplicitIntegerConversionsAsSourceViews) {
+  using namespace hitsimple::hir;
+  const auto i8 = viewSemanticsForTemplate("i8", 1);
+  const auto i32 = viewSemanticsForTemplate("i32", 4);
+  const auto u32 = viewSemanticsForTemplate("u32", 4);
+  for (const bool changesInterpretation : {false, true}) {
+    auto expression = std::make_unique<IntegerCastExpr>(
+        std::make_unique<IntegerLiteral>("42", i8), true, i32);
+    auto unit = unitWithReturn(
+        std::move(expression),
+        {{changesInterpretation ? ConversionKind::IntegerWidth
+                                : ConversionKind::Identity,
+          i32, changesInterpretation ? u32 : i32}});
+    HS_EXPECT_TRUE(verifyHIR(*unit).empty());
+
+    auto *ret = dynamic_cast<Return *>(
+        unit->functions[0]->body->statements[0].get());
+    // The return source is the explicit conversion result, not its operand.
+    ret->conversionPlans[0].source = u32;
+    HS_EXPECT_TRUE(!verifyHIR(*unit).empty());
+  }
+}
+
+HS_TEST(Hir_ReturnWidthPlansUnwrapOnlyTheAppendedConversion) {
+  using namespace hitsimple::hir;
+  const auto i8 = viewSemanticsForTemplate("i8", 1);
+  const auto i32 = viewSemanticsForTemplate("i32", 4);
+  const auto i64 = viewSemanticsForTemplate("i64", 8);
+  auto explicitConversion = std::make_unique<IntegerCastExpr>(
+      std::make_unique<IntegerCastExpr>(
+          std::make_unique<IntegerLiteral>("42", i8), true, i32),
+      true, i32);
+  auto expression = std::make_unique<IntegerCastExpr>(
+      std::move(explicitConversion), true,
+      staticViewSemantics(ViewCategory::UntemplatedInteger,
+                          IntegerInterpretation::Signed, 8));
+  auto unit = unitWithReturn(std::move(expression),
+                             {{ConversionKind::IntegerWidth, i32, i64}});
+  HS_EXPECT_TRUE(verifyHIR(*unit).empty());
+  auto *ret = dynamic_cast<Return *>(
+        unit->functions[0]->body->statements[0].get());
+  ret->conversionPlans[0].source = i8;
+  HS_EXPECT_TRUE(!verifyHIR(*unit).empty());
+  ret->conversionPlans[0].source = i32;
+  ret->conversionPlans[0].destination = viewSemanticsForTemplate("i16", 2);
+  HS_EXPECT_TRUE(!verifyHIR(*unit).empty());
+}
+
+HS_TEST(Hir_ReturnWidthPlanRequiresAnAppendedConversion) {
+  using namespace hitsimple::hir;
+  const auto i32 = viewSemanticsForTemplate("i32", 4);
+  auto unit = unitWithReturn(
+      std::make_unique<IntegerLiteral>("42", i32),
+      {{ConversionKind::IntegerWidth, i32, viewSemanticsForTemplate("i64", 8)}});
+  const auto diagnostics = verifyHIR(*unit);
+  HS_EXPECT_TRUE(!diagnostics.empty());
+  HS_EXPECT_TRUE(diagnostics[0].message.find("matching IntegerCastExpr") !=
                  std::string::npos);
 }
