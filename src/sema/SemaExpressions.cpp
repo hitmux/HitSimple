@@ -895,6 +895,12 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
                       " data must be an integer or floating expression");
         return nullptr;
       }
+      // Conversion functions read bool as 0/1 (Standard 14.2), while ordinary
+      // View copies and expression-level `as` preserve the original byte.
+      if (operand->result.category == hir::ViewCategory::Boolean) {
+        operand = std::make_unique<hir::BooleanTestExpr>(
+            std::move(operand), booleanResult());
+      }
       const bool sourceUnsigned =
           !sourceIsFloating && isUnsignedExpression(*operand);
       return std::make_unique<hir::ToFloatExpr>(
@@ -941,6 +947,10 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic(call->callee +
                       " requires an integer, floating, or address input");
         return nullptr;
+      }
+      if (operand->result.category == hir::ViewCategory::Boolean) {
+        operand = std::make_unique<hir::BooleanTestExpr>(
+            std::move(operand), booleanResult());
       }
       return std::make_unique<hir::IntegerCastExpr>(
           std::move(operand), !conversion.isUnsigned,
@@ -1443,6 +1453,10 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
       return nullptr;
     }
     candidate = hir::StandardOperationKind::StandardBoolean;
+    // Standard 21 compares read_bool values, not the bytes of bool Views.
+    // Keep both operands eager and evaluate each exactly once.
+    left = std::make_unique<hir::BooleanTestExpr>(std::move(left), booleanResult());
+    right = std::make_unique<hir::BooleanTestExpr>(std::move(right), booleanResult());
   } else if (left->result.category == hir::ViewCategory::Address ||
              right->result.category == hir::ViewCategory::Address) {
     const bool compatible =

@@ -1196,6 +1196,32 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_ctype_bool_representation PROPERTIES
     LABELS "testing;harness;stdlib")
+  add_test(
+    NAME hsc_bool_value_reads
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite bool-value-reads
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_bool_value_reads PROPERTIES
+    LABELS "testing;harness;stdlib;bool")
+  # Controlled C int results cover libc and checked hs_* wrappers without
+  # depending on a host libc's choice of nonzero feof status value.
+  foreach(provider optimized reference)
+    foreach(safety unchecked static-checked checked)
+      foreach(optimization O0 O2)
+        set(feof_test "hsc_feof_bool_value_${provider}_${safety}_${optimization}")
+        add_hsc_shell_test(${feof_test}
+          "$<TARGET_FILE:hsc> --stdlib-provider=${provider} --${safety} -${optimization} ${PROJECT_SOURCE_DIR}/tests/cases/run/feof_bool_value.hs --c-source ${PROJECT_SOURCE_DIR}/tests/cases/run/feof_bool_value_helper.c -o program && ./program"
+        )
+        set_tests_properties(${feof_test} PROPERTIES
+          LABELS "testing;stdlib;bool;interop")
+      endforeach()
+    endforeach()
+  endforeach()
   add_hsc_shell_test(hsc_ctype_reference_emit_llvm_injects_module
     "$<TARGET_FILE:hsc> --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && grep -Fq 'call i8 @__hs_stdlib_ctype_is_digit(i32' module.ll"
   )

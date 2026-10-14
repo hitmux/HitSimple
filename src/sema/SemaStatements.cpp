@@ -460,8 +460,13 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
         currentFunction_ != nullptr &&
         index < currentFunction_->returnTemplateNames.size() &&
         currentFunction_->returnTemplateNames[index] == "handle";
+    const bool expectsBoolean =
+        currentFunction_ != nullptr && currentFunction_->returnsKnown &&
+        currentFunction_->returnsExplicit &&
+        index < currentFunction_->returnTemplateNames.size() &&
+        currentFunction_->returnTemplateNames[index] == "bool";
     if (currentFunction_ != nullptr && currentFunction_->returnsKnown &&
-        expectsHandle != valueIsHandle) {
+        !expectsBoolean && expectsHandle != valueIsHandle) {
       if (expectsHandle) {
         addDiagnostic("return value must be a handle for the function signature");
       } else {
@@ -508,6 +513,23 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
                                 : analyze(*value);
     if (!lowered) {
       return nullptr;
+    }
+    if (expectsBoolean) {
+      // Explicit return expressions assign to their return Views (12.2).
+      // The bool assignment matrix accepts any View (11.10), including a
+      // dynamic or noninteger source, and tests all of its bits (7.6).
+      if (!hir::isBooleanTestable(lowered->result)) {
+        addDiagnostic("bool return value cannot form a View");
+        return nullptr;
+      }
+      conversionPlans.push_back(hir::ConversionPlan{
+          hir::ConversionKind::BooleanNormalize, lowered->result,
+          booleanResult()});
+      values.push_back(std::make_unique<hir::BooleanTestExpr>(
+          std::move(lowered), booleanResult()));
+      byteLengths.push_back(1U);
+      inferredTemplateNames.emplace_back("bool");
+      continue;
     }
     if (hasRuntimeDynamicView(*lowered)) {
       addDiagnostic("dynamic View cannot be returned through a fixed function "

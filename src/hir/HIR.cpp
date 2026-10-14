@@ -1668,6 +1668,11 @@ verifyHIR(const TranslationUnit &unit) {
           addDiagnostic(*value,
                         "StandardBoolean candidate only permits bool == and != bool");
         }
+        if (dynamic_cast<const BooleanTestExpr *>(value->left.get()) == nullptr ||
+            dynamic_cast<const BooleanTestExpr *>(value->right.get()) == nullptr) {
+          addDiagnostic(*value,
+                        "StandardBoolean operands require BooleanTestExpr value reads");
+        }
         requireBooleanResult();
         break;
       case StandardOperationKind::StandardAddress: {
@@ -1969,9 +1974,22 @@ verifyHIR(const TranslationUnit &unit) {
         if (index < value->conversionPlans.size()) {
           const auto *cast = dynamic_cast<const IntegerCastExpr *>(
               value->values[index].get());
-          checkConversionPlan(*value->values[index], value->conversionPlans[index],
-                              cast ? cast->operand->result
-                                   : value->values[index]->result,
+          const auto *boolean = dynamic_cast<const BooleanTestExpr *>(
+              value->values[index].get());
+          const auto &plan = value->conversionPlans[index];
+          const bool normalizesBoolean =
+              plan.kind == ConversionKind::BooleanNormalize;
+          if (normalizesBoolean &&
+              (boolean == nullptr ||
+               !sameSemantics(plan.destination, booleanTestResultSemantics()))) {
+            addDiagnostic(*value->values[index],
+                          "Boolean return conversion requires a BooleanTestExpr and bool destination");
+          }
+          checkConversionPlan(*value->values[index], plan,
+                              normalizesBoolean && boolean
+                                  ? boolean->operand->result
+                                  : cast ? cast->operand->result
+                                         : value->values[index]->result,
                               "Return");
         }
         verifyExpr(*value->values[index]);

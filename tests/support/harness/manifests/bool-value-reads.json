@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "suite": "bool-value-reads",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "raw-optimized",
+      "source": "../../../cases/run/bool_value_reads.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "copies 0\nequality 0\nconversions 0\nreturns 0\ncontrols 0\nevaluation 0\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "raw-reference",
+      "source": "../../../cases/run/bool_value_reads.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "copies 0\nequality 0\nconversions 0\nreturns 0\ncontrols 0\nevaluation 0\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "return-views-optimized",
+      "source": "../../../cases/run/bool_return_views.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "integers 0\nfloats 0\nviews 0\ndynamic 0\nhandles 0\ncontrols 0\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "return-views-reference",
+      "source": "../../../cases/run/bool_return_views.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "integers 0\nfloats 0\nviews 0\ndynamic 0\nhandles 0\ncontrols 0\n",
+          "stderr": ""
+        }
+      }
+    }
+  ]
+}

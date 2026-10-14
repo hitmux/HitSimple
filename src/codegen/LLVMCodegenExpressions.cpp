@@ -1411,16 +1411,16 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     addDiagnostic("cannot materialize a zero-length fixed View");
     return {};
   }
-  if (const auto *floating = dynamic_cast<const hir::FloatLiteral *>(&expression)) {
-    return makeStorage(floatTypeForByteLength(floating->byteLength),
-                       emitFloatValue(expression, floating->byteLength),
-                       floating->byteLength, "view.float");
-  }
-  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression);
-      call != nullptr && call->isFloating) {
-    return makeStorage(floatTypeForByteLength(call->byteLength),
-                       emitFloatValue(expression, call->byteLength),
-                       call->byteLength, "view.float");
+  const auto *floatingCall = dynamic_cast<const hir::CallExpr *>(&expression);
+  if (dynamic_cast<const hir::FloatLiteral *>(&expression) != nullptr ||
+      dynamic_cast<const hir::FloatBinaryExpr *>(&expression) != nullptr ||
+      dynamic_cast<const hir::ToFloatExpr *>(&expression) != nullptr ||
+      (floatingCall != nullptr && floatingCall->isFloating)) {
+    // Materialize computed floating rvalues before testing their bytes. Keep
+    // other View forms (including raw ternary copies) on their existing path.
+    return makeStorage(floatTypeForByteLength(byteLength),
+                       emitFloatValue(expression, byteLength),
+                       byteLength, "view.float");
   }
   return makeStorage(integerTypeForByteLength(byteLength),
                      emitIntegerValue(expression, byteLength),
@@ -1772,7 +1772,15 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                 ? "hs_" + call.callee
                                 : call.callee;
     auto callee = declareCFunction(calleeName, i32Ty, {ptrTy});
-    return emitCheckedRuntimeCall(callee, {file}, call.callee + ".ret");
+    auto *result = emitCheckedRuntimeCall(callee, {file}, call.callee + ".ret");
+    if (builtin == stdlib::BuiltinId::Feof) {
+      // C feof may return any nonzero int. Test before narrowing to the
+      // language's one-byte bool, otherwise values such as 256 become false.
+      auto *nonzero = builder_.CreateICmpNE(result, builder_.getInt32(0),
+                                           "feof.nonzero");
+      return builder_.CreateZExt(nonzero, builder_.getInt8Ty(), "feof.bool");
+    }
+    return result;
   }
   if (builtin == stdlib::BuiltinId::Get) {
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_get"

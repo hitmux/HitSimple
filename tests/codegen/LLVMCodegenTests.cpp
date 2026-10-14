@@ -3188,3 +3188,94 @@ HS_TEST(LLVMCodegen_CheckedArithmeticGuardsAvoidPoison) {
   HS_EXPECT_TRUE(llvmIr(result).find("div.special") != std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("phi i32") != std::string::npos);
 }
+
+HS_TEST(LLVMCodegen_ReadsBooleanValuesOnlyAtSemanticBoundaries) {
+  auto result = emitSource(
+      "func equal(a as bool, b as bool) -> u8 { return (a == b) as u8; }\n"
+      "func integral(value as bool) -> i64 { return to_i64(value); }\n"
+      "func floating(value as bool) -> f64 { return to_f64(value); }\n"
+      "func returned(value as bool) -> bool { return value; }\n"
+      "func bytes_of(value as bool) -> u8 { return value as u8; }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.module != nullptr);
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+  for (const auto &[name, expectedReads] :
+       std::vector<std::pair<std::string, unsigned>>{
+           {"equal", 2}, {"integral", 1}, {"floating", 1},
+           {"returned", 1}, {"bytes_of", 0}}) {
+    const auto *function = result.module->getFunction(name);
+    HS_EXPECT_TRUE(function != nullptr);
+    unsigned reads = 0;
+    for (const auto &block : *function) {
+      for (const auto &instruction : block) {
+        if (instruction.getName().str().rfind("cond.nonzero", 0) == 0) {
+          const auto *compare = llvm::dyn_cast<llvm::ICmpInst>(&instruction);
+          HS_EXPECT_TRUE(compare != nullptr);
+          HS_EXPECT_EQ(compare->getPredicate(), llvm::CmpInst::ICMP_NE);
+          HS_EXPECT_TRUE(compare->getOperand(0)->getType()->isIntegerTy(8));
+          ++reads;
+        }
+      }
+    }
+    HS_EXPECT_EQ(reads, expectedReads);
+  }
+}
+
+HS_TEST(LLVMCodegen_NormalizesFeofBeforeNarrowing) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    auto result = emitSource(
+        "func ended(file as handle) -> u8 { return feof(file) as u8; }\n"
+        "func failed(file as handle) -> i32 { return ferror(file); }\n"
+        "func flushed(file as handle) -> i32 { return fflush(file); }\n"
+        "func closed(file as handle) -> i32 { return fclose(file); }\n"
+        "func main() -> i32 { return 0; }\n", optionsFor(mode));
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    unsigned normalized = 0;
+    for (const auto &function : *result.module) {
+      for (const auto &block : function) {
+        for (const auto &instruction : block) {
+          if (instruction.getName() != "feof.bool") {
+            continue;
+          }
+          HS_EXPECT_EQ(instruction.getOpcode(), llvm::Instruction::ZExt);
+          HS_EXPECT_TRUE(instruction.getType()->isIntegerTy(8));
+          const auto *compare = llvm::dyn_cast<llvm::ICmpInst>(
+              instruction.getOperand(0));
+          HS_EXPECT_TRUE(compare != nullptr);
+          HS_EXPECT_EQ(compare->getPredicate(), llvm::CmpInst::ICMP_NE);
+          HS_EXPECT_TRUE(compare->getOperand(0)->getType()->isIntegerTy(32));
+          const auto *call = llvm::dyn_cast<llvm::CallInst>(compare->getOperand(0));
+          HS_EXPECT_TRUE(call != nullptr);
+          const std::string callee = mode == hitsimple::codegen::SafetyMode::Checked
+                                         ? "hs_feof" : "feof";
+          HS_EXPECT_EQ(call->getCalledFunction()->getName().str(), callee);
+          ++normalized;
+        }
+      }
+    }
+    HS_EXPECT_EQ(normalized, 1U);
+  }
+}
+
+HS_TEST(LLVMCodegen_BooleanReturnsReadComputedFloatAndDynamicViewBytes) {
+  auto result = emitSource(
+      "func sum(a as f64, b as f64) -> bool { return a + b; }\n"
+      "func converted(value as i32) -> bool { return to_f64(value); }\n"
+      "func resized(value as u32, count as u64) -> bool {\n"
+      "  return resize_bytes(value, count)\n"
+      "}\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.module != nullptr);
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("fadd double") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("sitofp i32") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("fcmp") == std::string::npos);
+  HS_EXPECT_TRUE(ir.find("call i32 @hs_view_any_nonzero") != std::string::npos);
+}
