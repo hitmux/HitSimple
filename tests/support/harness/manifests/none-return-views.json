@@ -31,8 +31,8 @@
         },
         "run": {
           "exit_code": 0,
-          "stdout": "ordinary 0\nmethods 0\nevaluation 0\n",
-          "stderr": ""
+          "stderr": "",
+          "stdout_regex": "ordinary 0\\r?\\nmethods 0\\r?\\nevaluation 0\\r?\\n"
         }
       }
     },
@@ -50,8 +50,8 @@
         },
         "run": {
           "exit_code": 0,
-          "stdout": "ordinary 0\nmethods 0\nevaluation 0\n",
-          "stderr": ""
+          "stderr": "",
+          "stdout_regex": "ordinary 0\\r?\\nmethods 0\\r?\\nevaluation 0\\r?\\n"
         }
       }
     }
