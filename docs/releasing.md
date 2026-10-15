@@ -10,7 +10,10 @@ Sanitizers, and HS-Smith checks and has no blocking review findings.
 Push an unused `vX.Y.Z` tag pointing to the reviewed commit. The Release
 workflow validates the complete platform matrix, verifies that the tag still
 resolves to that commit, uploads a draft, downloads all 13 packages and
-`SHA256SUMS`, verifies every checksum, and only then publishes it as Latest.
+`SHA256SUMS`, verifies every checksum, and only then publishes it as a prerelease.
+The title includes `Beta`; it is not promoted to Latest stable. Numeric
+`vX.Y.Z` tags and package versions are retained for compiler/extension
+compatibility. Beta status does not claim full Standard conformance.
 Lightweight and annotated tags are supported.
 
 ## Explicit manual publication
@@ -19,7 +22,7 @@ When a standalone tag push is unavailable, run the Release workflow from the
 Actions page with these inputs:
 
 - Branch: `master`
-- `version`: the exact source version, for example `0.3.9`
+- `version`: the exact source version, for example `0.3.10`
 - `scope`: `all`
 - `publish`: `true` (the default is `false`, which only validates)
 - `expected_commit`: the exact reviewed 40-character master commit SHA
