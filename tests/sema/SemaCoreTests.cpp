@@ -372,3 +372,99 @@ HS_TEST(Sema_ReturnConversionPlansUseExplicitNumericResultViews) {
     }
   }
 }
+
+HS_TEST(Sema_NoneReturnSpellingsProduceCanonicalCallViews) {
+  using namespace hitsimple::hir;
+  for (const auto length : {1U, 2U, 4U, 8U}) {
+    for (const auto *name : {"", "out"}) {
+      for (const auto *annotation : {"", " as none"}) {
+        const auto width = std::to_string(length);
+        auto result = analyzeSource(
+            "func identity(value[" + width + "] as none) -> " + name +
+            "[" + width + "]" + annotation + " { return value; }\n"
+            "func caller(value[" + width + "] as none) -> [" + width +
+            "] { return identity(value); }\n"
+            "func main() -> i32 { return 0; }\n");
+        HS_EXPECT_TRUE(result.unit != nullptr);
+        HS_EXPECT_TRUE(result.diagnostics.empty());
+        HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+        const auto *ret = dynamic_cast<const Return *>(
+            result.unit->functions[1]->body->statements.back().get());
+        HS_EXPECT_TRUE(ret != nullptr);
+        const auto *call = dynamic_cast<const CallExpr *>(ret->values[0].get());
+        HS_EXPECT_TRUE(call != nullptr);
+        HS_EXPECT_TRUE(call->templateName.empty());
+        HS_EXPECT_TRUE(call->result.templateName.empty());
+        HS_EXPECT_EQ(call->result.category, ViewCategory::UntemplatedInteger);
+        HS_EXPECT_EQ(call->result.integerInterpretation,
+                     IntegerInterpretation::Signed);
+        HS_EXPECT_EQ(call->result.lengthKind, ViewLengthKind::Static);
+        HS_EXPECT_EQ(call->result.staticByteLength, length);
+        HS_EXPECT_TRUE(!call->result.isAddressable);
+        HS_EXPECT_TRUE(!call->result.isMutableLValue);
+      }
+    }
+  }
+}
+
+HS_TEST(Sema_NoneReturnCallsCoverMethodsOperatorsExternsAndNestedViews) {
+  auto result = analyzeSource(
+      "template Packet { value[8] as u64; }\n"
+      "impl Packet {\n"
+      "  func bare(self as Packet) -> [8] { return self.value; }\n"
+      "  func explicit_none(self as Packet) -> [8] as none { return self.value; }\n"
+      "  op + (left as Packet, right as Packet) -> [8] as none {\n"
+      "    return left.value %8d+ right.value;\n"
+      "  }\n"
+      "}\n"
+      "extern host_bare(value[8] as none) -> [8]\n"
+      "extern host_none(value[8] as none) -> out[8] as none\n"
+      "func identity(value[8] as none) -> [8] as none { return value; }\n"
+      "func selected(choose as bool, left[8] as none, right[8] as none) -> [8] as bytes {\n"
+      "  return identity(choose ? identity(left) : identity(right)) as bytes;\n"
+      "}\n"
+      "func methods(value as Packet) -> [8] as none {\n"
+      "  return identity(value.bare()) + identity(value.explicit_none());\n"
+      "}\n"
+      "func operation(value as Packet) -> [8] { return value + value; }\n"
+      "func external(value[8] as none) -> [8] {\n"
+      "  return host_none(host_bare(value));\n"
+      "}\n"
+      "func pair(value[8] as none) -> ([8] as none, named[8] as none) {\n"
+      "  return value, value;\n"
+      "}\n"
+      "func main() -> i32 {\n"
+      "  new first[8]; new second[8]; first, second = pair(7); return 0;\n"
+      "}\n");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
+}
+
+HS_TEST(Sema_NoneReturnNormalizationRetainsSignatureDiagnostics) {
+  for (const auto &[source, diagnostic] :
+       {std::pair{"func f() -> as none { return 0; }",
+                  "invalid return byte length"},
+        std::pair{"func f(value as f64) -> [8] as none { return value; }",
+                  "return value is not an integer expression"},
+        std::pair{"func f(value[8] as bytes) -> [8] as none { return value; }",
+                  "return value is not an integer expression"},
+        std::pair{"func f(value[8] as none) -> [1] as none { return value; }",
+                  "return value byte length does not fit"},
+        std::pair{"func f() -> [8] as none { return 1, 2; }",
+                  "return value count does not match"},
+        std::pair{"func pair() -> ([8] as none, [8] as none) { return 1, 2; }\n"
+                  "func f() -> [8] { return pair(); }",
+                  "multi-return"}}) {
+    auto result = analyzeSource(std::string(source) +
+                                "\nfunc main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_TRUE(!result.diagnostics.empty());
+    bool found = false;
+    for (const auto &message : result.diagnostics) {
+      found = found || message.find(diagnostic) != std::string::npos;
+      HS_EXPECT_TRUE(message.find("internal error") == std::string::npos);
+    }
+    HS_EXPECT_TRUE(found);
+  }
+}

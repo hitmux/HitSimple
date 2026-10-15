@@ -558,7 +558,9 @@ UserTemplateOpCallExpr::UserTemplateOpCallExpr(
     std::string templateName, ViewSemantics result)
     : Expr(std::move(result)), callee(std::move(callee)),
       arguments(std::move(arguments)), byteLength(this->result.staticByteLength),
-      templateName(std::move(templateName)) {}
+      // `none` and an omitted template share the canonical empty HIR name.
+      templateName(templateName == "none" ? std::string{}
+                                            : std::move(templateName)) {}
 
 FloatBinaryExpr::FloatBinaryExpr(std::unique_ptr<Expr> left, std::string op,
                                  std::unique_ptr<Expr> right,
@@ -599,7 +601,8 @@ CallExpr::CallExpr(std::string callee,
       returnMode(stdlib::builtinCallMetadata(builtin, overloadIndex).returnMode),
       overloadIndex(overloadIndex),
       formatArgumentKinds(std::move(formatArgumentKinds)),
-      templateName(std::move(templateName)) {
+      templateName(templateName == "none" ? std::string{}
+                                            : std::move(templateName)) {
   argumentPlans.reserve(this->arguments.size());
   for (const auto &argument : this->arguments) {
     argumentPlans.push_back(

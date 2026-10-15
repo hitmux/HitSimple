@@ -59,6 +59,71 @@ HS_TEST(Hir_ViewSemanticsVerifierRejectsLegacyByteLengthMismatch) {
                  std::string::npos);
 }
 
+HS_TEST(Hir_CallResultsCanonicalizeExplicitNoneTemplate) {
+  using namespace hitsimple::hir;
+  // Standard 4.4: [N] and [N] as none describe the same return View.
+  for (const auto *spelling : {"", "none"}) {
+    for (const auto length : {1U, 2U, 4U, 8U}) {
+      const auto semantics = viewSemanticsForTemplate(spelling, length);
+      auto call = std::make_unique<CallExpr>(
+          "identity", std::vector<std::unique_ptr<Expr>>{}, false,
+          hitsimple::stdlib::BuiltinId::None, std::vector<FormatArgKind>{}, 0,
+          spelling, semantics);
+      HS_EXPECT_TRUE(call->templateName.empty());
+      HS_EXPECT_EQ(call->templateName, call->result.templateName);
+      HS_EXPECT_EQ(call->byteLength, length);
+      HS_EXPECT_TRUE(verifyHIR(*unitWithReturn(std::move(call))).empty());
+
+      auto method = std::make_unique<UserTemplateOpCallExpr>(
+          "read", std::vector<std::unique_ptr<Expr>>{}, spelling, semantics);
+      HS_EXPECT_TRUE(method->templateName.empty());
+      HS_EXPECT_EQ(method->templateName, method->result.templateName);
+      HS_EXPECT_EQ(method->byteLength, length);
+      HS_EXPECT_TRUE(verifyHIR(*unitWithReturn(std::move(method))).empty());
+    }
+  }
+}
+
+HS_TEST(Hir_CallResultsRetainTemplateMismatchValidation) {
+  using namespace hitsimple::hir;
+  for (const auto *spelling : {"none", "u32"}) {
+    const auto semantics = viewSemanticsForTemplate("i32", 4);
+    auto call = std::make_unique<CallExpr>(
+        "identity", std::vector<std::unique_ptr<Expr>>{}, false,
+        hitsimple::stdlib::BuiltinId::None, std::vector<FormatArgKind>{}, 0,
+        spelling, semantics);
+    const auto diagnostics = verifyHIR(*unitWithReturn(std::move(call)));
+    HS_EXPECT_EQ(diagnostics.size(), 1U);
+    HS_EXPECT_TRUE(diagnostics.front().message.find("legacy templateName") !=
+                   std::string::npos);
+
+    auto method = std::make_unique<UserTemplateOpCallExpr>(
+        "read", std::vector<std::unique_ptr<Expr>>{}, spelling, semantics);
+    const auto methodDiagnostics = verifyHIR(*unitWithReturn(std::move(method)));
+    HS_EXPECT_EQ(methodDiagnostics.size(), 1U);
+    HS_EXPECT_TRUE(methodDiagnostics.front().message.find("legacy templateName") !=
+                   std::string::npos);
+  }
+  auto call = std::make_unique<CallExpr>(
+      "identity", std::vector<std::unique_ptr<Expr>>{}, false,
+      hitsimple::stdlib::BuiltinId::None, std::vector<FormatArgKind>{}, 0,
+      "none", viewSemanticsForTemplate("none", 8));
+  call->templateName = "none";
+  const auto diagnostics = verifyHIR(*unitWithReturn(std::move(call)));
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("legacy templateName") !=
+                 std::string::npos);
+
+  auto method = std::make_unique<UserTemplateOpCallExpr>(
+      "read", std::vector<std::unique_ptr<Expr>>{}, "none",
+      viewSemanticsForTemplate("none", 8));
+  method->templateName = "none";
+  const auto methodDiagnostics = verifyHIR(*unitWithReturn(std::move(method)));
+  HS_EXPECT_EQ(methodDiagnostics.size(), 1U);
+  HS_EXPECT_TRUE(methodDiagnostics.front().message.find("legacy templateName") !=
+                 std::string::npos);
+}
+
 HS_TEST(Hir_ViewSemanticsVerifierRejectsNonCanonicalBooleanTestResult) {
   using namespace hitsimple::hir;
   auto expression = std::make_unique<BooleanTestExpr>(
