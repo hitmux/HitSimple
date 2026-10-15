@@ -174,9 +174,14 @@ class EvidenceTests(unittest.TestCase):
     def test_native_line_endings_do_not_invalidate_review(self):
         path = self.root / "Standard.md"
         before = evidence.digest(path)
-        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
-        self.assertEqual(evidence.digest(path), before)
-        evidence.build(self.root)
+        normalized = path.read_text(encoding="utf-8").encode("utf-8")
+        # write_text may already have produced CRLF on Windows. Construct both
+        # byte spellings from normalized text rather than doubling existing CRs.
+        for ending in (b"\n", b"\r\n"):
+            with self.subTest(ending=ending):
+                path.write_bytes(normalized.replace(b"\n", ending))
+                self.assertEqual(evidence.digest(path), before)
+                evidence.build(self.root)
 
     def test_review_file_set_must_be_exact(self):
         self.crosswalk["reviewed_sha256"]["unused"] = "0" * 64
