@@ -1220,6 +1220,18 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_explicit_numeric_returns PROPERTIES
     LABELS "testing;harness;stdlib;returns")
+  add_test(
+    NAME hsc_floating_ternary_views
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite floating-ternary-views
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_floating_ternary_views PROPERTIES
+    LABELS "testing;harness;stdlib;returns;float")
   # Controlled C int results cover libc and checked hs_* wrappers without
   # depending on a host libc's choice of nonzero feof status value.
   foreach(provider optimized reference)

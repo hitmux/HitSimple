@@ -1243,6 +1243,55 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     return emitViewValue(*view->operand);
   }
 
+  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression);
+      ternary != nullptr && hir::isFloatingNumeric(ternary->result)) {
+    // A floating ternary selects a View copy, not an integer conversion or
+    // floating arithmetic operation. Copy the selected branch's bytes so ABI
+    // parameters, signed zero and NaN payloads keep their representation.
+    if (ternary->result.lengthKind != hir::ViewLengthKind::Static ||
+        ternary->byteLength == 0) {
+      addDiagnostic("floating ternary requires a fixed positive View length");
+      return {};
+    }
+    auto *condition = emitConditionValue(*ternary->condition);
+    if (condition == nullptr) {
+      return {};
+    }
+    auto *storage = createFunctionEntryAlloca(
+        llvm::ArrayType::get(builder_.getInt8Ty(), ternary->byteLength),
+        "view.ternary");
+    storage->setAlignment(llvm::Align(1));
+    registerTemporaryObject(storage, builder_.getInt64(ternary->byteLength));
+    auto *function = builder_.GetInsertBlock()->getParent();
+    auto *thenBlock =
+        llvm::BasicBlock::Create(context_, "view.ternary.then", function);
+    auto *elseBlock =
+        llvm::BasicBlock::Create(context_, "view.ternary.else", function);
+    auto *mergeBlock =
+        llvm::BasicBlock::Create(context_, "view.ternary.end", function);
+    builder_.CreateCondBr(condition, thenBlock, elseBlock);
+    const auto copyBranch = [&](const hir::Expr &branch,
+                                 llvm::BasicBlock *block) {
+      builder_.SetInsertPoint(block);
+      const auto view = emitViewValue(branch);
+      if (view.data == nullptr || view.staticLength != ternary->byteLength) {
+        addDiagnostic("floating ternary branch does not match its View length");
+        return false;
+      }
+      builder_.CreateMemCpy(storage, llvm::Align(1), view.data,
+                            alignmentAt(view.alignment), ternary->byteLength);
+      builder_.CreateBr(mergeBlock);
+      return true;
+    };
+    if (!copyBranch(*ternary->thenExpr, thenBlock) ||
+        !copyBranch(*ternary->elseExpr, elseBlock)) {
+      return {};
+    }
+    builder_.SetInsertPoint(mergeBlock);
+    return ViewValue{storage, builder_.getInt64(ternary->byteLength),
+                     ternary->byteLength, std::size_t{1}};
+  }
+
   if (const auto *call =
           dynamic_cast<const hir::UserTemplateOpCallExpr *>(&expression)) {
     return emitUserTemplateOpCall(call->callee, call->arguments,
@@ -2033,10 +2082,11 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     return nullptr;
   }
 
-  if (dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr) {
+  if (dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
+      dynamic_cast<const hir::TernaryExpr *>(&expression) != nullptr) {
     const auto view = emitViewValue(expression);
     if (view.data == nullptr || view.staticLength != byteLength) {
-      addDiagnostic("temporary template view does not match requested float width");
+      addDiagnostic("floating View does not match requested float width");
       return nullptr;
     }
     auto *loaded = builder_.CreateLoad(floatType, view.data, "view.float");

@@ -1,0 +1,111 @@
+{
+  "version": 2,
+  "suite": "floating-ternary-views",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "optimized",
+      "source": "../../../cases/run/floating_ternary_views.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference",
+      "source": "../../../cases/run/floating_ternary_views.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "f16 0\\r?\\nf32 0\\r?\\nf64 0\\r?\\nf128 0\\r?\\ncontrols 0\\r?\\n"
+          }
+        }
+      }
+    }
+  ]
+}

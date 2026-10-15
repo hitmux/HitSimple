@@ -1616,3 +1616,31 @@ HS_TEST(Sema_LowersHandleFileIoAssignmentComparisonAndFormatting) {
   HS_EXPECT_TRUE(dump.find("CallExpr callee=fclose bytes=4") !=
                  std::string::npos);
 }
+
+HS_TEST(Sema_FloatingTernariesRetainFixedRvalueViewSemantics) {
+  using namespace hitsimple::hir;
+  for (const unsigned bits : {16U, 32U, 64U, 128U}) {
+    const auto type = "f" + std::to_string(bits);
+    auto result = analyzeSource(
+        "func selected(choose as bool, left as " + type + ", right as " + type +
+        ") -> " + type + " { return choose ? left : right; }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+    const auto *ret = dynamic_cast<const Return *>(
+        result.unit->functions[0]->body->statements.back().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    const auto *choice = dynamic_cast<const TernaryExpr *>(ret->values[0].get());
+    HS_EXPECT_TRUE(choice != nullptr);
+    HS_EXPECT_EQ(choice->result.category, ViewCategory::Floating);
+    HS_EXPECT_EQ(choice->result.templateName, type);
+    HS_EXPECT_EQ(choice->result.staticByteLength, bits / 8U);
+    HS_EXPECT_TRUE(!choice->result.isAddressable);
+    HS_EXPECT_TRUE(!choice->result.isMutableLValue);
+    HS_EXPECT_TRUE(choice->thenExpr->result.isAddressable);
+    HS_EXPECT_TRUE(choice->elseExpr->result.isAddressable);
+    HS_EXPECT_TRUE(dynamic_cast<const BooleanTestExpr *>(choice->condition.get()) !=
+                   nullptr);
+  }
+}

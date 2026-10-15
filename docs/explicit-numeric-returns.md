@@ -38,6 +38,7 @@ ctest --test-dir build -R '^hsc_explicit_numeric_returns$' --output-on-failure
 cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
-Narrowing return-assignment rejection, named expressionless return storage,
-and floating ABI parameter ternary View materialization are separate existing
-limitations. This change does not expand those implementation boundaries.
+Narrowing return-assignment rejection and named expressionless return storage
+remain separate existing limitations. Floating ABI parameter ternary View
+materialization is covered by the separately scoped
+[floating ternary correction](floating-ternary-views.md).

@@ -4,8 +4,10 @@
 #include "hitsimple/parser/Parser.h"
 #include "hitsimple/sema/Sema.h"
 
+#include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
@@ -3324,4 +3326,96 @@ HS_TEST(LLVMCodegen_EmitsExplicitNumericReturnConversions) {
     HS_EXPECT_TRUE(ir.find("zext i8") != std::string::npos);
     HS_EXPECT_TRUE(ir.find("fptosi double") != std::string::npos);
   }
+}
+
+HS_TEST(LLVMCodegen_FloatingTernariesCopySelectedViewBytes) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    for (const unsigned bits : {16U, 32U, 64U, 128U}) {
+      const auto type = "f" + std::to_string(bits);
+      auto result = emitSource(
+          "func truth(choose as bool, left as " + type + ", right as " + type +
+          ") -> bool { return choose ? left : right; }\n"
+          "func selected(choose as bool, left as " + type + ", right as " + type +
+          ") -> " + type + " { return choose ? left : right; }\n"
+          "func main() -> i32 { return 0; }\n", optionsFor(mode));
+      HS_EXPECT_TRUE(result.diagnostics.empty());
+      HS_EXPECT_TRUE(result.module != nullptr);
+      HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+      for (const auto name : {"truth", "selected"}) {
+        const auto *function = result.module->getFunction(name);
+        HS_EXPECT_TRUE(function != nullptr);
+        unsigned copies = 0;
+        unsigned rawTests = 0;
+        for (const auto &block : *function) {
+          for (const auto &instruction : block) {
+            if (const auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(&instruction)) {
+              const auto *length =
+                  llvm::dyn_cast<llvm::ConstantInt>(copy->getLength());
+              HS_EXPECT_TRUE(length != nullptr);
+              HS_EXPECT_EQ(length->getZExtValue(), bits / 8U);
+              HS_EXPECT_TRUE(block.getName().str().rfind("view.ternary.", 0) == 0);
+              ++copies;
+            }
+            if (const auto *test = llvm::dyn_cast<llvm::ICmpInst>(&instruction);
+                test != nullptr &&
+                test->getOperand(0)->getType()->isIntegerTy(bits) &&
+                instruction.getName().str().rfind("cond.nonzero", 0) == 0) {
+              HS_EXPECT_EQ(test->getPredicate(), llvm::CmpInst::ICMP_NE);
+              ++rawTests;
+            }
+            HS_EXPECT_TRUE(!llvm::isa<llvm::FCmpInst>(instruction));
+            HS_EXPECT_TRUE(!llvm::isa<llvm::FPToSIInst>(instruction));
+            HS_EXPECT_TRUE(!llvm::isa<llvm::FPToUIInst>(instruction));
+            HS_EXPECT_TRUE(!llvm::isa<llvm::FPExtInst>(instruction));
+            HS_EXPECT_TRUE(!llvm::isa<llvm::FPTruncInst>(instruction));
+          }
+        }
+        HS_EXPECT_EQ(copies, 2U);
+        HS_EXPECT_EQ(rawTests, std::string_view(name) == "truth" ? 1U : 0U);
+      }
+      HS_EXPECT_EQ(result.module->getFunction("selected")
+                       ->getReturnType()->getScalarSizeInBits(), bits);
+    }
+  }
+}
+
+HS_TEST(LLVMCodegen_FloatingTernaryEvaluatesOnlySelectedBranch) {
+  auto result = emitSource(
+      "func predicate() -> bool { return true; }\n"
+      "func left() -> f64 { return 1.0; }\n"
+      "func right() -> f64 { return 0.0; }\n"
+      "func probe() -> bool { return predicate() ? left() : right(); }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.module != nullptr);
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+  const auto *function = result.module->getFunction("probe");
+  HS_EXPECT_TRUE(function != nullptr);
+  unsigned predicates = 0;
+  unsigned leftCalls = 0;
+  unsigned rightCalls = 0;
+  for (const auto &block : *function) {
+    for (const auto &instruction : block) {
+      const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+      if (call == nullptr || call->getCalledFunction() == nullptr) {
+        continue;
+      }
+      const auto name = call->getCalledFunction()->getName();
+      if (name == "left") {
+        HS_EXPECT_EQ(block.getName().str(), std::string("view.ternary.then"));
+        ++leftCalls;
+      } else if (name == "right") {
+        HS_EXPECT_EQ(block.getName().str(), std::string("view.ternary.else"));
+        ++rightCalls;
+      } else if (name == "predicate") {
+        HS_EXPECT_TRUE(block.getName().str().rfind("view.ternary.", 0) != 0);
+        ++predicates;
+      }
+    }
+  }
+  HS_EXPECT_EQ(predicates, 1U);
+  HS_EXPECT_EQ(leftCalls, 1U);
+  HS_EXPECT_EQ(rightCalls, 1U);
 }
