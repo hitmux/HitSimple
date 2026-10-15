@@ -409,7 +409,22 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   }
 
   if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression)) {
-    const auto byteLength = inferByteLength(*asExpr->operand);
+    std::unique_ptr<hir::Expr> operand;
+    std::optional<std::size_t> byteLength;
+    if (dynamic_cast<const ast::TernaryExpr *>(asExpr->operand.get()) != nullptr) {
+      // A ternary's common View length belongs to its validated HIR. Analyze
+      // both branches once before using it; AST-only inference also serves
+      // consumers that do not otherwise validate their argument expressions.
+      operand = analyze(*asExpr->operand);
+      if (!operand) {
+        return nullptr;
+      }
+      if (operand->result.lengthKind == hir::ViewLengthKind::Static) {
+        byteLength = operand->result.staticByteLength;
+      }
+    } else {
+      byteLength = inferByteLength(*asExpr->operand);
+    }
     if (!byteLength || *byteLength == 0) {
       addDiagnostic(
           "expression template view requires a fixed positive byte length");
@@ -430,7 +445,9 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       }
     }
 
-    auto operand = analyze(*asExpr->operand);
+    if (!operand) {
+      operand = analyze(*asExpr->operand);
+    }
     if (!operand) {
       return nullptr;
     }

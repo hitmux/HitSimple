@@ -1644,3 +1644,118 @@ HS_TEST(Sema_FloatingTernariesRetainFixedRvalueViewSemantics) {
                    nullptr);
   }
 }
+
+HS_TEST(Sema_TernaryAsUsesValidatedStaticViewLength) {
+  using namespace hitsimple::hir;
+  for (const auto &[type, length] :
+       std::vector<std::pair<std::string, unsigned>>{
+           {"f16", 2}, {"f32", 4}, {"f64", 8}, {"f128", 16},
+           {"i32", 4}, {"bool", 1}, {"bytes", 8}, {"cstr", 8},
+           {"none", 8}, {"Packet", 8}}) {
+    const auto size = std::to_string(length);
+    const auto parameter = "[" + size + "]" +
+        (type == "none" ? std::string{} : " as " + type);
+    for (const auto &selection : {
+             std::string("choose ? left : right"),
+             std::string("choose ? (choose ? left : right) : right"),
+             std::string("choose ? identity(left) : identity(right)")}) {
+      auto result = analyzeSource(
+          "template Packet { value[8] as u64; }\n"
+          "func identity(value" + parameter + ") -> " + parameter +
+          " { return value; }\n"
+          "func selected(choose as bool, left" + parameter + ", right" +
+          parameter + ") -> [" + size + "] as bytes { return (" +
+          selection + ") as bytes; }\n"
+          "func main() -> i32 { return 0; }\n");
+      HS_EXPECT_TRUE(result.unit != nullptr);
+      HS_EXPECT_TRUE(result.diagnostics.empty());
+      HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+      const auto *ret = dynamic_cast<const Return *>(
+          result.unit->functions[1]->body->statements.back().get());
+      HS_EXPECT_TRUE(ret != nullptr);
+      const auto *view =
+          dynamic_cast<const TemplateViewExpr *>(ret->values[0].get());
+      HS_EXPECT_TRUE(view != nullptr);
+      HS_EXPECT_EQ(view->result.templateName, std::string("bytes"));
+      HS_EXPECT_EQ(view->result.staticByteLength, length);
+      HS_EXPECT_EQ(view->result.lengthKind, ViewLengthKind::Static);
+      HS_EXPECT_TRUE(!view->result.isAddressable);
+      HS_EXPECT_TRUE(!view->result.isMutableLValue);
+      const auto *choice = dynamic_cast<const TernaryExpr *>(view->operand.get());
+      HS_EXPECT_TRUE(choice != nullptr);
+      HS_EXPECT_EQ(choice->result.templateName, type == "none" ? "" : type);
+      HS_EXPECT_EQ(choice->result.staticByteLength, length);
+      HS_EXPECT_TRUE(!choice->result.isAddressable);
+      HS_EXPECT_TRUE(!choice->result.isMutableLValue);
+    }
+  }
+}
+
+HS_TEST(Sema_TernaryAsSupportsFixedTargetsAndTypedInitializers) {
+  for (const auto &type : {"u64", "f64", "Packet"}) {
+    auto result = analyzeSource(
+        "template Packet { value[8] as u64; }\n"
+        "func selected(choose as bool, left as f64, right as f64) -> " +
+        std::string(type) + " {\n"
+        "    new selected as " + type + " = (choose ? left : right) as " + type +
+        "\n    return selected\n}\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
+  }
+}
+
+HS_TEST(Sema_TernaryAsUsesLiteralAndReturnViewLengths) {
+  auto result = analyzeSource(
+      "func bits(choose as bool, left as f64, right as f64) -> u64 {\n"
+      "    return (choose ? left : right) as u64\n}\n"
+      "func flag(choose as bool) -> u8 {\n"
+      "    return (choose ? true : false) as u8\n}\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
+}
+
+HS_TEST(Sema_TernaryAsRetainsStaticValidation) {
+  const auto prefix =
+      "func identity(value as f64) -> f64 { return value; }\n"
+      "func selected(choose as bool, left as f64, right as f64, "
+      "narrow as f32, integer as u64, count as u64) -> [8] as bytes { return ";
+  for (const auto &[expression, diagnostic] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"(choose ? left : narrow) as bytes",
+            "ternary branches must have the same template and byte length"},
+           {"(true ? left : integer) as bytes",
+            "ternary branches must have the same template and byte length"},
+           {"(true ? left : identity(integer)) as bytes",
+            "float operand is not a float expression"},
+           {"(true ? left : identity()) as bytes", "argument count"},
+           {"(true ? left : missing) as bytes", "undeclared"},
+           {"(missing ? left : right) as bytes", "undeclared"},
+           {"(choose ? left : right) as u32", "does not match template 'u32'"},
+           {"(choose ? left : right) as Missing", "unknown template 'Missing'"},
+           {"(choose ? resize_bytes(integer, count) : resize_bytes(integer, count)) as bytes",
+            "requires a fixed positive byte length"},
+           {"(choose ? resize_bytes(integer, 0) : resize_bytes(integer, 0)) as bytes",
+            "requires a fixed positive byte length"}}) {
+    auto result = analyzePreprocessedSource(
+        "$include <stdlib.hsh>\n" + std::string(prefix) + expression +
+        "; }\nfunc main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_TRUE(std::any_of(
+        result.diagnostics.begin(), result.diagnostics.end(),
+        [&](const auto &item) {
+          return item.message.find(diagnostic) != std::string::npos;
+        }));
+  }
+  // Generic length inference must not admit a ternary without analyzing it.
+  auto length = analyzePreprocessedSource(
+      "$include <stdlib.hsh>\n"
+      "func probe(left as f64, right as u64) -> u64 {\n"
+      "    return length(true ? left : right)\n}\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(length.unit == nullptr);
+  HS_EXPECT_TRUE(!length.diagnostics.empty());
+}
