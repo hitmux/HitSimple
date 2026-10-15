@@ -693,6 +693,16 @@ target_link_libraries(hsc_unit_tests
   endfunction()
 
   add_test(NAME unit_tests COMMAND hsc_unit_tests)
+  add_test(NAME hsc_standard_evidence_check
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/standard_evidence.py --check)
+  add_test(NAME hsc_standard_evidence_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/evidence/test_standard_evidence.py)
+  add_test(NAME hsc_standard_evidence_units
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/standard_evidence.py
+      --run-unit-witnesses $<TARGET_FILE:hsc_unit_tests>
+      --results ${HSC_CTEST_OUTPUT_ROOT}/standard-evidence/units.json)
+  set_tests_properties(hsc_standard_evidence_check hsc_standard_evidence_tests
+    hsc_standard_evidence_units PROPERTIES LABELS "testing;standard-evidence")
   add_test(
     NAME hsc_practical_example_unit_tests
     COMMAND ${Python3_EXECUTABLE}
