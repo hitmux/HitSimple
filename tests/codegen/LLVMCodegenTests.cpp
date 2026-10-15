@@ -3419,3 +3419,54 @@ HS_TEST(LLVMCodegen_FloatingTernaryEvaluatesOnlySelectedBranch) {
   HS_EXPECT_EQ(leftCalls, 1U);
   HS_EXPECT_EQ(rightCalls, 1U);
 }
+
+HS_TEST(LLVMCodegen_TernaryAsRetainsBranchLocalViewCopies) {
+  for (const unsigned bits : {16U, 32U, 64U, 128U}) {
+    const auto type = "f" + std::to_string(bits);
+    const auto size = std::to_string(bits / 8U);
+    auto result = emitSource(
+        "func predicate() -> bool { return true; }\n"
+        "func left(value as " + type + ") -> " + type + " { return value; }\n"
+        "func right(value as " + type + ") -> " + type + " { return value; }\n"
+        "func probe(a as " + type + ", b as " + type + ") -> [" + size +
+        "] as bytes { return (predicate() ? left(a) : right(b)) as bytes; }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    const auto *function = result.module->getFunction("probe");
+    HS_EXPECT_TRUE(function != nullptr);
+    unsigned predicates = 0;
+    unsigned leftCalls = 0;
+    unsigned rightCalls = 0;
+    for (const auto &block : *function) {
+      for (const auto &instruction : block) {
+        HS_EXPECT_TRUE(!llvm::isa<llvm::FPToSIInst>(instruction));
+        HS_EXPECT_TRUE(!llvm::isa<llvm::FPToUIInst>(instruction));
+        HS_EXPECT_TRUE(!llvm::isa<llvm::FPExtInst>(instruction));
+        HS_EXPECT_TRUE(!llvm::isa<llvm::FPTruncInst>(instruction));
+        const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+        if (call == nullptr || call->getCalledFunction() == nullptr) {
+          continue;
+        }
+        const auto name = call->getCalledFunction()->getName();
+        if (name == "predicate") {
+          HS_EXPECT_TRUE(block.getName().str().rfind("view.ternary.", 0) != 0);
+          ++predicates;
+        } else if (name == "left" || name == "right") {
+          HS_EXPECT_EQ(block.getName().str(), name == "left"
+              ? std::string("view.ternary.then")
+              : std::string("view.ternary.else"));
+          if (name == "left") {
+            ++leftCalls;
+          } else {
+            ++rightCalls;
+          }
+        }
+      }
+    }
+    HS_EXPECT_EQ(predicates, 1U);
+    HS_EXPECT_EQ(leftCalls, 1U);
+    HS_EXPECT_EQ(rightCalls, 1U);
+  }
+}

@@ -107,6 +107,19 @@ func check_f16(left as f16, right as f16, left_truth as u8, right_truth as u8) -
         new opposite as f16 = left
         new expected_truth as u8 = right_truth
         if (choose) { expected = left; opposite = right; expected_truth = left_truth; }
+        // Direct as uses the validated ternary View length without conversion.
+        new direct[2] as bytes = (choose ? left : right) as bytes
+        if (memcmp(direct, expected as bytes, 2) != 0) { failures++; }
+        direct = (choose ? identity_f16(left) : identity_f16(right)) as bytes
+        if (memcmp(direct, expected as bytes, 2) != 0) { failures++; }
+        direct = (choose ? (false ? right : left) : (true ? right : left)) as bytes
+        if (memcmp(direct, expected as bytes, 2) != 0) { failures++; }
+        reset_evaluation()
+        direct = (mark_condition(choose) ? mark_left_f16(left) : mark_right_f16(right)) as bytes
+        if (memcmp(direct, expected as bytes, 2) != 0) { failures++; }
+        failures = failures + check_evaluation(choose)
+        new direct_integer as u16 = (choose ? left : right) as u16
+        if (memcmp(direct_integer as bytes, expected as bytes, 2) != 0) { failures++; }
         new selected as f16 = choose ? left : right
         if (memcmp(selected as bytes, expected as bytes, 2) != 0) { failures++; }
         selected = choose ? identity_f16(left) : identity_f16(right)
@@ -247,6 +260,19 @@ func check_f32(left as f32, right as f32, left_truth as u8, right_truth as u8) -
         new opposite as f32 = left
         new expected_truth as u8 = right_truth
         if (choose) { expected = left; opposite = right; expected_truth = left_truth; }
+        // Direct as uses the validated ternary View length without conversion.
+        new direct[4] as bytes = (choose ? left : right) as bytes
+        if (memcmp(direct, expected as bytes, 4) != 0) { failures++; }
+        direct = (choose ? identity_f32(left) : identity_f32(right)) as bytes
+        if (memcmp(direct, expected as bytes, 4) != 0) { failures++; }
+        direct = (choose ? (false ? right : left) : (true ? right : left)) as bytes
+        if (memcmp(direct, expected as bytes, 4) != 0) { failures++; }
+        reset_evaluation()
+        direct = (mark_condition(choose) ? mark_left_f32(left) : mark_right_f32(right)) as bytes
+        if (memcmp(direct, expected as bytes, 4) != 0) { failures++; }
+        failures = failures + check_evaluation(choose)
+        new direct_integer as u32 = (choose ? left : right) as u32
+        if (memcmp(direct_integer as bytes, expected as bytes, 4) != 0) { failures++; }
         new selected as f32 = choose ? left : right
         if (memcmp(selected as bytes, expected as bytes, 4) != 0) { failures++; }
         selected = choose ? identity_f32(left) : identity_f32(right)
@@ -387,6 +413,19 @@ func check_f64(left as f64, right as f64, left_truth as u8, right_truth as u8) -
         new opposite as f64 = left
         new expected_truth as u8 = right_truth
         if (choose) { expected = left; opposite = right; expected_truth = left_truth; }
+        // Direct as uses the validated ternary View length without conversion.
+        new direct[8] as bytes = (choose ? left : right) as bytes
+        if (memcmp(direct, expected as bytes, 8) != 0) { failures++; }
+        direct = (choose ? identity_f64(left) : identity_f64(right)) as bytes
+        if (memcmp(direct, expected as bytes, 8) != 0) { failures++; }
+        direct = (choose ? (false ? right : left) : (true ? right : left)) as bytes
+        if (memcmp(direct, expected as bytes, 8) != 0) { failures++; }
+        reset_evaluation()
+        direct = (mark_condition(choose) ? mark_left_f64(left) : mark_right_f64(right)) as bytes
+        if (memcmp(direct, expected as bytes, 8) != 0) { failures++; }
+        failures = failures + check_evaluation(choose)
+        new direct_integer as u64 = (choose ? left : right) as u64
+        if (memcmp(direct_integer as bytes, expected as bytes, 8) != 0) { failures++; }
         new selected as f64 = choose ? left : right
         if (memcmp(selected as bytes, expected as bytes, 8) != 0) { failures++; }
         selected = choose ? identity_f64(left) : identity_f64(right)
@@ -527,6 +566,17 @@ func check_f128(left as f128, right as f128, left_truth as u8, right_truth as u8
         new opposite as f128 = left
         new expected_truth as u8 = right_truth
         if (choose) { expected = left; opposite = right; expected_truth = left_truth; }
+        // Direct as uses the validated ternary View length without conversion.
+        new direct[16] as bytes = (choose ? left : right) as bytes
+        if (memcmp(direct, expected as bytes, 16) != 0) { failures++; }
+        direct = (choose ? identity_f128(left) : identity_f128(right)) as bytes
+        if (memcmp(direct, expected as bytes, 16) != 0) { failures++; }
+        direct = (choose ? (false ? right : left) : (true ? right : left)) as bytes
+        if (memcmp(direct, expected as bytes, 16) != 0) { failures++; }
+        reset_evaluation()
+        direct = (mark_condition(choose) ? mark_left_f128(left) : mark_right_f128(right)) as bytes
+        if (memcmp(direct, expected as bytes, 16) != 0) { failures++; }
+        failures = failures + check_evaluation(choose)
         new selected as f128 = choose ? left : right
         if (memcmp(selected as bytes, expected as bytes, 16) != 0) { failures++; }
         selected = choose ? identity_f128(left) : identity_f128(right)

@@ -46,6 +46,8 @@ ctest --test-dir build -R '^hsc_floating_ternary_views$' --output-on-failure
 cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
-Existing direct `as`-on-ternary length inference and direct floating arguments
-to raw-memory builtin metadata are separate limitations. Representation
-observers here use typed locals followed by explicit `as bytes` Views.
+Direct expression-level `as` on ternaries is covered by the separately scoped
+[ternary expression View correction](ternary-expression-views.md). Generic
+AST length inference and direct floating arguments to raw-memory builtin
+metadata remain separate boundaries. Raw-memory observers use explicit
+`bytes` Views.
