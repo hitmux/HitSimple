@@ -116,6 +116,40 @@ class WorkflowContractTests(unittest.TestCase):
             cmake,
         )
 
+    def test_repository_only_readme_guides_use_release_pinned_links(self) -> None:
+        version = self.release_version()
+        readme = (SOURCE_ROOT / "README.md").read_text(encoding="utf-8")
+        # The installed README has no source/test fixture tree beside it.
+        # These guides must open the matching release tree, not a broken
+        # relative path or mutable master branch.
+        for path in ("examples/practical/README.md", "docs/standard-evidence.md"):
+            with self.subTest(path=path):
+                self.assertTrue((SOURCE_ROOT / path).is_file())
+                self.assertIn(
+                    f"](https://github.com/hitmux/HitSimple/blob/v{version}/{path})", readme,
+                )
+                self.assertNotIn(f"]({path})", readme)
+        for target in re.findall(r"\]\(([^)]+)\)", readme):
+            if "://" not in target and not target.startswith("#"):
+                self.assertTrue((SOURCE_ROOT / target.split("#", 1)[0]).is_file(), target)
+
+    def test_beta_publication_is_explicit_and_not_latest_stable(self) -> None:
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        release = workflow.split("\n  release:\n", 1)[1]
+        create = release.split("      - name: Create draft release", 1)[1].split(
+            "      - name: Verify draft assets and hashes", 1)[0]
+        publish = release.split("      - name: Publish release", 1)[1]
+        self.assertIn('--title "HitSimple $RELEASE_TAG Beta"', create)
+        self.assertIn("--prerelease", create)
+        self.assertIn("--draft", create)
+        self.assertIn("--prerelease", publish)
+        self.assertIn("--draft=false", publish)
+        self.assertIn("--latest=false", publish)
+        self.assertNotRegex(publish, r"--latest(?:\s|$)")
+        notes = (SOURCE_ROOT / "docs/releases" / f"{self.release_version()}.md").read_text(encoding="utf-8")
+        self.assertIn("beta consolidation release", notes)
+        self.assertIn("Known beta limits", notes)
+
     def test_checked_file_handle_documentation_is_installed(self) -> None:
         document = "docs/checked-file-handles.md"
         self.assertTrue((SOURCE_ROOT / document).is_file())

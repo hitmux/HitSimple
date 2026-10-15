@@ -10,7 +10,7 @@ on:
       version:
         description: Version to validate or explicitly publish
         required: true
-        default: "0.3.9"
+        default: "0.3.10"
       scope:
         description: Validation jobs to run
         required: true
@@ -1378,8 +1378,9 @@ jobs:
           gh release create "$RELEASE_TAG" release-bundle/assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "HitSimple $RELEASE_TAG" \
+            --title "HitSimple $RELEASE_TAG Beta" \
             --notes-file release-bundle/release-notes.txt \
+            --prerelease \
             --draft
 
       - name: Verify draft assets and hashes
@@ -1388,6 +1389,7 @@ jobs:
         shell: bash
         run: |
           test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
           version="${RELEASE_TAG#v}"
           printf '%s\n' SHA256SUMS \
             "hitsimple-${version}-linux-aarch64.tar.gz" \
@@ -1419,4 +1421,13 @@ jobs:
           gh release edit "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --draft=false \
-            --latest
+            --prerelease \
+            --latest=false
+
+      - name: Verify published beta status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)" = true
+          test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" = "$RELEASE_TAG"

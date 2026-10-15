@@ -2,10 +2,10 @@
   "version": 1,
   "purpose": "navigation and bounded evidence, not independent requirements or conformance",
   "inputs_sha256": {
-    "CMakeLists.txt": "3335953d92dbc9967e738cbcdb9fdac996527ffb865fd40053470d466948a920",
+    "CMakeLists.txt": "6041bd124124bb5a3857774b1e856f91289e0d02498e27d936be4fbfc10de7f5",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
-    "docs/evidence/standard-witnesses.json": "52fefc4ccc61106ca395cb875c00dfd4ae7dd25baff7047d459513f286515e9f",
+    "docs/evidence/standard-witnesses.json": "4ee300d3de353b876ff07a37baa8c2adddf49233d9aba54e7a511d2cd03fd125",
     "include/hitsimple/hir/HIR.h": "e5d84aed0c5cf68a792eae2235a6ca7afe754c1ce01840388ef57058df30ba18",
     "runtime/hitsimple_runtime.c": "7749dfd02823798a5959a8d96f4ba0a69ca7aebc17c759007cfb80bd5e0d9106",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",

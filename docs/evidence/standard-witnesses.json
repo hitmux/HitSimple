@@ -631,7 +631,7 @@
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "3335953d92dbc9967e738cbcdb9fdac996527ffb865fd40053470d466948a920",
+    "CMakeLists.txt": "6041bd124124bb5a3857774b1e856f91289e0d02498e27d936be4fbfc10de7f5",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
     "include/hitsimple/hir/HIR.h": "e5d84aed0c5cf68a792eae2235a6ca7afe754c1ce01840388ef57058df30ba18",
