@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "suite": "none-return-views",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "optimized",
+      "source": "../../../cases/run/none_return_views.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "ordinary 0\nmethods 0\nevaluation 0\n",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "reference",
+      "source": "../../../cases/run/none_return_views.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "ordinary 0\nmethods 0\nevaluation 0\n",
+          "stderr": ""
+        }
+      }
+    }
+  ]
+}
