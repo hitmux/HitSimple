@@ -98,3 +98,24 @@ unplanned concern. Split it into its own PR, or update `Issue.md` and `Plan.md`
 with evidence before review. The `PR traceability` GitHub Actions job checks
 that the four fields are present; branch protection must require that check
 before merge.
+
+## Standard Evidence Map
+
+The [bounded evidence map](docs/standard-evidence.md) separates Standard navigation,
+manifest ownership, source-inspected witnesses, and actual test execution. When a
+referenced source changes, inspect the witness claim and assertions before updating
+its reviewed source-text hash in `docs/evidence/standard-witnesses.json`.
+Regeneration deliberately cannot refresh review hashes automatically.
+
+```bash
+python3 tools/standard_evidence.py --write
+python3 tools/standard_evidence.py --check
+python3 tests/evidence/test_standard_evidence.py
+ctest --test-dir build -R '^hsc_standard_evidence_' --output-on-failure
+```
+
+Add exact test names rather than substring prefixes. A unit-test filter with no
+matches can report `0/0 PASS`; the evidence runner rejects this and requires
+exactly one passing selection per witness. Runtime evidence remains tied to its
+own CTest and per-variant harness artifacts. Do not turn an unmapped heading into
+an unimplemented claim, or structural ownership into behavioral coverage.
