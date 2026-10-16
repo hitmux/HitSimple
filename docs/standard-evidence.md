@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 Standard APIs; 8 optional extension APIs; 24 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 Standard APIs; 8 optional extension APIs; 25 inspected witnesses.
 
 ## Validate and run
 
@@ -57,12 +57,12 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L422) (`if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression))`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1301) (`auto value = emitViewValue(*view->operand);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1312) (`auto value = emitViewValue(*view->operand);`)
 
 Evidence:
 - `structural`: [Sema_LowersExpressionAsTemporaryTemplateView](../tests/sema/SemaDiagnosticTests.cpp#L850)
   HIR dump contains TemplateViewExpr template=f32 bytes=4 addressable=true; despite its file name this is a successful structural test.
-- `IR`: [LLVMCodegen_ReinterpretsTemporaryTemplateViewWithoutConversion](../tests/codegen/LLVMCodegenTests.cpp#L614)
+- `IR`: [LLVMCodegen_ReinterpretsTemporaryTemplateViewWithoutConversion](../tests/codegen/LLVMCodegenTests.cpp#L615)
   IR contains load float and contains neither sitofp nor uitofp.
 - `runtime`: [hsc_harness_differential](../tests/support/harness/manifests/differential.json); cases: `template_view_reinterpretation`
   template_view.hs converts the reinterpreted f32 numerically to i32 and returns rounded - 1; oracle requires exit 0 and empty output.
@@ -82,7 +82,7 @@ Implementation:
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L529) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
-- `structural`: [Sema_LowersUserTemplateAssignmentOperatorAsWriteThroughCall](../tests/sema/SemaExpressionTests.cpp#L839)
+- `structural`: [Sema_LowersUserTemplateAssignmentOperatorAsWriteThroughCall](../tests/sema/SemaExpressionTests.cpp#L840)
   Successful analysis and HIR UserTemplateOpCall callee=__hitsimple.implop for Vec2 assignment; no direct viewIsCopy assertion.
 - `runtime`: [hsc_run_user_template_ops](../tests/cases/run/user_template_ops.hs)
   Custom op = increments both Vec2 members; program returns 0 only if the final destination equals the expected 12,16 vector.
@@ -103,7 +103,7 @@ Implementation:
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L529) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
-- `IR`: [LLVMCodegen_LowersImplTemplateMethodWithInternalViewAbi](../tests/codegen/LLVMCodegenTests.cpp#L237)
+- `IR`: [LLVMCodegen_LowersImplTemplateMethodWithInternalViewAbi](../tests/codegen/LLVMCodegenTests.cpp#L238)
   IR contains an internal void method definition and a call to __hitsimple.implmethod.Counter.0; no direct memcpy/isolation assertion.
 - `runtime`: [hsc_run_impl_method_value_copy](../tests/cases/run/impl_method_value_copy.hs)
   erase writes zero to self and other; caller returns 0 only if original values remain 7 and 9.
@@ -120,14 +120,14 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L642) (`const bool shortCircuits =`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L494) (`llvm::BasicBlock::Create(context_, "logic.rhs", function);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L505) (`llvm::BasicBlock::Create(context_, "logic.rhs", function);`)
 
 Evidence:
 - `diagnostic`: [StaticSafetyAnalyzer_HonorsLogicalShortCircuitEffects](../tests/safety/StaticSafetyAnalyzerTests.cpp#L141)
   false && retains a one-byte pointee and produces memory load out of bounds; unknown && yields no static diagnostic.
-- `diagnostic`: [LLVMCodegen_StaticSafetyHonorsLogicalShortCircuitEffects](../tests/codegen/LLVMCodegenTests.cpp#L1793)
+- `diagnostic`: [LLVMCodegen_StaticSafetyHonorsLogicalShortCircuitEffects](../tests/codegen/LLVMCodegenTests.cpp#L1794)
   false && and true || produce static-checked out-of-bounds diagnostics; unknown && in checked mode emits hs_check_load without a static diagnostic.
-- `IR`: [LLVMCodegen_EmitsStageEIntegerExpressions](../tests/codegen/LLVMCodegenTests.cpp#L868)
+- `IR`: [LLVMCodegen_EmitsStageEIntegerExpressions](../tests/codegen/LLVMCodegenTests.cpp#L869)
   Mixed integer-expression sample containing && and || has a logic.rhs block; only a substring presence assertion, not a full CFG proof.
 
 Limit: Evidence is diagnostic and IR inspection, not a native side-effect test. Covers pointer-bound facts for these branches, not complete logical-operation semantics or all sequence-point cases.
@@ -141,12 +141,12 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1110) (`viewTemplates.emplace_back(info.name, std::move(hirMembers),`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1427) (`bindingAlignment(*storage, variable->offset).value(),`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1437) (`bindingAlignment(*storage, variable->offset).value(),`)
 
 Evidence:
 - `structural`: [Sema_LowersSizeofUserTemplate](../tests/sema/SemaAggregateTests.cpp#L99)
   sizeof a template with two-byte and four-byte members lowers to IntegerLiteral value=6 with u64 semantics.
-- `IR`: [LLVMCodegen_UsesOnlyProvenAlignmentForPackedViews](../tests/codegen/LLVMCodegenTests.cpp#L3153)
+- `IR`: [LLVMCodegen_UsesOnlyProvenAlignmentForPackedViews](../tests/codegen/LLVMCodegenTests.cpp#L3154)
   IR contains store i64 and load i64 at packed member addresses with align 1.
 - `runtime`: [hsc_harness_p3_host_semantics](../tests/support/harness/manifests/p3-host-semantics.json); cases: `packed_member_offsets_1_2_3`
   p3_packed_offsets.hs writes 10/20/30 to u32 members after 1/2/3 padding bytes; oracle requires exit 0 and stdout 60 newline.
@@ -166,11 +166,11 @@ Implementation:
 - [src/codegen/LLVMCodegen.cpp](../src/codegen/LLVMCodegen.cpp#L482) (`const safety::StaticSafetyOptions safetyOptions{`)
 
 Evidence:
-- `IR`: [LLVMCodegen_StaticCheckedDoesNotEmitRuntimeChecks](../tests/codegen/LLVMCodegenTests.cpp#L2329)
+- `IR`: [LLVMCodegen_StaticCheckedDoesNotEmitRuntimeChecks](../tests/codegen/LLVMCodegenTests.cpp#L2330)
   IR contains malloc/realloc/free and excludes hs_alloc, hs_realloc, hs_check_store and hs_free for the sample.
-- `diagnostic`: [LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors](../tests/codegen/LLVMCodegenTests.cpp#L2350)
+- `diagnostic`: [LLVMCodegen_StaticCheckedRejectsStaticMemoryErrors](../tests/codegen/LLVMCodegenTests.cpp#L2351)
   Known out-of-bounds index, null store and out-of-bounds pointer accesses produce corresponding diagnostics; final pointer-load sample uses checked mode.
-- `IR`: [LLVMCodegen_EmitsCheckedRuntimeCalls](../tests/codegen/LLVMCodegenTests.cpp#L1394)
+- `IR`: [LLVMCodegen_EmitsCheckedRuntimeCalls](../tests/codegen/LLVMCodegenTests.cpp#L1395)
   Checked sample contains hs_alloc, hs_check_store and hs_free.
 - `runtime`: [hsc_harness_safety_mode](../tests/support/harness/manifests/safety-mode.json); cases: `dynamic_divide_by_zero`
   A function supplies divisor 0; checked oracle is exit 120 with integer division by zero and source location.
@@ -191,9 +191,9 @@ Implementation:
 - [src/codegen/LLVMCodegen.cpp](../src/codegen/LLVMCodegen.cpp#L205) (`bool LlvmEmitter::hasRuntimeSafetyChecks() const {`)
 
 Evidence:
-- `IR`: [LLVMCodegen_CheckedUsesFileRuntimeBridges](../tests/codegen/LLVMCodegenTests.cpp#L1954)
+- `IR`: [LLVMCodegen_CheckedUsesFileRuntimeBridges](../tests/codegen/LLVMCodegenTests.cpp#L1955)
   Checked file-I/O sample contains all eleven listed hs_fopen/fget/fput/fread/fwrite/fseek/ftell/fflush/feof/ferror/fclose bridge symbols.
-- `IR`: [LLVMCodegen_FileStateChecksAreCheckedOnly](../tests/codegen/LLVMCodegenTests.cpp#L1984)
+- `IR`: [LLVMCodegen_FileStateChecksAreCheckedOnly](../tests/codegen/LLVMCodegenTests.cpp#L1985)
   Across three modes, hs_fopen/hs_fclose/hs_check_file_handle/hs_get symbols are present exactly in checked mode.
 - `runtime`: [hsc_harness_file_handles](../tests/support/harness/manifests/file-handles.json); cases: `closed_alias_fclose`, `closed_alias_fget`, `open_alias_close_reopen`
   Alias close/use requires exit 120 and closed file handle diagnostic in checked mode; normal lifecycle loops 128 opens/alias I/O/closes and requires handle lifecycle ok.
@@ -211,12 +211,12 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2126) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2136) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L2) (`func __hs_stdlib_ctype_is_digit(ch as i32) -> bool {`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L32) (`func __hs_stdlib_ctype_to_lower(ch as i32) -> u8 {`)
 
 Evidence:
-- `structural`: [Sema_SelectsCoreHsReferenceProviderAndModule](../tests/sema/SemaExpressionTests.cpp#L129)
+- `structural`: [Sema_SelectsCoreHsReferenceProviderAndModule](../tests/sema/SemaExpressionTests.cpp#L130)
   Selected module is Ctype and HIR call/extern route to __hs_stdlib_ctype_is_digit with provider=CoreHs; does not assert the low-byte mask.
 - `runtime`: [hsc_ctype_provider_modes_match](../tests/support/harness/manifests/ctype-providers.json); cases: `optimized`, `reference`
   ctype_reference.hs checks six APIs against explicit ASCII oracles for byte, byte+256, byte-256, byte+0x123400, byte+0x7fffff00 and INT32_MIN+byte; exit 0, empty stdout/stderr required.
@@ -232,10 +232,10 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2146) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2156) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
 
 Evidence:
-- `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1209)
+- `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1210)
   For each of four predicates, exactly eight ctype.bool instructions are i1-to-i8 ZExt; no SExt instruction has an i1 operand; LLVM verification succeeds.
 - `runtime`: [hsc_ctype_bool_representation](../tests/support/harness/manifests/ctype-bool-representation.json); cases: `optimized`, `reference`
   Byte-observing bool_byte helper, equality, returns, ternaries and numeric consumers report zero errors for both outcomes of every predicate; exact multi-line stdout is checked, since main itself returns 0.
@@ -258,7 +258,7 @@ Implementation:
 Evidence:
 - `structural`: [Sema_RecordsBooleanValueReadBoundaries](../tests/sema/SemaBoolTests.cpp#L51)
   HIR has BooleanTestExpr on both equality operands and numeric conversion sources, BooleanNormalize return plan, but TemplateViewExpr for raw as u8.
-- `IR`: [LLVMCodegen_ReadsBooleanValuesOnlyAtSemanticBoundaries](../tests/codegen/LLVMCodegenTests.cpp#L3195)
+- `IR`: [LLVMCodegen_ReadsBooleanValuesOnlyAtSemanticBoundaries](../tests/codegen/LLVMCodegenTests.cpp#L3196)
   Counts i8 != 0 reads per function: equality 2, integer conversion 1, float conversion 1, bool return 1, raw as byte 0.
 - `runtime`: [hsc_bool_value_reads](../tests/support/harness/manifests/bool-value-reads.json); cases: `raw-optimized`, `raw-reference`
   bool_value_reads.hs checks all 256 raw bytes, all 65,536 equality pairs, conversions, bool returns, copy preservation and operand evaluation counts; all six printed counters and exit status must be zero.
@@ -280,7 +280,7 @@ Implementation:
 Evidence:
 - `structural`: [Sema_ReturnConversionPlansUseExplicitNumericResultViews](../tests/sema/SemaCoreTests.cpp#L333)
   Checks return-plan source against the explicit cast result, Identity versus IntegerWidth plans, nested casts and f64-to-i32 identity-source handling; HIR verification succeeds.
-- `IR`: [LLVMCodegen_EmitsExplicitNumericReturnConversions](../tests/codegen/LLVMCodegenTests.cpp#L3302)
+- `IR`: [LLVMCodegen_EmitsExplicitNumericReturnConversions](../tests/codegen/LLVMCodegenTests.cpp#L3303)
   Across all three modes, verifies function return widths and presence of sext i8, sext i32, zext i8 and fptosi double.
 - `runtime`: [hsc_explicit_numeric_returns](../tests/support/harness/manifests/explicit-numeric-returns.json); cases: `optimized`, `reference`
   Exhausts 256 raw bool and signed/unsigned byte inputs; checks selected in-range float values, nested/widened/narrowed returns and once-only source evaluation. Four printed counters and exit must be zero.
@@ -296,12 +296,12 @@ Standard: [§4.8](../Standard.md#48--parsing-rules), [§8.10](../Standard.md#810
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1351) (`// A floating ternary selects a View copy, not an integer conversion or`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1361) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
 
 Evidence:
-- `IR`: [LLVMCodegen_FloatingTernariesCopySelectedViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3332)
+- `IR`: [LLVMCodegen_FloatingTernariesCopySelectedViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3333)
   All three modes and four widths: two branch-local memcpy operations of exact width; no FCmp/FPToSI/FPToUI/FPExt/FPTrunc; bool consumer performs one raw integer nonzero test.
-- `IR`: [LLVMCodegen_FloatingTernaryEvaluatesOnlySelectedBranch](../tests/codegen/LLVMCodegenTests.cpp#L3385)
+- `IR`: [LLVMCodegen_FloatingTernaryEvaluatesOnlySelectedBranch](../tests/codegen/LLVMCodegenTests.cpp#L3386)
   Predicate call appears once outside branch blocks; left/right calls appear once each in their named then/else blocks. This inspects IR, not a runtime evaluation count.
 - `runtime`: [hsc_floating_ternary_views](../tests/support/harness/manifests/floating-ternary-views.json); cases: `optimized`, `reference`
   Selected values compare byte-for-byte; side-effect counters require one condition then exactly one selected branch in order 12 or 13; all width/control counters and exit status must be zero.
@@ -320,11 +320,11 @@ Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L423) (`// Validate the operand once; its HIR owns length and lvalue semantics.`)
 
 Evidence:
-- `structural`: [Sema_TernaryAsUsesValidatedStaticViewLength](../tests/sema/SemaExpressionTests.cpp#L1653)
+- `structural`: [Sema_TernaryAsUsesValidatedStaticViewLength](../tests/sema/SemaExpressionTests.cpp#L1654)
   Ten template categories and direct/nested/call branches preserve common static length; both ternary and outer bytes View are non-addressable and non-mutable; HIR verifies.
-- `diagnostic`: [Sema_TernaryAsRetainsStaticValidation](../tests/sema/SemaExpressionTests.cpp#L1726)
+- `diagnostic`: [Sema_TernaryAsRetainsStaticValidation](../tests/sema/SemaExpressionTests.cpp#L1727)
   Checks named diagnostics for differing branch templates/lengths, bad calls/names, mismatched or unknown as targets, and dynamic/zero lengths.
-- `IR`: [LLVMCodegen_TernaryAsRetainsBranchLocalViewCopies](../tests/codegen/LLVMCodegenTests.cpp#L3424)
+- `IR`: [LLVMCodegen_TernaryAsRetainsBranchLocalViewCopies](../tests/codegen/LLVMCodegenTests.cpp#L3425)
   For four float widths, as bytes keeps one predicate and branch-local calls, without FPToSI/FPToUI/FPExt/FPTrunc instructions.
 - `runtime`: [hsc_floating_ternary_views](../tests/support/harness/manifests/floating-ternary-views.json); cases: `optimized`, `reference`
   Direct, nested and call-branch ternaries with as bytes match the selected source bytes; as integer-width targets and side-effect counts are also checked.
@@ -365,18 +365,18 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1167) (`// Chapter 14 meta-parameters borrow/read the original View.`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1209) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1220) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
 
 Evidence:
-- `structural`: [Sema_PreservesFloatingBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1768)
+- `structural`: [Sema_PreservesFloatingBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1769)
   All four widths have identity argument plans with unchanged floating templates and lengths, and HIR verifies.
-- `structural`: [Sema_PreservesDynamicBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1796)
+- `structural`: [Sema_PreservesDynamicBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1797)
   Dynamic resize_bytes operands retain valid HIR when passed directly to memcmp.
-- `structural`: [Sema_BuiltinViewPlansObserveExplicitConversionResults](../tests/sema/SemaExpressionTests.cpp#L1823)
+- `structural`: [Sema_BuiltinViewPlansObserveExplicitConversionResults](../tests/sema/SemaExpressionTests.cpp#L1824)
   A memset fill explicitly converted to u8 has an identity plan for the one-byte u8 result, not its underlying wider integer operand.
-- `diagnostic`: [Sema_RejectsFloatingMemoryRvalueDestination](../tests/sema/SemaExpressionTests.cpp#L1807)
+- `diagnostic`: [Sema_RejectsFloatingMemoryRvalueDestination](../tests/sema/SemaExpressionTests.cpp#L1808)
   memset/memcpy/memmove reject non-writable floating destinations.
-- `IR`: [LLVMCodegen_PreservesFloatingRawMemoryBuiltinViews](../tests/codegen/LLVMCodegenTests.cpp#L3475)
+- `IR`: [LLVMCodegen_PreservesFloatingRawMemoryBuiltinViews](../tests/codegen/LLVMCodegenTests.cpp#L3476)
   Four widths produce verified modules with raw pointer calls, i8 fill loads, and no fptosi/fptoui.
 - `runtime`: [hsc_raw_memory_floating_views](../tests/support/harness/manifests/raw-memory-floating-views.json); cases: `optimized`, `reference`
   Exact raw-memory 0 output, successful compile and exit across the configured matrix.
@@ -395,14 +395,14 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1106) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1341) (`// Copy now: a later argument or nested operation may overwrite the target.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1352) (`// Copy now: a later argument or nested operation may overwrite the target.`)
 
 Evidence:
-- `structural`: [Sema_AssignmentExpressionsProduceRvalueViews](../tests/sema/SemaExpressionTests.cpp#L1846)
+- `structural`: [Sema_AssignmentExpressionsProduceRvalueViews](../tests/sema/SemaExpressionTests.cpp#L1847)
   i32/f16/f32/f64/f128 assignment results retain the destination template but clear lvalue/addressable flags, with valid HIR.
 - `diagnostic`: [Hir_VerifierRejectsLvalueAssignmentResult](../tests/hir/HIRTests.cpp#L393)
   A manually malformed writable AssignmentExpr result is rejected.
-- `IR`: [LLVMCodegen_CopiesFloatingAssignmentResultViews](../tests/codegen/LLVMCodegenTests.cpp#L3499)
+- `IR`: [LLVMCodegen_CopiesFloatingAssignmentResultViews](../tests/codegen/LLVMCodegenTests.cpp#L3500)
   Verified modules materialize assignment byte-copy temporaries without fptosi/fptoui at four widths.
 - `runtime`: [hsc_assignment_result_views](../tests/support/harness/manifests/assignment-result-views.json); cases: `optimized`, `reference`
   Exact assignment-views 0 output verifies byte snapshots, single evaluation, typed consumers, repeated temporary reuse and integer/string/user-op controls.
@@ -463,7 +463,7 @@ Implementation:
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1741) (`Analyzer::initializerResultContract(const ast::Expr &expression)`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L645) (`// Keep evaluation in HIR even when the extent is statically known.`)
 - [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L361) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1747) (`return emitViewValue(*call.arguments.front()).length;`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1757) (`return emitViewValue(*call.arguments.front()).length;`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L89) (`constantUnsignedInteger(const hir::Expr &expression)`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2088) (`"length requires one View operand and an eight-byte u64 result"`)
 - [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L416) (`void hs_check_view_nonempty(uint64_t actual)`)
@@ -487,11 +487,11 @@ Evidence:
   Assignment/ternary/index conversion operands use HIR width and floating category; floating assignments are sema-only evidence.
 - `diagnostic`: [Sema_HIRRejectsInconsistentLengthAndInterpretationMetadata](../tests/sema/SemaViewLengthTests.cpp#L260)
   Manually malformed length-result and interpretation value-category metadata fail verification.
-- `IR`: [LLVMCodegen_LengthEvaluatesViewWithoutReadingStorage](../tests/codegen/LLVMCodegenTests.cpp#L3520)
+- `IR`: [LLVMCodegen_LengthEvaluatesViewWithoutReadingStorage](../tests/codegen/LLVMCodegenTests.cpp#L3521)
   A call operand remains a call; a local-name length function contains no load instructions.
-- `IR`: [LLVMCodegen_LengthChecksDynamicAsExtent](../tests/codegen/LLVMCodegenTests.cpp#L3538)
+- `IR`: [LLVMCodegen_LengthChecksDynamicAsExtent](../tests/codegen/LLVMCodegenTests.cpp#L3539)
   Checked dynamic-to-u64 interpretation emits hs_check_view_length.
-- `IR`: [LLVMCodegen_LengthChecksDynamicVariableTemplateExtent](../tests/codegen/LLVMCodegenTests.cpp#L3549)
+- `IR`: [LLVMCodegen_LengthChecksDynamicVariableTemplateExtent](../tests/codegen/LLVMCodegenTests.cpp#L3550)
   Checked dynamic bytes interpretation emits hs_check_view_nonempty.
 - `diagnostic`: [StaticSafetyAnalyzer_LengthPreservesStaticFactsAndOperandChecks](../tests/safety/StaticSafetyAnalyzerTests.cpp#L220)
   Static length facts retain memcpy bounds diagnostics; nested resize division and length assignment side effects remain visible to safety analysis.
@@ -525,7 +525,7 @@ Evidence:
   Rejects float to raw/integer defaults, unequal bytes target, count mismatch, rebinding, and different user templates.
 - `structural`: [Sema_MultiReturnAndOrdinaryAssignmentsAcceptOpaqueViews](../tests/sema/SemaMultiReturnTests.cpp#L147)
   Ordinary and multiple-return handle sources can assign to bool and equal-length bytes Views, including explicit %b=; HIR verifies.
-- `IR`: [LLVMCodegen_MultiReturnDestinationContracts](../tests/codegen/LLVMCodegenTests.cpp#L3560)
+- `IR`: [LLVMCodegen_MultiReturnDestinationContracts](../tests/codegen/LLVMCodegenTests.cpp#L3561)
   All four floating widths produce verified modules with exactly one pair call and two extracts, without fptosi/fptoui; default f64-to-f32 destination emits fptrunc.
 - `runtime`: [hsc_multi_return_assignments](../tests/support/harness/manifests/multi-return-assignments.json); cases: `optimized`, `reference`
   Exact multi-return 0 output and zero exit cover selected destination operations, source isolation, all/partial discard, target/address order, and handle observations.
@@ -546,10 +546,10 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions).
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2238) (`// Core-HS character providers use an internal i32 ABI, but the public`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2248) (`// Core-HS character providers use an internal i32 ABI, but the public`)
 
 Evidence:
-- `IR`: [LLVMCodegen_CharacterClassifiersObserveOneRawByte](../tests/codegen/LLVMCodegenTests.cpp#L3599)
+- `IR`: [LLVMCodegen_CharacterClassifiersObserveOneRawByte](../tests/codegen/LLVMCodegenTests.cpp#L3600)
   Verified four-width modules contain fourteen aligned i8 observations (six Standard functions plus eight optional extensions) and no floating-to-integer conversions; the Standard claim here concerns only the six Standard functions.
 - `runtime`: [hsc_ctype_view_inputs](../tests/support/harness/manifests/ctype-view-inputs.json); cases: `optimized`, `reference`
   Exhaustive 256-byte oracle for f16/f32/f64/f128 and raw 1/3/32-byte Views, canonical predicates, ASCII conversion, once-only rvalues and positive dynamic inputs.
@@ -571,7 +571,7 @@ Implementation:
 - [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L129) (`std::vector<std::unique_ptr<hir::Expr>> capturedSources;`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L685) (`CapturedViewRef::CapturedViewRef(`)
 - [src/codegen/LLVMCodegenStatements.cpp](../src/codegen/LLVMCodegenStatements.cpp#L132) (`capturedViews_.insert_or_assign(capture->captureName, view);`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1276) (`const auto found = capturedViews_.find(capture->captureName);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1287) (`const auto found = capturedViews_.find(capture->captureName);`)
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L990) (`void StaticSafetyAnalyzer::recordStaticViewCapture(`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L749) (`const std::optional<StaticAddressFact> &fact, std::string_view operation) {`)
 
@@ -588,15 +588,15 @@ Evidence:
   Bool and bytes preserve floating literal source width; f16/f128 and integer extremes keep contextual acceptance; short bytes destination rejects an f64 literal.
 - `structural`: [Hir_CapturedViewsRequireMatchingPriorFormation](../tests/hir/HIRTests.cpp#L407)
   Verifier accepts a matching captured lvalue and rejects absent capture or changed lvalue flags.
-- `IR`: [LLVMCodegen_MultipleAssignmentFormsSourcesBeforeWrites](../tests/codegen/LLVMCodegenTests.cpp#L3642)
+- `IR`: [LLVMCodegen_MultipleAssignmentFormsSourcesBeforeWrites](../tests/codegen/LLVMCodegenTests.cpp#L3643)
   Verified LLVM places the first observe call before the global write and preserves the subsequent discarded observe call.
-- `IR`: [LLVMCodegen_MultipleAssignmentCapturedFloatingViews](../tests/codegen/LLVMCodegenTests.cpp#L3676)
+- `IR`: [LLVMCodegen_MultipleAssignmentCapturedFloatingViews](../tests/codegen/LLVMCodegenTests.cpp#L3677)
   Verified modules preserve captured f16/f32/f64/f128 call results and lvalues without fptosi/fptoui.
-- `diagnostic`: [LLVMCodegen_MultipleAssignmentKeepsStaticSafetyEffects](../tests/codegen/LLVMCodegenTests.cpp#L3693)
+- `diagnostic`: [LLVMCodegen_MultipleAssignmentKeepsStaticSafetyEffects](../tests/codegen/LLVMCodegenTests.cpp#L3694)
   Static safety sees discarded division by zero, immediate captured constants, and live aliased named-lvalue facts without false-positive old-value reads.
-- `diagnostic`: [LLVMCodegen_MultipleAssignmentKeepsCapturedAllocationFacts](../tests/codegen/LLVMCodegenTests.cpp#L3721)
+- `diagnostic`: [LLVMCodegen_MultipleAssignmentKeepsCapturedAllocationFacts](../tests/codegen/LLVMCodegenTests.cpp#L3722)
   Captured allocation/calloc retains identity and extent; double free, freed captured lvalue reads, out-of-range dereference, and interior free are rejected; valid realloc remains accepted.
-- `IR`: [LLVMCodegen_MultipleAssignmentKeepsContextualFloatingTrees](../tests/codegen/LLVMCodegenTests.cpp#L3747)
+- `IR`: [LLVMCodegen_MultipleAssignmentKeepsContextualFloatingTrees](../tests/codegen/LLVMCodegenTests.cpp#L3748)
   Default and explicit f32 assignment contexts preserve literal and nested widthless floating operator trees in verified modules.
 - `runtime`: [hsc_multiple_rhs_assignments](../tests/support/harness/manifests/multiple-rhs-assignments.json); cases: `evaluation_optimized`, `destination_contracts_optimized`, `evaluation_reference`, `destination_contracts_reference`
   Exact zero-failure outputs and successful exit observe source barriers, discard effects, lvalue aliasing versus rvalue copies, address/index capture and target order, user op=, compound destinations, floating contexts, conversions, dynamic resize lengths, and cstr copies.
@@ -679,7 +679,7 @@ Implementation:
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L784) (`std::unordered_set<std::string> reboundBindings(`)
 - [src/codegen/LLVMCodegenRuntime.cpp](../src/codegen/LLVMCodegenRuntime.cpp#L17) (`void LlvmEmitter::initializeBinding(`)
 - [src/codegen/LLVMCodegenStatements.cpp](../src/codegen/LLVMCodegenStatements.cpp#L325) (`void LlvmEmitter::emit(const hir::BindingRebind &rebind)`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1282) (`view.requiresAccessCheck = view.requiresAccessCheck || expression.result.isAddressable;`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1293) (`view.requiresAccessCheck = view.requiresAccessCheck || expression.result.isAddressable;`)
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L186) (`if (const auto *rebind = dynamic_cast<const hir::BindingRebind *>(&statement))`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L162) (`StaticSafetyAnalyzer::staticBindingAddressFact(`)
 - [src/safety/StaticSafetyStateFlow.cpp](../src/safety/StaticSafetyStateFlow.cpp#L71) (`// Missing here means the unchanged definition address, whereas nullopt`)
@@ -690,19 +690,19 @@ Implementation:
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L1070) (`StaticSafetyAnalyzer::prepareStaticCallArguments(`)
 
 Evidence:
-- `structural`: [Sema_LowersNonPointerSizedNameRebinding](../tests/sema/SemaExpressionTests.cpp#L1464)
+- `structural`: [Sema_LowersNonPointerSizedNameRebinding](../tests/sema/SemaExpressionTests.cpp#L1465)
   Three-byte target lowers to BindingRebind instead of IntegerStore.
-- `diagnostic`: [Sema_RejectsNonIdentifierRebindingTargets](../tests/sema/SemaExpressionTests.cpp#L1472)
+- `diagnostic`: [Sema_RejectsNonIdentifierRebindingTargets](../tests/sema/SemaExpressionTests.cpp#L1473)
   Rejects member, index, slice, template View, and dereference targets.
 - `diagnostic`: [Hir_RebindingVerifierRejectsMissingAddress](../tests/hir/HIRTests.cpp#L434)
   Malformed BindingRebind without an address is rejected by HIR verification.
-- `IR`: [LLVMCodegen_SeparatesNameBindingFromDefinitionStorage](../tests/codegen/LLVMCodegenTests.cpp#L3766)
+- `IR`: [LLVMCodegen_SeparatesNameBindingFromDefinitionStorage](../tests/codegen/LLVMCodegenTests.cpp#L3767)
   LLVM has distinct original storage and mutable binding slot; later content store follows the slot.
-- `IR`: [LLVMCodegen_RebindingAdjustsSignedAndUnsignedWidths](../tests/codegen/LLVMCodegenTests.cpp#L3779)
+- `IR`: [LLVMCodegen_RebindingAdjustsSignedAndUnsignedWidths](../tests/codegen/LLVMCodegenTests.cpp#L3780)
   LLVM includes signed and unsigned i8 widening and i128 truncation to pointer width.
-- `IR`: [LLVMCodegen_RebindingGlobalsIsTranslationUnitWide](../tests/codegen/LLVMCodegenTests.cpp#L3791)
+- `IR`: [LLVMCodegen_RebindingGlobalsIsTranslationUnitWide](../tests/codegen/LLVMCodegenTests.cpp#L3792)
   Global binding slot is shared by earlier reader and later rebinding function.
-- `IR`: [LLVMCodegen_RebindingOpaqueHandleRetainsTemplate](../tests/codegen/LLVMCodegenTests.cpp#L3804)
+- `IR`: [LLVMCodegen_RebindingOpaqueHandleRetainsTemplate](../tests/codegen/LLVMCodegenTests.cpp#L3805)
   A handle target can be rebound through an address source without losing its target contract.
 - `diagnostic`: [StaticSafetyAnalyzer_RebindingChecksCurrentBindingAccesses](../tests/safety/StaticSafetyAnalyzerTests.cpp#L243)
   Known null and short current bindings diagnose accesses; address and length observation do not read.
@@ -724,15 +724,15 @@ Evidence:
   Null lvalue capture/discard is accepted; reading null pointer content as rebinding RHS is rejected.
 - `structural`: [Hir_ViewOffsetBoundsDescribeOnlyIndexingAndSlicing](../tests/hir/HIRTests.cpp#L448)
   Index/slice source extent metadata is distinct from unrestricted address arithmetic.
-- `structural`: [Sema_IndexAndSliceCarrySourceViewBounds](../tests/sema/SemaExpressionTests.cpp#L1891)
+- `structural`: [Sema_IndexAndSliceCarrySourceViewBounds](../tests/sema/SemaExpressionTests.cpp#L1892)
   Index/slice HIR retains source and result extents.
 - `structural`: [Sema_MultiReturnRebindingUsesCapturedAddresses](../tests/sema/SemaMultiReturnTests.cpp#L166)
   Explicit multi-return rebinding consumes captured address results once.
-- `IR`: [LLVMCodegen_RebindingStrchrReadsOnlyLowByte](../tests/codegen/LLVMCodegenTests.cpp#L3812)
+- `IR`: [LLVMCodegen_RebindingStrchrReadsOnlyLowByte](../tests/codegen/LLVMCodegenTests.cpp#L3813)
   Character search reads the low byte of its View argument.
-- `IR`: [LLVMCodegen_RebindingPreservesVisibleMemoryAndStringExtents](../tests/codegen/LLVMCodegenTests.cpp#L3823)
+- `IR`: [LLVMCodegen_RebindingPreservesVisibleMemoryAndStringExtents](../tests/codegen/LLVMCodegenTests.cpp#L3824)
   Checked memory and string consumers receive visible View capacity.
-- `IR`: [LLVMCodegen_RebindingIndexChecksBeforePointerWidthTruncation](../tests/codegen/LLVMCodegenTests.cpp#L3835)
+- `IR`: [LLVMCodegen_RebindingIndexChecksBeforePointerWidthTruncation](../tests/codegen/LLVMCodegenTests.cpp#L3836)
   Wide dynamic index checks precede narrowing to pointer width.
 - `diagnostic`: [StaticSafetyAnalyzer_RebindingCStringBooleanReadsWholeView](../tests/safety/StaticSafetyAnalyzerTests.cpp#L565)
   Boolean interpretation reads the full View even for cstr storage.
@@ -756,11 +756,11 @@ Evidence:
   Default cstr copies validate source termination even for narrow destinations.
 - `diagnostic`: [StaticSafetyAnalyzer_RawStringCopyGuaranteesTerminatedDestination](../tests/safety/StaticSafetyAnalyzerTests.cpp#L794)
   Raw %s= writes establish a terminated destination.
-- `IR`: [LLVMCodegen_RebindingTernaryRetainsSourceWidth](../tests/codegen/LLVMCodegenTests.cpp#L3848)
+- `IR`: [LLVMCodegen_RebindingTernaryRetainsSourceWidth](../tests/codegen/LLVMCodegenTests.cpp#L3849)
   Narrow signed/unsigned and wide ternary source PHIs retain their width before binding-address adjustment.
-- `IR`: [LLVMCodegen_BorrowedRebindingTargetsAvoidInboundsBeforeChecks](../tests/codegen/LLVMCodegenTests.cpp#L3863)
+- `IR`: [LLVMCodegen_BorrowedRebindingTargetsAvoidInboundsBeforeChecks](../tests/codegen/LLVMCodegenTests.cpp#L3864)
   Borrowed destinations use ordinary byte GEPs before checked member access, without an unjustified inbounds promise.
-- `IR`: [LLVMCodegen_RebindingFileBuffersUseAddressViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3888)
+- `IR`: [LLVMCodegen_RebindingFileBuffersUseAddressViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3889)
   File lview/view buffers use addr pointer-content storage, rather than the memory-builtin raw-address exception.
 - `diagnostic`: [StaticSafetyAnalyzer_CStringCallsReadAfterLaterArgumentEffects](../tests/safety/StaticSafetyAnalyzerTests.cpp#L804)
   Call and comparison string reads occur after all argument effects; a later repair is accepted.
@@ -792,6 +792,34 @@ Context: [docs/true-name-rebinding.md](../docs/true-name-rebinding.md).
 
 Limit: Bounded HIR, LLVM, safety and native witnesses, not full conformance. Integer-interpreted RHS matrix follows §§7.2/7.3/11.6/11.10; general postfix ? View source formation is a separate known gap. Static alias/loop/interprocedural proofs and other platforms remain limited. Section18.2 evidence is only required diagnostic18.
 
+### literal-ternary-view-copy
+
+Fixed-length string and raw literal ternaries materialize the complete selected rvalue View with lazy branch evaluation; downstream cstr assignment separately performs first-NUL truncation and zero padding.
+
+Standard: [§3.5.3](../Standard.md#353-character-and-string-literals), [§4.8](../Standard.md#48--parsing-rules), [§6.3](../Standard.md#63-rvalue-views), [§6.7](../Standard.md#67-expression-level-as), [§8.10](../Standard.md#810-evaluation-order-and-sequence-points), [§11.7](../Standard.md#117-cstr-and-bytes).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1361) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L248) (`const bool rawTernary = viewTernary != nullptr &&`)
+
+Evidence:
+- `structural`: [Sema_LiteralTernariesRetainCompleteRvalueViews](../tests/sema/SemaExpressionTests.cpp#L1922)
+  String, empty and multi-byte raw character literal branches preserve template and full length, and the selected result is a non-addressable, non-mutable rvalue; HIR verifies.
+- `diagnostic`: [Sema_LiteralTernariesRetainStaticRejections](../tests/sema/SemaExpressionTests.cpp#L1954)
+  Rejects unequal branch lengths/templates, invalid unselected branches, implicit cstr-to-integer assignment, address/write use of rvalues and wrong-width reinterpretation.
+- `IR`: [LLVMCodegen_LiteralTernariesCopyCompleteSelectedViews](../tests/codegen/LLVMCodegenTests.cpp#L3914)
+  All three modes and widths 1/3/4/18: valid LLVM modules, two exact-width branch memcpy operations, no literal branch loads/casts and complete embedded-NUL constant data.
+- `IR`: [LLVMCodegen_LiteralTernariesPreserveBranchLocalEffectsAndConsumers](../tests/codegen/LLVMCodegenTests.cpp#L3963)
+  All three modes: valid modules for raw/cstr return, by-value argument and length consumers; one predicate call outside branch blocks, raw-return branch calls placed once in selected control-flow blocks.
+- `runtime`: [hsc_literal_ternary_views](../tests/support/harness/manifests/literal-ternary-views.json); cases: `optimized`, `reference`
+  Complete byte oracles cover raw preservation, downstream cstr padding, direct as/length, returns, parameter and assignment snapshots, Boolean reads, condition/branch sequencing, nested choices and 2048 temporary iterations; output and exit require zero failures.
+  Available host, two providers, three safety modes, O0/O2; selected literal shapes and capacities. Negative CLI matrix is a separate compile-only gate, not runtime coverage.
+
+Context: [docs/literal-ternary-views.md](../docs/literal-ternary-views.md).
+
+Limit: Bounded literal/raw examples on the available host, not every View shape, lifetime, ABI target or operator. Dynamic-length branches remain rejected. Integer numeric ternary expression lowering is unchanged.
+
 ## Standard navigation inventory
 
 A mapped parent never implicitly maps its children or vice versa.
@@ -816,7 +844,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 3.5 | [Literals](../Standard.md#35-literals) | unmapped |  |
 | 3.5.1 | [Integer Literals](../Standard.md#351-integer-literals) | unmapped |  |
 | 3.5.2 | [Floating-Point Literals](../Standard.md#352-floating-point-literals) | unmapped |  |
-| 3.5.3 | [Character and String Literals](../Standard.md#353-character-and-string-literals) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
+| 3.5.3 | [Character and String Literals](../Standard.md#353-character-and-string-literals) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 3.5.4 | [Boolean Literals](../Standard.md#354-boolean-literals) | unmapped |  |
 | 3.6 | [Operators and Punctuation](../Standard.md#36-operators-and-punctuation) | unmapped |  |
 | 3.7 | [Operator Precedence](../Standard.md#37-operator-precedence) | unmapped |  |
@@ -829,7 +857,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 4.5 | [Expressions and Method Calls](../Standard.md#45-expressions-and-method-calls) | unmapped |  |
 | 4.6 | [Lvalue Restrictions](../Standard.md#46-lvalue-restrictions) | unmapped |  |
 | 4.7 | [Length Specifications](../Standard.md#47-length-specifications) | unmapped |  |
-| 4.8 | [`?` Parsing Rules](../Standard.md#48--parsing-rules) | inspected | [floating-ternary-view-copy](#floating-ternary-view-copy), [ternary-as-static-view-length](#ternary-as-static-view-length) |
+| 4.8 | [`?` Parsing Rules](../Standard.md#48--parsing-rules) | inspected | [floating-ternary-view-copy](#floating-ternary-view-copy), [ternary-as-static-view-length](#ternary-as-static-view-length), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 5 | [Storage Objects, Addresses, and Lifetimes](../Standard.md#5-storage-objects-addresses-and-lifetimes) | unmapped |  |
 | 5.1 | [Storage Objects](../Standard.md#51-storage-objects) | unmapped |  |
 | 5.2 | [Names, Definition Addresses, and Binding Addresses](../Standard.md#52-names-definition-addresses-and-binding-addresses) | inspected | [true-name-rebinding](#true-name-rebinding) |
@@ -843,11 +871,11 @@ A mapped parent never implicitly maps its children or vice versa.
 | 6 | [Expression Results, Lvalue Views, and Interpretation Templates](../Standard.md#6-expression-results-lvalue-views-and-interpretation-templates) | unmapped |  |
 | 6.1 | [View Model](../Standard.md#61-view-model) | inspected | [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 6.2 | [Lvalue Views](../Standard.md#62-lvalue-views) | unmapped |  |
-| 6.3 | [Rvalue Views](../Standard.md#63-rvalue-views) | unmapped |  |
+| 6.3 | [Rvalue Views](../Standard.md#63-rvalue-views) | inspected | [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 6.4 | [View Length](../Standard.md#64-view-length) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 6.5 | [Interpretation Template Carried by a View](../Standard.md#65-interpretation-template-carried-by-a-view) | unmapped |  |
 | 6.6 | [Declaration-Level `as`](../Standard.md#66-declaration-level-as) | unmapped |  |
-| 6.7 | [Expression-Level `as`](../Standard.md#67-expression-level-as) | inspected | [as-reinterpret](#as-reinterpret), [bool-value-read-boundaries](#bool-value-read-boundaries), [ternary-as-static-view-length](#ternary-as-static-view-length), [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
+| 6.7 | [Expression-Level `as`](../Standard.md#67-expression-level-as) | inspected | [as-reinterpret](#as-reinterpret), [bool-value-read-boundaries](#bool-value-read-boundaries), [ternary-as-static-view-length](#ternary-as-static-view-length), [validated-declaration-and-length-views](#validated-declaration-and-length-views), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 6.8 | [Persistent Templates Set by `set`](../Standard.md#68-persistent-templates-set-by-set) | unmapped |  |
 | 6.9 | [Template Propagation Rules](../Standard.md#69-template-propagation-rules) | unmapped |  |
 | 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | unmapped |  |
@@ -872,7 +900,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 8.7 | [Comparisons and `bool` Results](../Standard.md#87-comparisons-and-bool-results) | unmapped |  |
 | 8.8 | [Logical Operations and Short-Circuiting](../Standard.md#88-logical-operations-and-short-circuiting) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts) |
 | 8.9 | [Unsigned-Interpretation Suffix `?`](../Standard.md#89-unsigned-interpretation-suffix-) | unmapped |  |
-| 8.10 | [Evaluation Order and Sequence Points](../Standard.md#810-evaluation-order-and-sequence-points) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts), [floating-ternary-view-copy](#floating-ternary-view-copy), [multiple-rhs-source-views](#multiple-rhs-source-views) |
+| 8.10 | [Evaluation Order and Sequence Points](../Standard.md#810-evaluation-order-and-sequence-points) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts), [floating-ternary-view-copy](#floating-ternary-view-copy), [multiple-rhs-source-views](#multiple-rhs-source-views), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 9 | [User-Defined Templates, Member Layout, and Template Instances](../Standard.md#9-user-defined-templates-member-layout-and-template-instances) | unmapped |  |
 | 9.1 | [Template Definitions](../Standard.md#91-template-definitions) | inspected | [packed-layout-alignment](#packed-layout-alignment) |
 | 9.2 | [`sizeof(Template)`](../Standard.md#92-sizeoftemplate) | inspected | [packed-layout-alignment](#packed-layout-alignment) |
@@ -897,7 +925,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 11.4 | [Floating-Point Templates](../Standard.md#114-floating-point-templates) | unmapped |  |
 | 11.5 | [`bool`](../Standard.md#115-bool) | inspected | [ctype-canonical-bool](#ctype-canonical-bool) |
 | 11.6 | [`addr` and `handle`](../Standard.md#116-addr-and-handle) | inspected | [checked-file-handle-alias](#checked-file-handle-alias) |
-| 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
+| 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 11.8 | [Compiler Built-In Optimization](../Standard.md#118-compiler-built-in-optimization) | unmapped |  |
 | 11.9 | [Observable-Behavior Equivalence Requirement](../Standard.md#119-observable-behavior-equivalence-requirement) | inspected | [ctype-low-byte](#ctype-low-byte) |
 | 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [cstr-literal-zero-padding](#cstr-literal-zero-padding) |

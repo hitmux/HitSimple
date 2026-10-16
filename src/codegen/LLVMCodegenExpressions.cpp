@@ -241,7 +241,18 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     return builder_.CreateZExt(normalized, integerType, "not.zext");
   }
 
-  if (dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr ||
+  // A nonnumeric ternary can still use an integer-shaped ABI for a by-value
+  // parameter or return. Materialize the selected View before loading that
+  // representation; literal/raw branches are not integer expressions.
+  const auto *viewTernary = dynamic_cast<const hir::TernaryExpr *>(&expression);
+  const bool rawTernary = viewTernary != nullptr &&
+      (hir::isRawOnly(expression.result) ||
+       expression.result.category == hir::ViewCategory::Bytes ||
+       expression.result.category == hir::ViewCategory::CString ||
+       expression.result.category == hir::ViewCategory::UserTemplate ||
+       expression.result.category == hir::ViewCategory::RawBytes);
+  if (rawTernary ||
+      dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr ||
       dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::ByteSwapExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
@@ -1346,14 +1357,13 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
                      assignment->byteLength, std::size_t{1}};
   }
 
-  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression);
-      ternary != nullptr && hir::isFloatingNumeric(ternary->result)) {
-    // A floating ternary selects a View copy, not an integer conversion or
-    // floating arithmetic operation. Copy the selected branch's bytes so ABI
-    // parameters, signed zero and NaN payloads keep their representation.
+  if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression)) {
+    // A ternary selects a View copy, not a numeric conversion or assignment.
+    // Preserve every byte, including floating payloads and literal bytes after
+    // an embedded NUL; cstr assignment applies its own copy/padding rule later.
     if (ternary->result.lengthKind != hir::ViewLengthKind::Static ||
         ternary->byteLength == 0) {
-      addDiagnostic("floating ternary requires a fixed positive View length");
+      addDiagnostic("ternary requires a fixed positive View length");
       return {};
     }
     auto *condition = emitConditionValue(*ternary->condition);
@@ -1378,7 +1388,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       builder_.SetInsertPoint(block);
       const auto view = emitViewValue(branch);
       if (view.data == nullptr || view.staticLength != ternary->byteLength) {
-        addDiagnostic("floating ternary branch does not match its View length");
+        addDiagnostic("ternary branch does not match its View length");
         return false;
       }
       checkViewLoad(view);
@@ -1568,7 +1578,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       dynamic_cast<const hir::ToFloatExpr *>(&expression) != nullptr ||
       (floatingCall != nullptr && floatingCall->isFloating)) {
     // Materialize computed floating rvalues before testing their bytes. Keep
-    // other View forms (including raw ternary copies) on their existing path.
+    // other View forms on their dedicated materialization paths.
     return makeStorage(floatTypeForByteLength(byteLength),
                        emitFloatValue(expression, byteLength),
                        byteLength, "view.float");

@@ -1,0 +1,381 @@
+{
+  "version": 2,
+  "suite": "literal-ternary-rejections",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "length_optimized",
+      "source": "../../../cases/sema/literal_ternary_length.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "template_optimized",
+      "source": "../../../cases/sema/literal_ternary_template.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "unselected_optimized",
+      "source": "../../../cases/sema/literal_ternary_unselected.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*undeclared.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*undeclared.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*undeclared.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "integer_optimized",
+      "source": "../../../cases/sema/literal_ternary_integer.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right\\ operand\\ of\\ '='\\ is\\ not\\ an\\ integer\\ expression.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right\\ operand\\ of\\ '='\\ is\\ not\\ an\\ integer\\ expression.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right\\ operand\\ of\\ '='\\ is\\ not\\ an\\ integer\\ expression.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "address_optimized",
+      "source": "../../../cases/sema/literal_ternary_address.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*address.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*address.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*address.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "write_optimized",
+      "source": "../../../cases/sema/literal_ternary_write.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment\\ target.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment\\ target.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment\\ target.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "length_reference",
+      "source": "../../../cases/sema/literal_ternary_length.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "template_reference",
+      "source": "../../../cases/sema/literal_ternary_template.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*ternary\\ branches\\ must\\ have\\ the\\ same\\ template\\ and\\ byte\\ length.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "unselected_reference",
+      "source": "../../../cases/sema/literal_ternary_unselected.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*undeclared.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*undeclared.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*undeclared.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "integer_reference",
+      "source": "../../../cases/sema/literal_ternary_integer.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right\\ operand\\ of\\ '='\\ is\\ not\\ an\\ integer\\ expression.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right\\ operand\\ of\\ '='\\ is\\ not\\ an\\ integer\\ expression.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right\\ operand\\ of\\ '='\\ is\\ not\\ an\\ integer\\ expression.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "address_reference",
+      "source": "../../../cases/sema/literal_ternary_address.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*address.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*address.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*address.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "write_reference",
+      "source": "../../../cases/sema/literal_ternary_write.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment\\ target.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment\\ target.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment\\ target.*"
+          }
+        }
+      }
+    }
+  ]
+}

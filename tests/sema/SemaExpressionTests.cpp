@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <string>
+#include <tuple>
 
 using hitsimple::testing::sema::analyzePreprocessedSource;
 using hitsimple::testing::sema::analyzeSource;
@@ -1916,4 +1917,56 @@ HS_TEST(Sema_IndexAndSliceCarrySourceViewBounds) {
   HS_EXPECT_TRUE(arithmetic.diagnostics.empty());
   HS_EXPECT_TRUE(hitsimple::hir::dumpToString(*arithmetic.unit).find(
       "source_view_bytes=") == std::string::npos);
+}
+
+HS_TEST(Sema_LiteralTernariesRetainCompleteRvalueViews) {
+  for (const auto &[expression, type, size] :
+       std::vector<std::tuple<std::string, std::string, unsigned>>{
+           {"choose ? \"a\\0b\" : \"z\\0w\"", "cstr", 4},
+           {"choose ? 'a\\0b' : 'z\\0w'", "", 3},
+           {"choose ? \"ab\" : \"xy\"", "cstr", 3},
+           {"choose ? \"\" : \"\"", "cstr", 1}}) {
+    auto result = analyzeSource(
+        "func selected(choose as bool) -> [" + std::to_string(size) +
+        "] as bytes { return (" + expression + ") as bytes; }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
+    const auto *ret = dynamic_cast<const hitsimple::hir::Return *>(
+        result.unit->functions[0]->body->statements.back().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    const auto *view = dynamic_cast<const hitsimple::hir::TemplateViewExpr *>(
+        ret->values[0].get());
+    HS_EXPECT_TRUE(view != nullptr);
+    const auto *choice = dynamic_cast<const hitsimple::hir::TernaryExpr *>(
+        view->operand.get());
+    HS_EXPECT_TRUE(choice != nullptr);
+    HS_EXPECT_EQ(choice->result.templateName, type);
+    HS_EXPECT_EQ(choice->result.staticByteLength, size);
+    HS_EXPECT_TRUE(!choice->result.isAddressable);
+    HS_EXPECT_TRUE(!choice->result.isMutableLValue);
+    HS_EXPECT_EQ(choice->thenExpr->result.staticByteLength, size);
+    HS_EXPECT_EQ(choice->elseExpr->result.staticByteLength, size);
+  }
+}
+
+HS_TEST(Sema_LiteralTernariesRetainStaticRejections) {
+  for (const auto &[statement, diagnostic] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"new value[4] as bytes = true ? \"abc\" : \"ab\"",
+            "ternary branches must have the same template and byte length"},
+           {"new value[4] as bytes = true ? \"abc\" : 'abcd'",
+            "ternary branches must have the same template and byte length"},
+           {"new value[4] as bytes = true ? \"abc\" : missing", "undeclared"},
+           {"new value as u32 = true ? \"abc\" : \"xyz\"", "not an integer expression"},
+           {"new value as addr = &(true ? \"abc\" : \"xyz\")", "writable lvalue"},
+           {"(true ? \"abc\" : \"xyz\") = \"def\"", "assignment targets"},
+           {"new value as u64 = (true ? \"abc\" : \"xyz\") as u64", "does not match template"}}) {
+    auto result = analyzeSource("func main() -> i32 {\n" + statement +
+                                "\nreturn 0\n}\n");
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_TRUE(std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+        [&](const auto &item) { return item.message.find(diagnostic) != std::string::npos; }));
+  }
 }

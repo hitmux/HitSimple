@@ -519,6 +519,37 @@ class HarnessTests(unittest.TestCase):
                             accepted,
                         )
 
+    def test_literal_ternary_manifests_cover_both_providers_and_modes(self) -> None:
+        from run_tests import ProcessResult, _process_mismatch, load_manifest
+
+        for suite, count in (("literal-ternary-views", 12),
+                             ("literal-ternary-rejections", 72)):
+            manifest = RUNNER.parent / ("manifests/" + suite + ".json")
+            result = subprocess.run(
+                [sys.executable, str(RUNNER), "--hsc", sys.executable,
+                 "--manifest", str(manifest), "--list"],
+                text=True, capture_output=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(len(result.stdout.splitlines()), count)
+            for case in load_manifest(manifest):
+                self.assertEqual(set(case.safety_modes),
+                                 {"unchecked", "static-checked", "checked"})
+                self.assertEqual(set(case.optimization_levels), {"O0", "O2"})
+                for expected in case.expect_by_mode.values():
+                    if suite == "literal-ternary-rejections":
+                        self.assertEqual(expected.compile.exit_code, 1)
+                        self.assertIsNone(expected.run)
+                        continue
+                    for stdout, accepted in (("literal ternary views 0\n", True),
+                                             ("literal ternary views 0\r\n", True),
+                                             ("literal ternary views 1\n", False),
+                                             ("literal ternary views 0\nextra\n", False)):
+                        actual = ProcessResult((), 0, stdout, "", False)
+                        self.assertEqual(
+                            _process_mismatch(actual, expected.run, "run") is None,
+                            accepted)
+
     def test_safety_mode_manifest_requires_expectations_for_each_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

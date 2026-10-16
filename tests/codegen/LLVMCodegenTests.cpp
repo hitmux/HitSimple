@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -3908,4 +3909,96 @@ HS_TEST(LLVMCodegen_RebindingFileBuffersUseAddressViewBytes) {
     }
   }
   HS_EXPECT_EQ(checkedBuffers, 2U);
+}
+
+HS_TEST(LLVMCodegen_LiteralTernariesCopyCompleteSelectedViews) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    for (const auto &[left, right, width] :
+         std::vector<std::tuple<std::string, std::string, unsigned>>{
+             {"\"a\\0b\"", "\"z\\0w\"", 4},
+             {"'a\\0b'", "'z\\0w'", 3},
+             {"\"ab\"", "\"xy\"", 3},
+             {"\"\"", "\"\"", 1},
+             {"\"abcdefghijklmnopq\"", "\"qrstuvwxyzabcdefg\"", 18}}) {
+      auto result = emitSource(
+          "func selected(choose as bool) -> [" + std::to_string(width) +
+          "] as bytes { return (choose ? " + left + " : " + right + ") as bytes; }\n"
+          "func main() -> i32 { return 0; }\n", optionsFor(mode));
+      HS_EXPECT_TRUE(result.diagnostics.empty());
+      HS_EXPECT_TRUE(result.module != nullptr);
+      HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+      const auto *function = result.module->getFunction("selected");
+      HS_EXPECT_TRUE(function != nullptr);
+      unsigned copies = 0;
+      for (const auto &block : *function) {
+        for (const auto &instruction : block) {
+          if (const auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(&instruction)) {
+            const auto *length = llvm::dyn_cast<llvm::ConstantInt>(copy->getLength());
+            HS_EXPECT_TRUE(length != nullptr);
+            HS_EXPECT_EQ(length->getZExtValue(), width);
+            HS_EXPECT_TRUE(block.getName().str().rfind("view.ternary.", 0) == 0);
+            ++copies;
+          }
+          // Only the later ABI return may load an integer representation;
+          // branch selection itself copies bytes without numeric reads.
+          if (block.getName().str() == "view.ternary.then" ||
+              block.getName().str() == "view.ternary.else") {
+            HS_EXPECT_TRUE(!llvm::isa<llvm::LoadInst>(instruction));
+            HS_EXPECT_TRUE(!llvm::isa<llvm::CastInst>(instruction));
+          }
+        }
+      }
+      HS_EXPECT_EQ(copies, 2U);
+      if (width == 4U) {
+        const auto ir = llvmIr(result);
+        HS_EXPECT_TRUE(ir.find("c\"a\\00b\\00\"") != std::string::npos);
+        HS_EXPECT_TRUE(ir.find("c\"z\\00w\\00\"") != std::string::npos);
+      }
+    }
+  }
+}
+
+HS_TEST(LLVMCodegen_LiteralTernariesPreserveBranchLocalEffectsAndConsumers) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    auto result = emitSource(
+        "func predicate() -> bool { return true; }\n"
+        "func left() -> [4] as bytes { return \"a\\0b\" as bytes; }\n"
+        "func right() -> [4] as bytes { return \"z\\0w\" as bytes; }\n"
+        "func identity(value[4] as cstr) -> [4] as bytes { return value as bytes; }\n"
+        "func probe() -> [4] as bytes { return predicate() ? left() : right(); }\n"
+        "func direct() -> [4] as bytes { return identity(predicate() ? \"a\\0b\" : \"z\\0w\"); }\n"
+        "func cstring() -> [4] as cstr { return predicate() ? \"a\\0b\" : \"z\\0w\"; }\n"
+        "func size() -> u64 { return length(predicate() ? \"a\\0b\" : \"z\\0w\"); }\n"
+        "func main() -> i32 { return 0; }\n", optionsFor(mode));
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+    for (const auto name : {"probe", "direct", "cstring", "size"}) {
+      const auto *function = result.module->getFunction(name);
+      HS_EXPECT_TRUE(function != nullptr);
+      unsigned predicates = 0;
+      unsigned branchCalls = 0;
+      for (const auto &block : *function) {
+        for (const auto &instruction : block) {
+          const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+          if (call == nullptr || call->getCalledFunction() == nullptr) { continue; }
+          const auto called = call->getCalledFunction()->getName();
+          if (called == "predicate") {
+            HS_EXPECT_TRUE(block.getName().str().rfind("view.ternary.", 0) != 0);
+            ++predicates;
+          } else if (called == "left" || called == "right") {
+            HS_EXPECT_EQ(block.getName().str(), called == "left"
+                ? std::string("view.ternary.then") : std::string("view.ternary.else"));
+            ++branchCalls;
+          }
+        }
+      }
+      HS_EXPECT_EQ(predicates, 1U);
+      HS_EXPECT_EQ(branchCalls, std::string_view(name) == "probe" ? 2U : 0U);
+    }
+  }
 }

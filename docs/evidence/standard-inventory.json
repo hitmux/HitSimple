@@ -2,7 +2,7 @@
   "version": 1,
   "purpose": "navigation and bounded evidence, not independent requirements or conformance",
   "inputs_sha256": {
-    "CMakeLists.txt": "b1b1916dfa0addeea8bf02831c808e50aae7776b4c5b7713de5d01a406c2ddb1",
+    "CMakeLists.txt": "3c3defb9833e4f95920c6c11308321cea6a01926c28268049b24276a7f309ab2",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/ascii-character-extensions.md": "bf679f5d644fc58f4835d214c00ca52a4c14164237f2c51dc479567222e6f182",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
@@ -10,7 +10,8 @@
     "docs/cstr-assignment-contracts.md": "bcd515e73935b78f731e3e9044596097e31a545f30ad23d88a8683e1848682a4",
     "docs/cstr-literal-padding.md": "b13842c768d76a6f32362fa2afb2bb40c62460a606476ca284c3b0c211fc9450",
     "docs/ctype-view-inputs.md": "b732d3b50af5ee1ebcc7d5f0c677bf2dab975fd8b61b92802b84f624af5029ec",
-    "docs/evidence/standard-witnesses.json": "fdf2e733c6162556e84ad5096eb50b601f4789f96679665553c80780ccf1f833",
+    "docs/evidence/standard-witnesses.json": "139c51156a28ca7926038e8778f8ec0daeeb49712b700c535da17928f3d7c08e",
+    "docs/literal-ternary-views.md": "67dc64062e37265d41456508f0f7cdaa7f7ee715dc00e768d308ecc4b142a96c",
     "docs/multi-return-assignments.md": "24c692719dd125a940025d43ae3bfbcd097f791034c513ee88b9c84305f812a3",
     "docs/multiple-rhs-assignments.md": "501786168ab378e088b09165828d9f84038a9aac86a84bd7988ed76738b3db4d",
     "docs/named-return-storage.md": "9478c32dbbd8dbb03c8bafe7856492443805e6e2b866c998001649bb4a74f6af",
@@ -20,7 +21,7 @@
     "include/hitsimple/hir/HIR.h": "61c03b3382535f0fa6684e1da688ae9109aef95a8d0ad551072c4b42cdd3bd92",
     "runtime/hitsimple_runtime.c": "b0417623724daeee4866d54cd6ca61e968cd7027854f042de15813d02e330b97",
     "src/codegen/LLVMCodegen.cpp": "3c3662c310c6785fef941a74489eeea75cc8f60dc132fc6a1c092cfd85c9364c",
-    "src/codegen/LLVMCodegenExpressions.cpp": "c41b48cffa8b12d2dff22ba8c2350b69be9f4f32bb0b84ba7630e4e0baccf2f4",
+    "src/codegen/LLVMCodegenExpressions.cpp": "e707083f4b3b512a99b95564011b72120f3c0e3613fa758b542ec4a71f42c100",
     "src/codegen/LLVMCodegenFunctions.cpp": "3cfa3bbe563acb8b80296ef350d6920c6145d41375c5569da7d9983bce96f1e9",
     "src/codegen/LLVMCodegenRuntime.cpp": "b8eff50e39928103fcac44d629848a61f6104e7db14f745dd2c63af09c3e01c0",
     "src/codegen/LLVMCodegenStatements.cpp": "5e1cb33409e51cceee62ca9bbac632bc763b0e18a4e6c5d8cad2f3b3f501707c",
@@ -85,6 +86,7 @@
     "tests/cases/run/length_empty_interpretation.hs": "e24e5f31914484b04987ba126534f36d865f38052838e1045ca7e5cd40863ed8",
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
     "tests/cases/run/length_nonempty_guard.hs": "062b3c28f7df6c26ce329f7cb02590c7e5a33d843355034ea7fba91950130470",
+    "tests/cases/run/literal_ternary_views.hs": "66bd6a92cbc8e161ad0b91c0d2c98fb0448f7d4f66f8ad01cdc07377c845f5ec",
     "tests/cases/run/multi_return_assignments.hs": "299978aef88c83bd2300d4e74e4f6bd20f64f7ed247a6e7d66da4d13673925c3",
     "tests/cases/run/multiple_rhs_destination_contracts.hs": "ea4faa88d521d5d27d7d23149dd07b0adc76b508605ecf487bad46b08fdda21f",
     "tests/cases/run/multiple_rhs_evaluation.hs": "3855ed3b32238a5e098512bb6faa765b61fdce3a581e9e98b89b907b9e9653b9",
@@ -116,7 +118,7 @@
     "tests/cases/sema/rebind_non_identifier_member.hs": "0bbc3e843f1cd8c20c0e5c72279665077a13efd53ee3586c3614b9eb8be8d5a0",
     "tests/cases/sema/rebind_non_identifier_slice.hs": "4109535d701fe3d6e059192139df1ba8785f818c257ddb2d001ab43ead378b1b",
     "tests/cases/sema/rebind_non_identifier_view.hs": "07d7fa603b5c634e2613687874878cca80a5b6de1d5c3fb756e165eac9c7bfad",
-    "tests/codegen/LLVMCodegenTests.cpp": "5acbda497d46bc009b25f1acc83085f2fdc47b506a5192fca7cc877f100cbc38",
+    "tests/codegen/LLVMCodegenTests.cpp": "662eb5cdbe991641d521bae55ca376c660b9a76b73d9fc9a64d332bb8f2bbb1b",
     "tests/codegen/LLVMCstrAssignmentTests.cpp": "29499a0ca1f0e20abd0040662be27b8352ccc1927d08b0ed915ec013805d1189",
     "tests/codegen/NativeTargetTests.cpp": "e0aff3f282d0731d94d1cc5f91eeef2877ffb5515ef9bdb307832b4f7c673425",
     "tests/codegen/ObjectEmitterTests.cpp": "33690660c9e9fb150d6e40cce390f18e343c59fdd135dbec574619e16326c9a0",
@@ -134,7 +136,7 @@
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaCstrAssignmentTests.cpp": "99593ee6980dea5cdd4bfc580a5504ed504487f72ac685219b97b5686d260264",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "2855157a08b5c3c0d3aaa7d653cedb28624bf350895431bf530e424b06857f66",
+    "tests/sema/SemaExpressionTests.cpp": "3d301543c46328c235c72851ad09f5eb410ca388b4cb67bdd9de8af990821802",
     "tests/sema/SemaMultiReturnTests.cpp": "b375fe7d0052c78bcef944e978714c6d55673c4011c9cbc54abd36dcd4cc5d0c",
     "tests/sema/SemaMultipleAssignmentTests.cpp": "5a42ae6721736768b0cf7728de1e3824133a669f0ec0b0f30cb854809c3bcd2b",
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
@@ -156,6 +158,7 @@
     "tests/support/harness/manifests/explicit-numeric-returns.json": "15f70fa4fa2c93434a9337cca03e147a34907ee169a691d7ff769ef531e747bc",
     "tests/support/harness/manifests/file-handles.json": "284a969e3c1ee28b67416f15f8b17de29cf44d5ec402ecfd975e5e9a49faec2f",
     "tests/support/harness/manifests/floating-ternary-views.json": "6f5a89d0fb2d2d79d9de7556ae82a4c33da430c7d7503fd50a03dd4448b3d665",
+    "tests/support/harness/manifests/literal-ternary-views.json": "004096d0e304adb357a4eeb404e2545ad4b418ca8e5cf056d41b1364ccc0283f",
     "tests/support/harness/manifests/multi-return-assignment-diagnostics.json": "b02487a1bbfca71bd132063f7794f9b16315b64d114be01d881842f8a8cdc2fd",
     "tests/support/harness/manifests/multi-return-assignments.json": "6f2718b270070cef3799c05670bbc9848f092ba03896edf0bd1fbecffe9eefeb",
     "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json": "62d72d966cd8e3a34b58b373cf781c39a1729b6d2a8db0a3211ff9e2517050cb",
@@ -344,7 +347,8 @@
       "anchor": "353-character-and-string-literals",
       "parent": "3.5",
       "witnesses": [
-        "cstr-literal-zero-padding"
+        "cstr-literal-zero-padding",
+        "literal-ternary-view-copy"
       ],
       "mapping_status": "inspected"
     },
@@ -469,7 +473,8 @@
       "parent": "4",
       "witnesses": [
         "floating-ternary-view-copy",
-        "ternary-as-static-view-length"
+        "ternary-as-static-view-length",
+        "literal-ternary-view-copy"
       ],
       "mapping_status": "inspected"
     },
@@ -609,8 +614,10 @@
       "line": 505,
       "anchor": "63-rvalue-views",
       "parent": "6",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "literal-ternary-view-copy"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "6.4",
@@ -651,7 +658,8 @@
         "as-reinterpret",
         "bool-value-read-boundaries",
         "ternary-as-static-view-length",
-        "validated-declaration-and-length-views"
+        "validated-declaration-and-length-views",
+        "literal-ternary-view-copy"
       ],
       "mapping_status": "inspected"
     },
@@ -901,7 +909,8 @@
       "witnesses": [
         "logical-short-circuit-facts",
         "floating-ternary-view-copy",
-        "multiple-rhs-source-views"
+        "multiple-rhs-source-views",
+        "literal-ternary-view-copy"
       ],
       "mapping_status": "inspected"
     },
@@ -1142,7 +1151,8 @@
       "anchor": "117-cstr-and-bytes",
       "parent": "11",
       "witnesses": [
-        "cstr-literal-zero-padding"
+        "cstr-literal-zero-padding",
+        "literal-ternary-view-copy"
       ],
       "mapping_status": "inspected"
     },
@@ -3195,6 +3205,11 @@
     },
     {
       "id": "true-name-rebinding",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "literal-ternary-view-copy",
       "mapping_status": "inspected",
       "execution_status": "not_recorded"
     }
