@@ -1255,6 +1255,18 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_raw_memory_floating_views PROPERTIES
     LABELS "testing;harness;stdlib;float")
   add_test(
+    NAME hsc_assignment_result_views
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite assignment-result-views
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_assignment_result_views PROPERTIES
+    LABELS "testing;harness;stdlib;float")
+  add_test(
     NAME hsc_none_return_views
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py

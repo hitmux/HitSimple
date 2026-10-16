@@ -1110,7 +1110,11 @@ Analyzer::analyze(const ast::AssignmentExpr &expression) {
   if (!lowered) {
     return nullptr;
   }
-  const auto result = lowered->result->result;
+  auto result = lowered->result->result;
+  // Standard 7.2 observes the assigned bytes as an rvalue copy, never as a
+  // writable alias of the destination.
+  result.isAddressable = false;
+  result.isMutableLValue = false;
   return std::make_unique<hir::AssignmentExpr>(std::move(lowered->stores),
                                                std::move(lowered->result),
                                                result);

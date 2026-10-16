@@ -3494,3 +3494,24 @@ HS_TEST(LLVMCodegen_PreservesFloatingRawMemoryBuiltinViews) {
     HS_EXPECT_TRUE(ir.find("fptoui") == std::string::npos);
   }
 }
+
+HS_TEST(LLVMCodegen_CopiesFloatingAssignmentResultViews) {
+  for (const auto bytes : {2U, 4U, 8U, 16U}) {
+    const auto type = "f" + std::to_string(bytes * 8U);
+    auto result = emitSource(
+        "func probe(left as " + type + ", right as " + type + ") -> i32 {\n"
+        "    return memcmp((left = right), (left = right), " +
+        std::to_string(bytes) + ")\n}\n"
+        "func assigned(left as " + type + ", right as " + type + ") -> " +
+        type + " { return left = right; }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+    const auto ir = llvmIr(result);
+    HS_EXPECT_TRUE(ir.find("view.assignment = alloca") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("llvm.memcpy") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fptosi") == std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fptoui") == std::string::npos);
+  }
+}

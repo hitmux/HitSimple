@@ -240,6 +240,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
   if (dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::ByteSwapExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
+      dynamic_cast<const hir::AssignmentExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::UserTemplateOpCallExpr *>(&expression) !=
           nullptr ||
       dynamic_cast<const hir::UserTemplateFormatCallExpr *>(&expression) !=
@@ -1014,21 +1015,6 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     return builder_.CreateTrunc(value, integerType);
   }
 
-  if (const auto *assignment =
-          dynamic_cast<const hir::AssignmentExpr *>(&expression)) {
-    for (const auto &store : assignment->stores) {
-      emit(*store);
-      if (!diagnostics_.empty()) {
-        return nullptr;
-      }
-    }
-    if (!assignment->result) {
-      return llvm::ConstantInt::get(integerType, 0);
-    }
-    return emitIntegerValue(*assignment->result, byteLength,
-                            unsignedInterpretation);
-  }
-
   addDiagnostic("unsupported integer expression");
   return nullptr;
 }
@@ -1257,6 +1243,35 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
 
   if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
     return emitViewValue(*view->operand);
+  }
+
+  if (const auto *assignment =
+          dynamic_cast<const hir::AssignmentExpr *>(&expression)) {
+    for (const auto &store : assignment->stores) {
+      emit(*store);
+      if (!diagnostics_.empty()) {
+        return {};
+      }
+    }
+    if (!assignment->result) {
+      addDiagnostic("assignment expression is missing its result View");
+      return {};
+    }
+    const auto source = emitViewValue(*assignment->result);
+    if (source.data == nullptr || source.staticLength != assignment->byteLength) {
+      addDiagnostic("assignment result does not match its fixed View length");
+      return {};
+    }
+    auto *storage = createFunctionEntryAlloca(
+        llvm::ArrayType::get(builder_.getInt8Ty(), assignment->byteLength),
+        "view.assignment");
+    storage->setAlignment(llvm::Align(1));
+    registerTemporaryObject(storage, builder_.getInt64(assignment->byteLength));
+    // Copy now: a later argument or nested operation may overwrite the target.
+    builder_.CreateMemCpy(storage, llvm::Align(1), source.data,
+                          alignmentAt(source.alignment), assignment->byteLength);
+    return ViewValue{storage, builder_.getInt64(assignment->byteLength),
+                     assignment->byteLength, std::size_t{1}};
   }
 
   if (const auto *ternary = dynamic_cast<const hir::TernaryExpr *>(&expression);
@@ -2099,6 +2114,7 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
   }
 
   if (dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
+      dynamic_cast<const hir::AssignmentExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::TernaryExpr *>(&expression) != nullptr) {
     const auto view = emitViewValue(expression);
     if (view.data == nullptr || view.staticLength != byteLength) {
