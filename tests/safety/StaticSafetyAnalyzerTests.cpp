@@ -209,3 +209,26 @@ HS_TEST(StaticSafetyAnalyzer_InvalidatesFactsAfterIndirectMemoryWrite) {
 
   HS_EXPECT_TRUE(result.diagnostics.empty());
 }
+
+HS_TEST(StaticSafetyAnalyzer_LengthPreservesStaticFactsAndOperandChecks) {
+  const auto bounds = analyzeSafety(
+      "func main() -> i32 {\n"
+      "    new small[1]\n"
+      "    new large[8]\n"
+      "    new copied = memcpy(small, large, length(large))\n"
+      "    return 0\n}\n");
+  HS_EXPECT_TRUE(hasDiagnostic(bounds, "out of bounds"));
+  const auto division = analyzeSafety(
+      "func main() -> i32 {\n"
+      "    new divisor as u64 = 0\n"
+      "    new value as u64 = 1\n"
+      "    new measured = length(resize_bytes(value, 8 / divisor))\n"
+      "    return 0\n}\n");
+  HS_EXPECT_TRUE(hasDiagnostic(division, "division by zero"));
+  const auto assignment = analyzeSafety(
+      "func main() -> i32 {\n"
+      "    new divisor as i32 = 1\n"
+      "    new size = length((divisor = 0))\n"
+      "    return 1 / divisor\n}\n");
+  HS_EXPECT_TRUE(hasDiagnostic(assignment, "division by zero"));
+}

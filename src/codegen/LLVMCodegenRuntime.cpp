@@ -312,6 +312,12 @@ llvm::FunctionCallee LlvmEmitter::declareCheckViewLength() {
   return module_->getOrInsertFunction("hs_check_view_length", type);
 }
 
+llvm::FunctionCallee LlvmEmitter::declareCheckViewNonempty() {
+  auto *type = llvm::FunctionType::get(
+      builder_.getVoidTy(), {builder_.getInt64Ty()}, false);
+  return module_->getOrInsertFunction("hs_check_view_nonempty", type);
+}
+
 llvm::FunctionCallee LlvmEmitter::declareViewAnyNonZero() {
   auto *type = llvm::FunctionType::get(
       builder_.getInt32Ty(), {builder_.getPtrTy(), builder_.getInt64Ty()},

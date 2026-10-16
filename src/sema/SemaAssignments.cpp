@@ -347,14 +347,10 @@ Analyzer::lowerFixedViewAssignment(
                                        target.byteLength, false};
   }
 
-  auto sourceLength = inferByteLength(value);
-  // A pointer-derived address retains its pointer-sized View even when the
-  // source spelling used postfix `?` to form the byte offset expression.
-  // The AST-only length inference cannot recover that fact reliably.
-  if (target.templateName == "addr" &&
-      loweredValue->result.category == hir::ViewCategory::Address) {
-    sourceLength = loweredValue->result.staticByteLength;
-  }
+  auto sourceLength =
+      loweredValue->result.lengthKind == hir::ViewLengthKind::Static
+          ? std::optional<std::size_t>{loweredValue->result.staticByteLength}
+          : inferByteLength(value);
   if (!sourceLength) {
     sourceLength = integerExpressionByteLength(*loweredValue);
   }

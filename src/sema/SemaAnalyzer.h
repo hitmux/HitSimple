@@ -339,6 +339,8 @@ private:
 
   void beginScope();
   void endScope();
+  std::optional<std::size_t> initializerResultContract(const ast::Expr &expression);
+  bool declareGlobal(const ast::GlobalNewDecl &declaration);
   Symbol *lookup(std::string_view name);
   const Symbol *lookup(std::string_view name) const;
   bool declare(std::string_view name, std::size_t byteLength,
@@ -426,6 +428,8 @@ private:
   std::vector<std::unordered_map<std::string, Symbol>> scopes_;
   std::unordered_map<std::string, std::size_t> bindingCounts_;
   std::unordered_map<std::string, FunctionSignature> functions_;
+  std::unordered_map<std::string, const ast::GlobalNewDecl *> pendingGlobals_;
+  std::unordered_set<std::string> resolvingGlobals_;
   std::vector<stdlib::StandardHeader> standardHeaders_;
   bool cCompatibilityMode_ = false;
   bool internalStandardModule_ = false;

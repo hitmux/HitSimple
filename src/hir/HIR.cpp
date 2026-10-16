@@ -14,6 +14,12 @@ namespace {
 thread_local std::optional<diagnostic::SourceRange> activeRange;
 
 std::optional<std::size_t> staticAllocationExtent(const Expr &expression) {
+  if (const auto *call = dynamic_cast<const CallExpr *>(&expression);
+      call != nullptr && call->builtin == stdlib::BuiltinId::Length &&
+      call->arguments.size() == 1U &&
+      call->arguments.front()->result.lengthKind == ViewLengthKind::Static) {
+    return call->arguments.front()->result.staticByteLength;
+  }
   if (const auto *literal = dynamic_cast<const IntegerLiteral *>(&expression)) {
     const auto value = literal::parseUnsignedIntegerLiteral(literal->value);
     if (value && *value <= std::numeric_limits<std::size_t>::max()) {
@@ -1782,11 +1788,24 @@ verifyHIR(const TranslationUnit &unit) {
       return;
     }
     if (const auto *value = dynamic_cast<const TemplateViewExpr *>(&expression)) {
-      checkByteLength(*value, value->byteLength, "byteLength");
+      if (value->result.lengthKind == ViewLengthKind::Static) {
+        checkByteLength(*value, value->byteLength, "byteLength");
+      } else if (value->byteLength != 0) {
+        addDiagnostic(*value, "dynamic TemplateViewExpr must not carry a static byte length");
+      }
       checkTemplateName(*value, value->templateName, "templateName");
       if (value->isAddressable != value->result.isAddressable) {
         addDiagnostic(*value,
                       "TemplateViewExpr addressability does not match result View");
+      }
+      if (value->result.isAddressable != value->operand->result.isAddressable ||
+          value->result.isMutableLValue != value->operand->result.isMutableLValue) {
+        addDiagnostic(*value, "TemplateViewExpr must preserve operand value category");
+      }
+      if (value->operand->result.lengthKind == ViewLengthKind::Static &&
+          (value->result.lengthKind != ViewLengthKind::Static ||
+           value->result.staticByteLength != value->operand->result.staticByteLength)) {
+        addDiagnostic(*value, "TemplateViewExpr must preserve operand byte length");
       }
       verifyExpr(*value->operand);
       return;
@@ -1835,6 +1854,11 @@ verifyHIR(const TranslationUnit &unit) {
       return;
     }
     if (const auto *value = dynamic_cast<const CallExpr *>(&expression)) {
+      if (value->builtin == stdlib::BuiltinId::Length &&
+          (value->arguments.size() != 1U ||
+           !sameSemantics(value->result, viewSemanticsForTemplate("u64", 8)))) {
+        addDiagnostic(*value, "length requires one View operand and an eight-byte u64 result");
+      }
       checkByteLength(*value, value->byteLength, "byteLength");
       checkTemplateName(*value, value->templateName, "templateName");
       if (value->argumentPlans.size() != value->arguments.size()) {
@@ -1887,9 +1911,15 @@ verifyHIR(const TranslationUnit &unit) {
       return;
     }
     if (const auto *value = dynamic_cast<const DynamicByteViewExpr *>(&expression)) {
-      if (value->result.lengthKind != ViewLengthKind::Dynamic) {
-        addDiagnostic(*value,
-                      "DynamicByteViewExpr result must have a dynamic length");
+      if (value->result.lengthKind == ViewLengthKind::Static) {
+        const auto extent = value->runtimeLength
+                                ? staticAllocationExtent(*value->runtimeLength)
+                                : std::nullopt;
+        if (value->operation != DynamicByteViewOperation::ResizeBytes ||
+            !extent || *extent != value->result.staticByteLength) {
+          addDiagnostic(*value,
+                        "byte-buffer result length does not match its length operand");
+        }
       }
       verifyExpr(*value->source);
       if (value->runtimeLength) {

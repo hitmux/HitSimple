@@ -302,6 +302,7 @@ private:
   llvm::FunctionCallee declareCheckLoad();
   llvm::FunctionCallee declareCheckStore();
   llvm::FunctionCallee declareCheckViewLength();
+  llvm::FunctionCallee declareCheckViewNonempty();
   llvm::FunctionCallee declareViewAnyNonZero();
   llvm::FunctionCallee declareCheckedDivisionByZero();
   llvm::FunctionCallee declareCheckedNegativeShift();

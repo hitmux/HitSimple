@@ -530,7 +530,8 @@ enum class DynamicByteViewOperation : std::uint8_t {
 
 std::string_view toString(DynamicByteViewOperation operation);
 
-// A View whose byte length is only known after evaluating the expression.
+// A byte-buffer operation materialized using a runtime View representation.
+// The result metadata retains a static extent when sema can establish one.
 // `runtimeLength` is present for resize_bytes; byte_swap inherits its source
 // length at runtime.
 struct DynamicByteViewExpr final : Expr {

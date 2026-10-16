@@ -1,0 +1,241 @@
+{
+  "version": 2,
+  "suite": "validated-view-lengths",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "optimized",
+      "source": "../../../cases/run/validated_view_lengths.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "view-lengths 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "view-lengths 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "view-lengths 0\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference",
+      "source": "../../../cases/run/validated_view_lengths.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "view-lengths 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "view-lengths 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "view-lengths 0\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "invalid_operand",
+      "source": "../../../cases/run/length_invalid_operand.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*sema: error: .*unknown template 'NotATemplate'.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*sema: error: .*unknown template 'NotATemplate'.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*sema: error: .*unknown template 'NotATemplate'.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "empty_interpretation",
+      "source": "../../../cases/run/length_empty_interpretation.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*sema: error: .*requires a fixed positive byte length.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*sema: error: .*requires a fixed positive byte length.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*sema: error: .*requires a fixed positive byte length.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_mismatch",
+      "source": "../../../cases/run/length_dynamic_mismatch.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "A mismatched fixed interpretation is undefined outside checked mode."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "A mismatched fixed interpretation is undefined outside checked mode."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: dynamic View length does not match fixed context at .*/length_dynamic_mismatch\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "nonempty_runtime_guard",
+      "source": "../../../cases/run/length_nonempty_guard.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: temporary bytes/cstr View requires a positive length\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: temporary bytes/cstr View requires a positive length\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: temporary bytes/cstr View requires a positive length at .*/length_nonempty_guard\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    }
+  ]
+}

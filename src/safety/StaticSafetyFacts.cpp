@@ -11,6 +11,16 @@
 namespace hitsimple::safety::detail {
 
 std::optional<std::int64_t> constantSignedInteger(const hir::Expr &expression) {
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression);
+      call != nullptr && call->builtin == stdlib::BuiltinId::Length &&
+      call->arguments.size() == 1U &&
+      call->arguments.front()->result.lengthKind == hir::ViewLengthKind::Static) {
+    const auto length = call->arguments.front()->result.staticByteLength;
+    if (length <= static_cast<std::uint64_t>(
+                      std::numeric_limits<std::int64_t>::max())) {
+      return static_cast<std::int64_t>(length);
+    }
+  }
   if (const auto *integer =
           dynamic_cast<const hir::IntegerLiteral *>(&expression)) {
     const auto value = literal::parseUnsignedIntegerLiteral(integer->value);
@@ -76,6 +86,12 @@ std::optional<std::int64_t> constantSignedInteger(const hir::Expr &expression) {
 
 std::optional<std::uint64_t>
 constantUnsignedInteger(const hir::Expr &expression) {
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression);
+      call != nullptr && call->builtin == stdlib::BuiltinId::Length &&
+      call->arguments.size() == 1U &&
+      call->arguments.front()->result.lengthKind == hir::ViewLengthKind::Static) {
+    return call->arguments.front()->result.staticByteLength;
+  }
   if (const auto *integer =
           dynamic_cast<const hir::IntegerLiteral *>(&expression)) {
     return literal::parseUnsignedIntegerLiteral(integer->value);

@@ -1201,7 +1201,7 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
                  std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("call ptr @strchr") != std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("@hs_strchr_offset") == std::string::npos);
-  HS_EXPECT_TRUE(llvmIr(result).find("@hs_reverse_bytes") != std::string::npos);
+  HS_EXPECT_TRUE(llvmIr(result).find("@llvm.bswap.i16") != std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("@toupper") == std::string::npos);
   HS_EXPECT_TRUE(llvmIr(result).find("ctype.to_upper") != std::string::npos);
 }
@@ -3514,4 +3514,44 @@ HS_TEST(LLVMCodegen_CopiesFloatingAssignmentResultViews) {
     HS_EXPECT_TRUE(ir.find("fptosi") == std::string::npos);
     HS_EXPECT_TRUE(ir.find("fptoui") == std::string::npos);
   }
+}
+
+HS_TEST(LLVMCodegen_LengthEvaluatesViewWithoutReadingStorage) {
+  const auto result = emitSource(
+      "func tick() -> u64 { return 42; }\n"
+      "func call_length() -> u64 { return length(tick()); }\n"
+      "func local_length() -> u64 { new untouched[17]; return length(untouched); }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("call i64 @tick()") != std::string::npos);
+  const auto *function = result.module->getFunction("local_length");
+  HS_EXPECT_TRUE(function != nullptr);
+  for (const auto &block : *function) {
+    for (const auto &instruction : block) {
+      HS_EXPECT_TRUE(!llvm::isa<llvm::LoadInst>(instruction));
+    }
+  }
+}
+
+HS_TEST(LLVMCodegen_LengthChecksDynamicAsExtent) {
+  const auto result = emitSource(
+      "func probe(count as u64) -> u64 {\n"
+      "    new value as u64 = 42\n"
+      "    return length(resize_bytes(value, count) as u64)\n}\n"
+      "func main() -> i32 { return 0; }\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_view_length") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_LengthChecksDynamicVariableTemplateExtent) {
+  const auto result = emitSource(
+      "func probe(count as u64) -> u64 {\n"
+      "    new value as u64 = 42\n"
+      "    return length(resize_bytes(value, count) as bytes)\n}\n"
+      "func main() -> i32 { return 0; }\n",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_view_nonempty") != std::string::npos);
 }
