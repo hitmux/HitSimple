@@ -14,6 +14,99 @@ llvm::Align LlvmEmitter::alignmentAt(std::size_t baseAlignment,
       llvm::Align(std::max<std::size_t>(baseAlignment, 1U)), offset);
 }
 
+void LlvmEmitter::initializeBinding(Local &local, std::string_view bindingName,
+                                     bool persistent) {
+  if (!reboundBindings_.contains(std::string(bindingName))) {
+    return;
+  }
+  if (persistent) {
+    local.bindingStorage = new llvm::GlobalVariable(
+        *module_, builder_.getPtrTy(), false, llvm::GlobalValue::InternalLinkage,
+        llvm::cast<llvm::Constant>(local.storage),
+        std::string(bindingName) + ".binding");
+  } else {
+    local.bindingStorage = createFunctionEntryAlloca(
+        builder_.getPtrTy(), std::string(bindingName) + ".binding");
+    // Emit at declaration execution, not at alloca placement: loop iterations
+    // and recursive calls begin with their own definition address.
+    builder_.CreateStore(local.storage, local.bindingStorage);
+  }
+  local.requiresAccessCheck = true;
+}
+
+llvm::Value *LlvmEmitter::bindingPointer(const Local &local, std::size_t offset,
+                                        std::string_view name) {
+  if (local.bindingStorage == nullptr && !local.requiresAccessCheck) {
+    return bytePointer(local.storageType, local.storage, offset, name);
+  }
+  auto *base = local.bindingStorage == nullptr
+      ? local.storage
+      : builder_.CreateLoad(builder_.getPtrTy(), local.bindingStorage,
+                            std::string(name) + ".binding");
+  if (offset == 0U) {
+    return base;
+  }
+  // A binding or borrowed destination can denote arbitrary bytes. Never
+  // promise inbounds against the original definition object, including when
+  // merely taking an address or before a checked member access.
+  return builder_.CreateGEP(builder_.getInt8Ty(), base,
+                             builder_.getInt64(offset), std::string(name));
+}
+
+llvm::Value *LlvmEmitter::contentPointer(const Local &local, std::size_t offset,
+                                        std::size_t byteLength, bool write,
+                                        std::string_view name) {
+  auto *pointer = bindingPointer(local, offset, name);
+  if (local.requiresAccessCheck && hasRuntimeSafetyChecks()) {
+    (void)emitCheckedRuntimeCall(write ? declareCheckStore() : declareCheckLoad(),
+                                 {pointer, builder_.getInt64(byteLength)});
+  }
+  return pointer;
+}
+
+llvm::Align LlvmEmitter::bindingAlignment(const Local &local,
+                                         std::size_t offset) const {
+  return alignmentAt(local.bindingStorage == nullptr ? local.alignment : 1U,
+                      offset);
+}
+
+void LlvmEmitter::checkViewLoad(const ViewValue &view, llvm::Value *length) {
+  if (view.requiresAccessCheck && hasRuntimeSafetyChecks()) {
+    (void)emitCheckedRuntimeCall(declareCheckLoad(),
+                                 {view.data, length ? length : view.length});
+  }
+}
+
+void LlvmEmitter::checkViewCapacity(const ViewValue &view, llvm::Value *size,
+                                    llvm::Value *count) {
+  // A raw addr has no independent View extent; runtime memory operations still
+  // validate the requested range against its registered backing object.
+  if (hasRuntimeSafetyChecks() && view.length != nullptr) {
+    auto callee = declareCFunction("hs_check_view_capacity", builder_.getVoidTy(),
+        {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty()});
+    (void)emitCheckedRuntimeCall(callee,
+        {view.length, size, count ? count : builder_.getInt64(1)});
+  }
+}
+
+llvm::Value *LlvmEmitter::checkCStringView(const ViewValue &view) {
+  if (!hasRuntimeSafetyChecks()) {
+    return nullptr;
+  }
+  auto callee = declareCFunction("hs_check_cstr_view", builder_.getInt64Ty(),
+                                 {builder_.getPtrTy(), builder_.getInt64Ty()});
+  return emitCheckedRuntimeCall(callee, {view.data, view.length}, "cstr.length");
+}
+
+void LlvmEmitter::checkCStringCapacity(const ViewValue &view, llvm::Value *used,
+                                       llvm::Value *append) {
+  if (hasRuntimeSafetyChecks()) {
+    auto callee = declareCFunction("hs_check_cstr_capacity", builder_.getVoidTy(),
+        {builder_.getInt64Ty(), builder_.getInt64Ty(), builder_.getInt64Ty()});
+    (void)emitCheckedRuntimeCall(callee, {view.length, used, append});
+  }
+}
+
 llvm::Value *LlvmEmitter::firstBytePointer(llvm::Type *storageType,
                                            llvm::Value *storage) {
   if (!storageType->isArrayTy()) {

@@ -78,6 +78,8 @@ private:
       const std::optional<StaticAddressRange>& range,
       std::optional<std::uint64_t> byteLength);
   void invalidateStaticGlobalFacts();
+  std::optional<std::int64_t> staticIndexOffset(
+      const hir::Expr& expression) const;
   std::optional<std::int64_t> staticSignedInteger(
       const hir::Expr& expression) const;
   std::optional<std::uint64_t> staticUnsignedInteger(
@@ -100,12 +102,54 @@ private:
       const hir::Expr& expression) const;
   std::optional<StaticAddressRange> staticViewRange(
       const hir::Expr& expression) const;
+  bool isRawMemoryAddress(const hir::Expr& expression) const;
   std::optional<StaticAddressRange> staticMemoryOperandRange(
       const hir::Expr& expression) const;
 
-  // Captures never escape their assignment. Direct named lvalues continue to
-  // read live binding facts; computed rvalues use facts recorded at capture.
-  std::unordered_map<std::string, const hir::VariableRef *> capturedAliases_;
+  std::optional<StaticAddressFact> staticBindingAddressFact(
+      std::string_view bindingName, std::size_t offset,
+      std::size_t byteLength) const;
+  std::optional<std::string> staticContentKey(
+      const std::optional<StaticAddressRange>& range,
+      std::size_t byteLength) const;
+  std::optional<std::string> staticContentKey(
+      std::string_view bindingName, std::size_t offset,
+      std::size_t byteLength) const;
+  void validateStaticMemoryAccess(const std::optional<StaticAddressFact>& fact,
+                                 std::uint64_t byteLength,
+                                 std::string_view operation);
+  std::optional<std::string> prepareStaticNamedStore(
+      std::string_view bindingName, std::size_t offset, std::size_t byteLength);
+  void validateStaticViewFormation(const hir::Expr& expression);
+  std::optional<StaticAddressFact> staticViewAddressFact(
+      const hir::Expr& expression) const;
+  void validateStaticCStringRead(const hir::Expr& expression);
+  void recordStaticViewCapture(const std::string& name,
+      const hir::Expr& source, bool retainLocation);
+  std::unique_ptr<hir::Expr> captureStaticEvaluatedArgument(
+      const hir::Expr& source, bool retainLocation, bool rawMemory = false);
+  void releaseStaticCallArguments(
+      const std::vector<std::unique_ptr<hir::Expr>>& arguments);
+  bool isStaticCStringArgument(stdlib::BuiltinId builtin,
+      std::uint16_t overloadIndex, const std::vector<hir::FormatArgKind>& kinds,
+      std::size_t index) const;
+  std::vector<std::unique_ptr<hir::Expr>> prepareStaticCallArguments(
+      stdlib::BuiltinId builtin, std::uint16_t overloadIndex,
+      const std::vector<hir::FormatArgKind>& kinds,
+      const std::vector<std::unique_ptr<hir::Expr>>& arguments);
+
+  void validateStaticCallArgument(stdlib::BuiltinId builtin,
+      std::uint16_t overloadIndex, const std::vector<hir::FormatArgKind>& kinds,
+      std::size_t index, const hir::Expr& argument);
+  void validateStaticUserCallArguments(std::string_view callee,
+      const std::vector<std::unique_ptr<hir::Expr>>& arguments);
+  std::size_t validateStaticMemoryOperands(
+      stdlib::BuiltinId builtin,
+      const std::vector<std::unique_ptr<hir::Expr>>& arguments);
+
+  // Lvalue captures freeze their location, while reads of those bytes remain
+  // live. They must never resolve a subsequently rebound source name again.
+  std::unordered_map<std::string, std::optional<std::string>> capturedAliases_;
   std::unordered_map<std::string, std::optional<StaticAddressRange>> capturedRanges_;
 
   StaticSafetyOptions options_;
@@ -115,12 +159,18 @@ private:
       staticUnsignedIntegerValues_;
   std::unordered_map<std::string, std::optional<StaticAddressFact>>
       staticAddressFacts_;
+  std::unordered_map<std::string, std::optional<StaticAddressFact>>
+      staticBindingAddressFacts_;
+  std::unordered_map<std::string, std::size_t> staticDefinitionByteLengths_;
+  std::unordered_set<std::string> staticPotentiallyReboundBindings_;
+  std::unordered_map<std::string, std::vector<bool>> staticViewParameterCopies_;
   std::unordered_map<std::string, std::optional<bool>>
       staticCStringTerminations_;
   std::unordered_map<std::size_t, StaticDynamicObjectState>
       staticDynamicObjectStates_;
   std::unordered_set<std::string> staticGlobalBindings_;
   std::size_t nextStaticDynamicObjectId_ = 0;
+  std::size_t nextStaticCallCaptureId_ = 0;
   StaticGotoContext* staticGotoContext_ = nullptr;
   StaticLoopContext* staticLoopContext_ = nullptr;
   std::optional<diagnostic::SourceRange> currentDiagnosticRange_;

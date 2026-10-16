@@ -1,0 +1,473 @@
+{
+  "version": 2,
+  "suite": "true-name-rebinding",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "true_name_rebinding_optimized",
+      "source": "../../../cases/run/true_name_rebinding.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "true rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "true rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "true rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "true_name_rebinding_lifetimes_optimized",
+      "source": "../../../cases/run/true_name_rebinding_lifetimes.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "true_name_rebinding_captures_optimized",
+      "source": "../../../cases/run/true_name_rebinding_captures.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind captures 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind captures 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind captures 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "true_name_rebinding_input_optimized",
+      "source": "../../../cases/run/true_name_rebinding_input.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind input 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind input 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind input 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      },
+      "stdin": "37 2.5 ok\n"
+    },
+    {
+      "name": "true_name_rebinding_reference",
+      "source": "../../../cases/run/true_name_rebinding.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "true rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "true rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "true rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "true_name_rebinding_lifetimes_reference",
+      "source": "../../../cases/run/true_name_rebinding_lifetimes.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "true_name_rebinding_captures_reference",
+      "source": "../../../cases/run/true_name_rebinding_captures.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind captures 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind captures 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind captures 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "true_name_rebinding_input_reference",
+      "source": "../../../cases/run/true_name_rebinding_input.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind input 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind input 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "rebind input 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      },
+      "stdin": "37 2.5 ok\n"
+    },
+    {
+      "name": "integrated_contracts_optimized",
+      "source": "../../../cases/run/rebinding_integrated_contracts.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "integrated rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "integrated rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "integrated rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "integrated_contracts_reference",
+      "source": "../../../cases/run/rebinding_integrated_contracts.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "integrated rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "integrated rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "integrated rebinding 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    }
+  ]
+}

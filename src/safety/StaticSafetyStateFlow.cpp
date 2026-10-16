@@ -11,15 +11,21 @@ void StaticSafetyAnalyzer::resetStaticSafetyState() {
   staticIntegerValues_.clear();
   staticUnsignedIntegerValues_.clear();
   staticAddressFacts_.clear();
+  staticBindingAddressFacts_.clear();
+  staticDefinitionByteLengths_.clear();
+  staticPotentiallyReboundBindings_.clear();
+  staticViewParameterCopies_.clear();
   staticCStringTerminations_.clear();
   staticDynamicObjectStates_.clear();
   staticGlobalBindings_.clear();
   nextStaticDynamicObjectId_ = 0;
+  nextStaticCallCaptureId_ = 0;
 }
 
 StaticSafetyState StaticSafetyAnalyzer::staticSafetyState() const {
   return StaticSafetyState{staticIntegerValues_, staticUnsignedIntegerValues_,
-                           staticAddressFacts_, staticCStringTerminations_,
+                           staticAddressFacts_, staticBindingAddressFacts_,
+                           staticCStringTerminations_,
                            staticDynamicObjectStates_, nextStaticDynamicObjectId_};
 }
 
@@ -27,6 +33,7 @@ void StaticSafetyAnalyzer::restoreStaticSafetyState(const StaticSafetyState &sta
   staticIntegerValues_ = state.integerValues;
   staticUnsignedIntegerValues_ = state.unsignedIntegerValues;
   staticAddressFacts_ = state.addressFacts;
+  staticBindingAddressFacts_ = state.bindingAddressFacts;
   staticCStringTerminations_ = state.cstrTerminations;
   staticDynamicObjectStates_ = state.dynamicObjectStates;
   // Object identifiers are allocation identities. Do not reuse one after
@@ -61,21 +68,27 @@ StaticSafetyState StaticSafetyAnalyzer::mergedStaticSafetyStates(
   result.cstrTerminations =
       retainCommonFacts(left.cstrTerminations, right.cstrTerminations);
 
-  for (const auto &[bindingName, fact] : result.addressFacts) {
-    (void)bindingName;
-    if (!fact || fact->origin != StaticAddressOrigin::DynamicObject) {
-      continue;
+  // Missing here means the unchanged definition address, whereas nullopt
+  // means an unknown current address. Do not drop unknowns at a CFG join.
+  for (const auto &[bindingName, fact] : left.bindingAddressFacts) {
+    const auto other = right.bindingAddressFacts.find(bindingName);
+    result.bindingAddressFacts[bindingName] =
+        other != right.bindingAddressFacts.end() && fact == other->second
+            ? fact : std::nullopt;
+  }
+  for (const auto &[bindingName, fact] : right.bindingAddressFacts) {
+    if (!result.bindingAddressFacts.contains(bindingName)) {
+      result.bindingAddressFacts[bindingName] = std::nullopt;
     }
-    const auto leftState = left.dynamicObjectStates.find(fact->dynamicObjectId);
-    const auto rightState =
-        right.dynamicObjectStates.find(fact->dynamicObjectId);
-    if (leftState == left.dynamicObjectStates.end() ||
-        rightState == right.dynamicObjectStates.end()) {
-      continue;
+  }
+
+  // Dynamic lifetime identities may be retained only by a rebound name.
+  for (const auto &[id, leftState] : left.dynamicObjectStates) {
+    const auto rightState = right.dynamicObjectStates.find(id);
+    if (rightState != right.dynamicObjectStates.end()) {
+      result.dynamicObjectStates[id] = leftState == rightState->second
+          ? leftState : StaticDynamicObjectState::Unknown;
     }
-    result.dynamicObjectStates[fact->dynamicObjectId] =
-        leftState->second == rightState->second ? leftState->second
-                                                : StaticDynamicObjectState::Unknown;
   }
   result.nextDynamicObjectId =
       std::max(left.nextDynamicObjectId, right.nextDynamicObjectId);
@@ -146,6 +159,14 @@ void StaticSafetyAnalyzer::expireStaticLocalBindings(
         fact->isBaseAddress = false;
       }
     }
+    for (auto &[candidate, fact] : staticBindingAddressFacts_) {
+      (void)candidate;
+      if (fact && fact->range && fact->range->bindingName == bindingName) {
+        fact->origin = StaticAddressOrigin::ExpiredLocalObject;
+        fact->isBaseAddress = false;
+      }
+    }
+    staticBindingAddressFacts_.erase(bindingName);
     staticIntegerValues_.erase(bindingName);
     staticUnsignedIntegerValues_.erase(bindingName);
     staticAddressFacts_.erase(bindingName);
@@ -156,7 +177,26 @@ void StaticSafetyAnalyzer::expireStaticLocalBindings(
 void StaticSafetyAnalyzer::invalidateStaticFactsOverlapping(
     const std::optional<StaticAddressRange> &range,
     std::optional<std::uint64_t> byteLength) {
-  if (!range || (byteLength && *byteLength == 0)) {
+  if (byteLength && *byteLength == 0) {
+    return;
+  }
+  if (!range) {
+    // An unknown destination may alias any tracked bytes. This deliberately
+    // leaves locating capabilities intact: writes never rebind names.
+    for (auto &[key, fact] : staticIntegerValues_) {
+      if (!capturedAliases_.contains(key)) fact = std::nullopt;
+    }
+    for (auto &[key, fact] : staticUnsignedIntegerValues_) {
+      if (!capturedAliases_.contains(key)) fact = std::nullopt;
+    }
+    for (auto &[key, fact] : staticAddressFacts_) {
+      if (!key.ends_with(".location") && !capturedAliases_.contains(key)) {
+        fact = std::nullopt;
+      }
+    }
+    for (auto &[key, fact] : staticCStringTerminations_) {
+      if (!capturedAliases_.contains(key)) fact = std::nullopt;
+    }
     return;
   }
 
@@ -168,7 +208,16 @@ void StaticSafetyAnalyzer::invalidateStaticFactsOverlapping(
 
 void StaticSafetyAnalyzer::invalidateStaticGlobalFacts() {
   for (const auto &bindingName : staticGlobalBindings_) {
+    const auto bound = staticBindingAddressFacts_.find(bindingName);
+    if (bound != staticBindingAddressFacts_.end()) {
+      invalidateStaticFactsOverlapping(bound->second ? bound->second->range
+                                                     : std::nullopt,
+                                       std::nullopt);
+    }
     invalidateStaticBinding(bindingName);
+    if (staticPotentiallyReboundBindings_.contains(bindingName)) {
+      staticBindingAddressFacts_[bindingName] = std::nullopt;
+    }
   }
 }
 

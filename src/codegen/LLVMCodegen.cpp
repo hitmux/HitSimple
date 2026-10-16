@@ -151,6 +151,15 @@ LlvmEmitter::LlvmEmitter(llvm::LLVMContext& context, llvm::Module& module,
 
 std::vector<diagnostic::Diagnostic>
 LlvmEmitter::emit(const hir::TranslationUnit &unit) {
+  reboundBindings_ = hir::reboundBindings(unit);
+  for (const auto &function : unit.functions) {
+    if (function->usesViewAbi) {
+      auto &copies = viewParameterCopies_[function->name];
+      for (const auto &parameter : function->parameters) {
+        copies.push_back(parameter.viewIsCopy);
+      }
+    }
+  }
   for (const auto &global : unit.globals) {
     emit(global);
   }
@@ -338,6 +347,9 @@ LlvmEmitter::knownAddressRange(const hir::Expr &expression) const {
   }
   if (const auto *address =
           dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
+    if (reboundBindings_.contains(address->bindingName)) {
+      return std::nullopt;
+    }
     const auto offset = static_cast<std::int64_t>(address->offset);
     return KnownAddressRange{
         address->bindingName, offset, offset,
@@ -375,6 +387,9 @@ LlvmEmitter::knownAddressRange(const hir::Expr &expression) const {
 std::optional<LlvmEmitter::KnownAddressRange>
 LlvmEmitter::knownViewRange(const hir::Expr &expression) const {
   if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    if (reboundBindings_.contains(variable->bindingName)) {
+      return std::nullopt;
+    }
     const auto offset = static_cast<std::int64_t>(variable->offset);
     return KnownAddressRange{
         variable->bindingName, offset, offset,
@@ -411,8 +426,11 @@ bool LlvmEmitter::targetsRegisteredInternalObject(
     const hir::Expr &expression) const {
   if (const auto *address =
           dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
-    if (locals_.find(address->bindingName) != locals_.end()) {
-      return true;
+    if (reboundBindings_.contains(address->bindingName)) {
+      return false;
+    }
+    if (const auto local = locals_.find(address->bindingName); local != locals_.end()) {
+      return !local->second.requiresAccessCheck;
     }
     const auto global = globals_.find(address->bindingName);
     if (global == globals_.end()) {

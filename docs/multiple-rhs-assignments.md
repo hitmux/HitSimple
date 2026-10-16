@@ -73,8 +73,10 @@ cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 
 ## Limits
 
-This stage does not implement true §7.7 `&=` name rebinding. The preceding
-assignment-result stage supplies floating snapshots and rvalue metadata. It inherits the
+The separate [name-rebinding stage](true-name-rebinding.md) implements §7.7
+`&=` and keeps captured lvalue locations fixed when a later target rebinds their
+source name. The preceding assignment-result stage supplies floating snapshots
+and rvalue metadata. It inherits the
 ordinary matcher limits for target/operator combinations, including explicit
 floating stores through dynamic pointer targets, compound pointer targets that
 re-evaluate their target address, and same-width nonliteral explicit `%f=`.

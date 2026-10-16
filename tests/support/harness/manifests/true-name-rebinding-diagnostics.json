@@ -1,0 +1,156 @@
+{
+  "version": 2,
+  "suite": "true-name-rebinding-diagnostics",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "member",
+      "source": "../../../cases/sema/rebind_non_identifier_member.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "index",
+      "source": "../../../cases/sema/rebind_non_identifier_index.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "slice",
+      "source": "../../../cases/sema/rebind_non_identifier_slice.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "view",
+      "source": "../../../cases/sema/rebind_non_identifier_view.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "deref",
+      "source": "../../../cases/sema/rebind_non_identifier_deref.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*left operand of '&=' must be a single IDENT.*"
+          }
+        }
+      }
+    }
+  ]
+}

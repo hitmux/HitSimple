@@ -872,7 +872,7 @@ HS_TEST(Sema_LowersPostfixIncrementForAllAddressableIntegerLvalues) {
                               "    new bytes[4]\n"
                               "    new target[1]\n"
                               "    new ptr[8]\n"
-                              "    ptr &= &target\n"
+                              "    ptr = &target\n"
                               "    cell.value++\n"
                               "    bytes[0]++\n"
                               "    bytes[1:2]--\n"
@@ -1260,11 +1260,11 @@ HS_TEST(Sema_NormalizesArbitraryViewForBoolAssignment) {
                      "BooleanTestExpr") != std::string::npos);
 }
 
-HS_TEST(Sema_LowersAddressRebindingAndDereference) {
+HS_TEST(Sema_LowersPointerValueAndDereference) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[4]\n"
                               "    new ptr[8]\n"
-                              "    ptr &= &x\n"
+                              "    ptr = &x\n"
                               "    [4]*ptr = 42\n"
                               "    x = [4]*ptr\n"
                               "    return 0\n"
@@ -1423,10 +1423,10 @@ HS_TEST(Sema_PropagatesNestedFloatingBuiltinTemplates) {
                  std::string::npos);
 }
 
-HS_TEST(Sema_LowersAddressRebindingDeclarationInitializer) {
+HS_TEST(Sema_LowersPointerValueDeclarationInitializer) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[4]\n"
-                              "    new ptr[8] &= &x\n"
+                              "    new ptr[8] = &x\n"
                               "    [4]*ptr = 42\n"
                               "    return x\n"
                               "}\n");
@@ -1446,7 +1446,7 @@ HS_TEST(Sema_LowersAddressRebindingDeclarationInitializer) {
 HS_TEST(Sema_LowersCompoundAssignmentForDereferenceTarget) {
   auto result = analyzeSource("func main() {\n"
                               "    new x[4]\n"
-                              "    new ptr[8] &= &x\n"
+                              "    new ptr[8] = &x\n"
                               "    [4]*ptr = 40\n"
                               "    [4]*ptr %4d+= 2\n"
                               "    return x\n"
@@ -1461,17 +1461,22 @@ HS_TEST(Sema_LowersCompoundAssignmentForDereferenceTarget) {
   HS_EXPECT_TRUE(dump.find("DerefExpr bytes=4") != std::string::npos);
 }
 
-HS_TEST(Sema_RejectsNonPointerSizedAddressRebindingTarget) {
-  auto result = analyzeSource("func main() {\n"
-                              "    new x[4]\n"
-                              "    x &= &x\n"
-                              "    return 0\n"
-                              "}\n");
+HS_TEST(Sema_LowersNonPointerSizedNameRebinding) {
+  auto result = analyzeSource("func main() { new x[3]; new y[3]; x &= &y; return 0; }");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::dumpToString(*result.unit).find(
+      "BindingRebind target=x binding=x bytes=3") != std::string::npos);
+}
 
-  HS_EXPECT_TRUE(result.unit == nullptr);
-  HS_EXPECT_EQ(result.diagnostics.size(), 1U);
-  HS_EXPECT_TRUE(result.diagnostics[0].find("must be pointer-sized") !=
-                 std::string::npos);
+HS_TEST(Sema_RejectsNonIdentifierRebindingTargets) {
+  for (const auto &target : {"x[0]", "x[0:1]", "(x as u64)", "[8]*p", "cell.part"}) {
+    const auto source = std::string("template Cell { part[8]; }\nfunc main() { ") +
+        "new x[8]; new p as addr = &x; new cell as Cell; " + target + " &= &x; return 0; }";
+    auto result = analyzeSource(source);
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_TRUE(!result.diagnostics.empty());
+  }
 }
 
 HS_TEST(Sema_LowersDynamicMemoryBridgeCalls) {
@@ -1573,8 +1578,8 @@ HS_TEST(Sema_LowersAddressOfGlobalAndStaticStorage) {
                               "    static local[4]\n"
                               "    new gptr[8]\n"
                               "    new lptr[8]\n"
-                              "    gptr &= &global\n"
-                              "    lptr &= &local\n"
+                              "    gptr = &global\n"
+                              "    lptr = &local\n"
                               "    return 0\n"
                               "}\n");
 
@@ -1881,4 +1886,34 @@ HS_TEST(Sema_SelectsAsciiExtensionReferenceProviderAndHeader) {
     HS_EXPECT_TRUE(!missing.diagnostics.empty());
     HS_EXPECT_TRUE(missing.diagnostics.front().message.find("requires $include <ctype.hsh>") != std::string::npos);
   }
+}
+
+HS_TEST(Sema_IndexAndSliceCarrySourceViewBounds) {
+  const auto result = analyzeSource(R"(
+    func index() -> i32 { return 1; }
+    func main() -> i32 {
+      new bytes[4] as bytes
+      new indexed as addr = &bytes[index()]
+      new sliced as addr = &bytes[index():+2]
+      return 0
+    }
+  )");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto dump = hitsimple::hir::dumpToString(*result.unit);
+  HS_EXPECT_TRUE(dump.find("source_view_bytes=4 selected_view_bytes=1") !=
+                 std::string::npos);
+  HS_EXPECT_TRUE(dump.find("source_view_bytes=4 selected_view_bytes=2") !=
+                 std::string::npos);
+  const auto arithmetic = analyzeSource(R"(
+    func main() -> i32 {
+      new bytes[4] as bytes
+      new address as addr = (&bytes)? + 9
+      return 0
+    }
+  )");
+  HS_EXPECT_TRUE(arithmetic.unit != nullptr);
+  HS_EXPECT_TRUE(arithmetic.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::dumpToString(*arithmetic.unit).find(
+      "source_view_bytes=") == std::string::npos);
 }

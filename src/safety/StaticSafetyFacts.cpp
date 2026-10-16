@@ -2,6 +2,7 @@
 
 #include "hitsimple/literal/Literal.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -157,58 +158,221 @@ std::optional<std::int64_t> signedMinimumForByteLength(std::size_t byteLength) {
   return -(std::int64_t{1} << (byteLength * 8U - 1U));
 }
 
+std::optional<StaticAddressFact>
+StaticSafetyAnalyzer::staticBindingAddressFact(
+    std::string_view bindingName, std::size_t offset,
+    std::size_t byteLength) const {
+  const auto found = staticBindingAddressFacts_.find(std::string(bindingName));
+  if (found == staticBindingAddressFacts_.end()) {
+    const auto start = static_cast<std::int64_t>(offset);
+    return StaticAddressFact{StaticAddressOrigin::NonDynamicObject, 0,
+                             offset == 0,
+                             StaticAddressRange{std::string(bindingName), start,
+                                                start, offset + byteLength}};
+  }
+  auto fact = found->second;
+  if (fact && offset != 0) {
+    fact->isBaseAddress = false;
+    if (fact->range) {
+      const auto adjusted = addSignedIntegers(
+          fact->range->offset, static_cast<std::int64_t>(offset));
+      if (adjusted) {
+        fact->range->offset = *adjusted;
+      } else {
+        fact->range.reset();
+      }
+    }
+    // Adding a nonzero offset to null yields an unknown invalid address, not
+    // a proven null dereference. Checked mode retains the runtime guard.
+    if (fact->origin == StaticAddressOrigin::Null) {
+      return std::nullopt;
+    }
+  }
+  return fact;
+}
+
+std::optional<std::string> StaticSafetyAnalyzer::staticContentKey(
+    const std::optional<StaticAddressRange>& range,
+    std::size_t byteLength) const {
+  if (!range || range->offset != 0) {
+    return std::nullopt;
+  }
+  const auto definition = staticDefinitionByteLengths_.find(range->bindingName);
+  if (definition == staticDefinitionByteLengths_.end() ||
+      definition->second != byteLength || byteLength > range->upperBound) {
+    return std::nullopt;
+  }
+  return range->bindingName;
+}
+
+std::optional<std::string> StaticSafetyAnalyzer::staticContentKey(
+    std::string_view bindingName, std::size_t offset,
+    std::size_t byteLength) const {
+  const auto fact = staticBindingAddressFact(bindingName, offset, byteLength);
+  return staticContentKey(fact ? fact->range : std::nullopt, byteLength);
+}
+
+void StaticSafetyAnalyzer::validateStaticMemoryAccess(
+    const std::optional<StaticAddressFact>& fact, std::uint64_t byteLength,
+    std::string_view operation) {
+  if (!fact || byteLength == 0) {
+    return;
+  }
+  if (fact->origin == StaticAddressOrigin::Null) {
+    addDiagnostic("static safety check failed: null address " +
+                  std::string(operation));
+    return;
+  }
+  validateStaticAddressAccess(fact, operation);
+  if (fact->range) {
+    const auto &range = *fact->range;
+    if (range.offset < range.lowerBound || range.offset < 0 ||
+        static_cast<std::uint64_t>(range.offset) > range.upperBound ||
+        byteLength > range.upperBound - static_cast<std::uint64_t>(range.offset)) {
+      addDiagnostic("static safety check failed: memory " +
+                    std::string(operation) + " out of bounds");
+    }
+  }
+}
+
+std::optional<std::string> StaticSafetyAnalyzer::prepareStaticNamedStore(
+    std::string_view bindingName, std::size_t offset, std::size_t byteLength) {
+  const auto fact = staticBindingAddressFact(bindingName, offset, byteLength);
+  validateStaticMemoryAccess(fact, byteLength, "store");
+  const auto range = fact ? fact->range : std::nullopt;
+  const auto key = staticContentKey(range, byteLength);
+  invalidateStaticFactsOverlapping(range, byteLength);
+  return key;
+}
+
 std::optional<StaticAddressRange>
 StaticSafetyAnalyzer::staticAddressRange(const hir::Expr &expression) const {
   const auto fact = staticAddressFact(expression);
   return fact ? fact->range : std::nullopt;
 }
 
-std::optional<StaticAddressRange>
-StaticSafetyAnalyzer::staticViewRange(const hir::Expr &expression) const {
-  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
-    const auto range = capturedRanges_.find(capture->captureName);
-    return range == capturedRanges_.end() ? std::nullopt : range->second;
-  }
+std::optional<StaticAddressFact> StaticSafetyAnalyzer::staticViewAddressFact(
+    const hir::Expr &expression) const {
   if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-    const auto offset = static_cast<std::int64_t>(variable->offset);
-    return StaticAddressRange{variable->bindingName, offset, offset,
-                              static_cast<std::uint64_t>(
-                                  variable->offset + variable->byteLength)};
-  }
-  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return staticViewRange(*view->operand);
+    return staticBindingAddressFact(variable->bindingName, variable->offset,
+                                    variable->byteLength);
   }
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
-    return staticAddressRange(*deref->address);
+    return staticAddressFact(*deref->address);
   }
-  return staticAddressRange(expression);
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return staticViewAddressFact(*view->operand);
+  }
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto found = staticAddressFacts_.find(capture->captureName + ".location");
+    return found == staticAddressFacts_.end() ? std::nullopt : found->second;
+  }
+  return std::nullopt;
+}
+
+std::optional<StaticAddressRange>
+StaticSafetyAnalyzer::staticViewRange(const hir::Expr &expression) const {
+  std::optional<StaticAddressRange> range;
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto found = capturedRanges_.find(capture->captureName);
+    range = found == capturedRanges_.end() ? std::nullopt : found->second;
+  } else if (const auto *variable =
+                 dynamic_cast<const hir::VariableRef *>(&expression)) {
+    const auto fact = staticBindingAddressFact(
+        variable->bindingName, variable->offset, variable->byteLength);
+    range = fact ? fact->range : std::nullopt;
+  } else if (const auto *view =
+                 dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    range = staticViewRange(*view->operand);
+  } else if (const auto *deref =
+                 dynamic_cast<const hir::DerefExpr *>(&expression)) {
+    range = staticAddressRange(*deref->address);
+  } else {
+    // Pointer-valued expressions describe the addressed region, rather than
+    // the pointer's own fixed-width View. Do not impose a pointer-width bound.
+    return staticAddressRange(expression);
+  }
+
+  // Every located View has its own visible extent, even when rebinding or a
+  // dereference reaches a larger allocation. Captures and reinterpretations
+  // retain that restriction rather than recovering the backing capacity.
+  if (range && range->offset >= 0 &&
+      expression.result.lengthKind == hir::ViewLengthKind::Static) {
+    const auto start = static_cast<std::uint64_t>(range->offset);
+    range->lowerBound = std::max(range->lowerBound, range->offset);
+    const auto length = expression.result.staticByteLength;
+    if (length <= std::numeric_limits<std::uint64_t>::max() - start) {
+      range->upperBound = std::min(range->upperBound, start + length);
+    }
+  }
+  return range;
+}
+
+bool StaticSafetyAnalyzer::isRawMemoryAddress(const hir::Expr &expression) const {
+  if (hir::isAddressValue(expression.result)) return true;
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return view->templateName == "addr";
+  }
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
+    return call->templateName == "addr";
+  }
+  if (dynamic_cast<const hir::AddressOfExpr *>(&expression)) return true;
+  if (const auto *value = dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
+    return isRawMemoryAddress(*value->operand);
+  }
+  if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
+    return (binary->operation == hir::BinaryOperator::Add ||
+            binary->operation == hir::BinaryOperator::Subtract) &&
+           isRawMemoryAddress(*binary->left);
+  }
+  return false;
 }
 
 std::optional<StaticAddressRange>
 StaticSafetyAnalyzer::staticMemoryOperandRange(const hir::Expr &expression) const {
-  const auto isRawAddress = [&expression] {
-    if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-      return variable->templateName == "addr";
-    }
-    if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-      return view->templateName == "addr";
-    }
-    if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
-      return call->templateName == "addr";
-    }
-    return dynamic_cast<const hir::AddressOfExpr *>(&expression) != nullptr;
-  };
-  return isRawAddress() ? staticAddressRange(expression)
-                        : staticViewRange(expression);
+  return isRawMemoryAddress(expression) ? staticAddressRange(expression)
+                                        : staticViewRange(expression);
 }
 
+
+std::optional<std::int64_t> StaticSafetyAnalyzer::staticIndexOffset(
+    const hir::Expr &expression) const {
+  if (expression.result.lengthKind != hir::ViewLengthKind::Static ||
+      expression.result.staticByteLength == 0) {
+    return std::nullopt;
+  }
+  const auto length = expression.result.staticByteLength;
+  auto bits = staticUnsignedInteger(expression);
+  if (!bits) {
+    const auto signedValue = staticSignedInteger(expression);
+    if (!signedValue) return std::nullopt;
+    if (length >= 8) return signedValue;
+    bits = static_cast<std::uint64_t>(*signedValue);
+  }
+  if (length > 8) {
+    return *bits <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+        ? std::optional<std::int64_t>{static_cast<std::int64_t>(*bits)} : std::nullopt;
+  }
+  if (length == 8) {
+    constexpr auto sign = std::uint64_t{1} << 63;
+    return *bits < sign ? static_cast<std::int64_t>(*bits)
+        : std::numeric_limits<std::int64_t>::min() +
+              static_cast<std::int64_t>(*bits - sign);
+  }
+  const auto mask = (std::uint64_t{1} << (length * 8U)) - 1U;
+  const auto value = *bits & mask;
+  const auto sign = std::uint64_t{1} << (length * 8U - 1U);
+  return value < sign ? static_cast<std::int64_t>(value)
+                     : -static_cast<std::int64_t>(mask - value + 1U);
+}
 
 std::optional<std::int64_t>
 StaticSafetyAnalyzer::staticSignedInteger(const hir::Expr &expression) const {
   if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
     const auto alias = capturedAliases_.find(capture->captureName);
-    if (alias != capturedAliases_.end() && alias->second != nullptr) {
-      return staticSignedInteger(*alias->second);
+    if (alias != capturedAliases_.end() && alias->second) {
+      const auto found = staticIntegerValues_.find(*alias->second);
+      return found == staticIntegerValues_.end() ? std::nullopt : found->second;
     }
     const auto found = staticIntegerValues_.find(capture->captureName);
     return found == staticIntegerValues_.end() ? std::nullopt : found->second;
@@ -217,7 +381,21 @@ StaticSafetyAnalyzer::staticSignedInteger(const hir::Expr &expression) const {
     return value;
   }
   if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-    const auto found = staticIntegerValues_.find(variable->bindingName);
+    const auto key = staticContentKey(variable->bindingName, variable->offset,
+                                      variable->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticIntegerValues_.find(*key);
+    return found == staticIntegerValues_.end() ? std::nullopt : found->second;
+  }
+  if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
+    const auto key = staticContentKey(staticAddressRange(*deref->address),
+                                      deref->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticIntegerValues_.find(*key);
     return found == staticIntegerValues_.end() ? std::nullopt : found->second;
   }
   if (const auto *unary = dynamic_cast<const hir::UnaryExpr *>(&expression)) {
@@ -266,8 +444,9 @@ std::optional<std::uint64_t>
 StaticSafetyAnalyzer::staticUnsignedInteger(const hir::Expr &expression) const {
   if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
     const auto alias = capturedAliases_.find(capture->captureName);
-    if (alias != capturedAliases_.end() && alias->second != nullptr) {
-      return staticUnsignedInteger(*alias->second);
+    if (alias != capturedAliases_.end() && alias->second) {
+      const auto found = staticUnsignedIntegerValues_.find(*alias->second);
+      return found == staticUnsignedIntegerValues_.end() ? std::nullopt : found->second;
     }
     const auto found = staticUnsignedIntegerValues_.find(capture->captureName);
     return found == staticUnsignedIntegerValues_.end() ? std::nullopt : found->second;
@@ -276,9 +455,23 @@ StaticSafetyAnalyzer::staticUnsignedInteger(const hir::Expr &expression) const {
     return value;
   }
   if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-    const auto found = staticUnsignedIntegerValues_.find(variable->bindingName);
+    const auto key = staticContentKey(variable->bindingName, variable->offset,
+                                      variable->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticUnsignedIntegerValues_.find(*key);
     return found == staticUnsignedIntegerValues_.end() ? std::nullopt
                                                         : found->second;
+  }
+  if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
+    const auto key = staticContentKey(staticAddressRange(*deref->address),
+                                      deref->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticUnsignedIntegerValues_.find(*key);
+    return found == staticUnsignedIntegerValues_.end() ? std::nullopt : found->second;
   }
   if (const auto *unsignedExpr =
           dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
@@ -334,8 +527,9 @@ std::optional<StaticAddressFact>
 StaticSafetyAnalyzer::staticAddressFact(const hir::Expr &expression) const {
   if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
     const auto alias = capturedAliases_.find(capture->captureName);
-    if (alias != capturedAliases_.end() && alias->second != nullptr) {
-      return staticAddressFact(*alias->second);
+    if (alias != capturedAliases_.end() && alias->second) {
+      const auto found = staticAddressFacts_.find(*alias->second);
+      return found == staticAddressFacts_.end() ? std::nullopt : found->second;
     }
     const auto found = staticAddressFacts_.find(capture->captureName);
     return found == staticAddressFacts_.end() ? std::nullopt : found->second;
@@ -350,7 +544,11 @@ StaticSafetyAnalyzer::staticAddressFact(const hir::Expr &expression) const {
     if (cast->byteLength != pointerBytes ||
         cast->operand->result.lengthKind != hir::ViewLengthKind::Static ||
         cast->operand->result.staticByteLength != pointerBytes) {
-      return std::nullopt;
+      const auto value = staticUnsignedInteger(expression);
+      return value && *value == 0
+          ? std::optional<StaticAddressFact>{StaticAddressFact{
+                StaticAddressOrigin::Null, 0, false, std::nullopt}}
+          : std::nullopt;
     }
     return staticAddressFact(*cast->operand);
   }
@@ -360,17 +558,36 @@ StaticSafetyAnalyzer::staticAddressFact(const hir::Expr &expression) const {
   }
   if (const auto *address =
           dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
-    const auto offset = static_cast<std::int64_t>(address->offset);
-    return StaticAddressFact{
-        StaticAddressOrigin::NonDynamicObject,
-        0,
-        address->offset == 0,
-        StaticAddressRange{address->bindingName, offset, offset,
-                           static_cast<std::uint64_t>(address->offset +
-                                                      address->targetByteLength)}};
+    auto fact = staticBindingAddressFact(address->bindingName, address->offset,
+                                         address->targetByteLength);
+    if (fact && fact->range && fact->range->offset >= 0) {
+      const auto start = static_cast<std::uint64_t>(fact->range->offset);
+      fact->range->lowerBound = std::max(fact->range->lowerBound,
+                                        fact->range->offset);
+      if (address->targetByteLength <=
+          std::numeric_limits<std::uint64_t>::max() - start) {
+        fact->range->upperBound = std::min(fact->range->upperBound,
+                                          start + address->targetByteLength);
+      }
+    }
+    return fact;
   }
   if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
-    const auto found = staticAddressFacts_.find(variable->bindingName);
+    const auto key = staticContentKey(variable->bindingName, variable->offset,
+                                      variable->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticAddressFacts_.find(*key);
+    return found == staticAddressFacts_.end() ? std::nullopt : found->second;
+  }
+  if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
+    const auto key = staticContentKey(staticAddressRange(*deref->address),
+                                      deref->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticAddressFacts_.find(*key);
     return found == staticAddressFacts_.end() ? std::nullopt : found->second;
   }
   if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
@@ -381,7 +598,8 @@ StaticSafetyAnalyzer::staticAddressFact(const hir::Expr &expression) const {
       return std::nullopt;
     }
     auto base = staticAddressFact(*binary->left);
-    const auto offset = staticSignedInteger(*binary->right);
+    const auto offset = binary->viewOffsetBounds
+        ? staticIndexOffset(*binary->right) : staticSignedInteger(*binary->right);
     if (base && offset) {
       auto signedOffset = *offset;
       if (!addressOffset && binary->operation == hir::BinaryOperator::Subtract) {
@@ -550,10 +768,19 @@ void StaticSafetyAnalyzer::validateStaticAddressAccess(
 
 std::optional<bool>
 StaticSafetyAnalyzer::staticCStringTerminated(const hir::Expr &expression) const {
+  if (const auto *assignment = dynamic_cast<const hir::AssignmentExpr *>(&expression);
+      assignment != nullptr && assignment->result &&
+      assignment->result->result.templateName == "cstr" &&
+      assignment->result->result.staticByteLength == expression.result.staticByteLength) {
+    // Assignment stores have already been analyzed at this evaluation point.
+    // The result snapshots those bytes with its retained extent and template.
+    return staticCStringTerminated(*assignment->result);
+  }
   if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
     const auto alias = capturedAliases_.find(capture->captureName);
-    if (alias != capturedAliases_.end() && alias->second != nullptr) {
-      return staticCStringTerminated(*alias->second);
+    if (alias != capturedAliases_.end() && alias->second) {
+      const auto found = staticCStringTerminations_.find(*alias->second);
+      return found == staticCStringTerminations_.end() ? std::nullopt : found->second;
     }
     const auto found = staticCStringTerminations_.find(capture->captureName);
     return found == staticCStringTerminations_.end() ? std::nullopt : found->second;
@@ -569,9 +796,23 @@ StaticSafetyAnalyzer::staticCStringTerminated(const hir::Expr &expression) const
     if (variable->templateName != "cstr") {
       return std::nullopt;
     }
-    const auto found = staticCStringTerminations_.find(variable->bindingName);
+    const auto key = staticContentKey(variable->bindingName, variable->offset,
+                                      variable->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticCStringTerminations_.find(*key);
     return found == staticCStringTerminations_.end() ? std::nullopt
                                                        : found->second;
+  }
+  if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
+    const auto key = staticContentKey(staticAddressRange(*deref->address),
+                                      deref->byteLength);
+    if (!key) {
+      return std::nullopt;
+    }
+    const auto found = staticCStringTerminations_.find(*key);
+    return found == staticCStringTerminations_.end() ? std::nullopt : found->second;
   }
   return std::nullopt;
 }

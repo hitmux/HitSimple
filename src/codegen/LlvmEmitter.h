@@ -43,6 +43,10 @@ struct Local {
   // separate from abiType: it records a lowering representation, not a C ABI
   // promise.
   bool isPointerStorage = false;
+  // Definition storage remains stable for registration, cleanup and debugging.
+  // Only names participating in &= need a separately mutable locating slot.
+  llvm::Value *bindingStorage = nullptr;
+  bool requiresAccessCheck = false;
 };
 
 struct LoopTargets {
@@ -73,6 +77,7 @@ struct ViewValue {
   // A generic View is byte-addressed.  A larger value is present only when
   // the storage origin proves it for this exact View address.
   std::size_t alignment = 1;
+  bool requiresAccessCheck = false;
 };
 
 class LlvmEmitter {
@@ -147,6 +152,7 @@ private:
   void emit(const hir::Block &block);
   void emit(const hir::Stmt &statement);
   void emit(const hir::LocalMemory &local);
+  void emit(const hir::BindingRebind &rebind);
   void emit(const hir::IntegerStore &store);
   void emit(const hir::FloatStore &store);
   void emit(const hir::ViewCopyStore &store);
@@ -193,11 +199,9 @@ private:
                                 bool unsignedInterpretation);
   llvm::Value *emitPointerValue(const hir::Expr &expression,
                                 std::string_view name);
-  llvm::Value *emitBorrowedViewPointer(const hir::Expr &expression,
-                                       std::string_view name);
   llvm::Value *emitViewLowByte(const hir::Expr &expression);
-  llvm::Value *emitMemoryOperandPointer(const hir::Expr &expression,
-                                        std::string_view name);
+  ViewValue emitMemoryOperandView(const hir::Expr &expression,
+                                   std::string_view name);
   llvm::Value *emitFloatValue(const hir::Expr &expression,
                               std::size_t byteLength);
   llvm::Value *convertFloatValue(llvm::Value *value,
@@ -277,6 +281,20 @@ private:
       const std::vector<std::size_t> &byteLengths,
       const std::optional<hir::FunctionAbiSignature> &abiSignature =
           std::nullopt);
+  void initializeBinding(Local &local, std::string_view bindingName,
+                         bool persistent = false);
+  llvm::Value *bindingPointer(const Local &local, std::size_t offset,
+                              std::string_view name);
+  llvm::Value *contentPointer(const Local &local, std::size_t offset,
+                              std::size_t byteLength, bool write,
+                              std::string_view name);
+  llvm::Align bindingAlignment(const Local &local, std::size_t offset = 0) const;
+  void checkViewLoad(const ViewValue &view, llvm::Value *length = nullptr);
+  void checkViewCapacity(const ViewValue &view, llvm::Value *size,
+                         llvm::Value *count = nullptr);
+  llvm::Value *checkCStringView(const ViewValue &view);
+  void checkCStringCapacity(const ViewValue &view, llvm::Value *used,
+                            llvm::Value *append);
   llvm::Value *firstBytePointer(llvm::Type *storageType, llvm::Value *storage);
   llvm::Value *bytePointer(llvm::Type *storageType, llvm::Value *storage,
                            std::size_t offset, std::string_view name);
@@ -354,6 +372,8 @@ private:
   llvm::DICompileUnit* debugCompileUnit_ = nullptr;
   llvm::DIFile* debugFile_ = nullptr;
   llvm::DIScope* debugScope_ = nullptr;
+  std::unordered_set<std::string> reboundBindings_;
+  std::unordered_map<std::string, std::vector<bool>> viewParameterCopies_;
   std::unordered_map<std::string, ViewValue> capturedViews_;
   std::unordered_map<std::string, Local> locals_;
   std::unordered_map<std::string, Local> globals_;

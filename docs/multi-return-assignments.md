@@ -33,7 +33,7 @@ existing restrictions.
   flags, user `op =` receives a writable destination, and unsigned widening uses
   its original source template.
 - Negative tests reject equal-width float-to-integer defaults, mismatched user
-  templates/byte lengths, result-count mismatches, and rebinding targets. The
+  templates/byte lengths, result-count mismatches, and non-integer rebinding sources. The
   float-to-integer fixture runs in all safety modes.
 - Verified LLVM modules cover all four floating widths, one aggregate call and
   two extracts, explicit destination interpretation, and default `f64` to `f32`
@@ -55,7 +55,8 @@ cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 
 The separate [multiple-RHS stage](multiple-rhs-assignments.md) covers evaluation
 ordering for separate expressions and single-source discard. This multiple-return
-stage does not implement `&=` rebinding. It inherits ordinary
+stage delegates `&=` to the separate [name-rebinding stage](true-name-rebinding.md).
+It inherits ordinary
 assignment's current target/operator limits, including same-width nonliteral
 explicit `%f=` and unsupported floating explicit stores through dynamic pointer
 forms. It does not establish every assignment matrix entry, dynamic-return

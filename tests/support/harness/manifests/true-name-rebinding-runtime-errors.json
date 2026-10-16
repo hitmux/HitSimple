@@ -1,0 +1,1321 @@
+{
+  "version": 2,
+  "suite": "true-name-rebinding-runtime-errors",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "null_optimized",
+      "source": "../../../cases/run/checked_rebinding_null.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: null address at .*[/\\\\]checked_rebinding_null\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "store_optimized",
+      "source": "../../../cases/run/checked_rebinding_store.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: null address at .*[/\\\\]checked_rebinding_store\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "short_optimized",
+      "source": "../../../cases/run/checked_rebinding_short.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_short\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "freed_optimized",
+      "source": "../../../cases/run/checked_rebinding_freed.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_freed\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "expired_optimized",
+      "source": "../../../cases/run/checked_rebinding_expired.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_expired\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "raw_copy_optimized",
+      "source": "../../../cases/run/checked_rebinding_raw_copy.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_raw_copy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "null_reference",
+      "source": "../../../cases/run/checked_rebinding_null.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: null address at .*[/\\\\]checked_rebinding_null\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "store_reference",
+      "source": "../../../cases/run/checked_rebinding_store.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: null address at .*[/\\\\]checked_rebinding_store\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "short_reference",
+      "source": "../../../cases/run/checked_rebinding_short.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_short\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "freed_reference",
+      "source": "../../../cases/run/checked_rebinding_freed.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_freed\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "expired_reference",
+      "source": "../../../cases/run/checked_rebinding_expired.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_expired\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "raw_copy_reference",
+      "source": "../../../cases/run/checked_rebinding_raw_copy.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_raw_copy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memset_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_memset.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memset\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memset_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_memset.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memset\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memcpy_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_memcpy.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memcpy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memcpy_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_memcpy.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memcpy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memmove_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_memmove.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memmove\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memmove_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_memmove.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memmove\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memcmp_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_memcmp.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memcmp\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_memcmp_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_memcmp.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_memcmp\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strlen_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_strlen.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_strlen\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strlen_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_strlen.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_strlen\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_cstr_compare_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_cstr_compare.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_cstr_compare\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_cstr_compare_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_cstr_compare.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_cstr_compare\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_format_string_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_format_string.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_format_string\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_format_string_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_format_string.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_format_string\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_format_argument_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_format_argument.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_format_argument\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_format_argument_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_format_argument.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_format_argument\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strcpy_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_strcpy.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: insufficient visible cstr destination capacity at .*[/\\\\]checked_rebinding_visible_strcpy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strcpy_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_strcpy.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: insufficient visible cstr destination capacity at .*[/\\\\]checked_rebinding_visible_strcpy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strcat_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_strcat.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: insufficient visible cstr destination capacity at .*[/\\\\]checked_rebinding_visible_strcat\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strcat_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_strcat.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: insufficient visible cstr destination capacity at .*[/\\\\]checked_rebinding_visible_strcat\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strncpy_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_strncpy.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_strncpy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_strncpy_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_strncpy.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_strncpy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_fread_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_fread.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_fread\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_fread_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_fread.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_fread\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_fwrite_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_fwrite.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_fwrite\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_fwrite_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_fwrite.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*[/\\\\]checked_rebinding_visible_fwrite\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_read_optimized",
+      "source": "../../../cases/run/checked_rebinding_index_read.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_read\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_read_reference",
+      "source": "../../../cases/run/checked_rebinding_index_read.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_read\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_store_optimized",
+      "source": "../../../cases/run/checked_rebinding_index_store.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_store\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_store_reference",
+      "source": "../../../cases/run/checked_rebinding_index_store.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_store\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_address_optimized",
+      "source": "../../../cases/run/checked_rebinding_index_address.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_address\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_address_reference",
+      "source": "../../../cases/run/checked_rebinding_index_address.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_address\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_length_optimized",
+      "source": "../../../cases/run/checked_rebinding_index_length.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_length\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "index_length_reference",
+      "source": "../../../cases/run/checked_rebinding_index_length.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_index_length\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "slice_optimized",
+      "source": "../../../cases/run/checked_rebinding_slice.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_slice\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "slice_reference",
+      "source": "../../../cases/run/checked_rebinding_slice.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: index/slice exceeds visible View extent at .*[/\\\\]checked_rebinding_slice\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "late_cstr_argument_optimized",
+      "source": "../../../cases/run/checked_rebinding_late_cstr_argument.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_late_cstr_argument\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "late_cstr_argument_reference",
+      "source": "../../../cases/run/checked_rebinding_late_cstr_argument.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_late_cstr_argument\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "late_format_argument_optimized",
+      "source": "../../../cases/run/checked_rebinding_late_format_argument.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_late_format_argument\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "late_format_argument_reference",
+      "source": "../../../cases/run/checked_rebinding_late_format_argument.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_late_format_argument\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_cstr_copy_optimized",
+      "source": "../../../cases/run/checked_rebinding_visible_cstr_copy.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_cstr_copy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "visible_cstr_copy_reference",
+      "source": "../../../cases/run/checked_rebinding_visible_cstr_copy.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated visible cstr View at .*[/\\\\]checked_rebinding_visible_cstr_copy\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "borrowed_tail_optimized",
+      "source": "../../../cases/run/checked_rebinding_borrowed_tail.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked store at .*[/\\\\]checked_rebinding_borrowed_tail\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "borrowed_tail_reference",
+      "source": "../../../cases/run/checked_rebinding_borrowed_tail.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked store at .*[/\\\\]checked_rebinding_borrowed_tail\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "cstr_result_missing_nul_optimized",
+      "source": "../../../cases/run/checked_rebinding_cstr_result_missing_nul.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*[/\\\\]checked_rebinding_cstr_result_missing_nul\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "cstr_return_missing_nul_optimized",
+      "source": "../../../cases/run/checked_rebinding_cstr_return_missing_nul.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*[/\\\\]checked_rebinding_cstr_return_missing_nul\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "cstr_result_short_snapshot_optimized",
+      "source": "../../../cases/run/checked_rebinding_cstr_result_short_snapshot.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_cstr_result_short_snapshot\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "cstr_result_missing_nul_reference",
+      "source": "../../../cases/run/checked_rebinding_cstr_result_missing_nul.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*[/\\\\]checked_rebinding_cstr_result_missing_nul\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "cstr_return_missing_nul_reference",
+      "source": "../../../cases/run/checked_rebinding_cstr_return_missing_nul.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*[/\\\\]checked_rebinding_cstr_return_missing_nul\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    },
+    {
+      "name": "cstr_result_short_snapshot_reference",
+      "source": "../../../cases/run/checked_rebinding_cstr_result_short_snapshot.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "^hitsimple runtime error: invalid checked load at .*[/\\\\]checked_rebinding_cstr_result_short_snapshot\\.hs:\\d+:\\d+\\r?\\n$"
+          }
+        }
+      }
+    }
+  ]
+}

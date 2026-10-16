@@ -139,6 +139,11 @@ void LlvmEmitter::emit(const hir::Stmt &statement) {
     return;
   }
 
+  if (const auto *rebind = dynamic_cast<const hir::BindingRebind *>(&statement)) {
+    emit(*rebind);
+    return;
+  }
+
   if (const auto *store = dynamic_cast<const hir::IntegerStore *>(&statement)) {
     emit(*store);
     return;
@@ -296,6 +301,7 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
     locals_.emplace(local.bindingName,
                     Local{storage, storageType, local.byteLength, std::nullopt,
                           alignof(std::max_align_t)});
+    initializeBinding(locals_.at(local.bindingName), local.bindingName, true);
     auto *guard = new llvm::GlobalVariable(
         *module_, builder_.getInt1Ty(), false, llvm::GlobalValue::InternalLinkage,
         builder_.getFalse(), local.bindingName + ".initialized");
@@ -311,8 +317,42 @@ void LlvmEmitter::emit(const hir::LocalMemory &local) {
   locals_.emplace(local.bindingName,
                   Local{storage, storageType, local.byteLength, std::nullopt,
                         alignof(std::max_align_t), isPointerStorage});
+  initializeBinding(locals_.at(local.bindingName), local.bindingName);
   registerLocalObject(storage, local.byteLength);
   declareDebugVariable(local.name, local.range, local.byteLength, storage);
+}
+
+void LlvmEmitter::emit(const hir::BindingRebind &rebind) {
+  const Local *target = nullptr;
+  if (const auto local = locals_.find(rebind.bindingName); local != locals_.end()) {
+    target = &local->second;
+  } else if (const auto global = globals_.find(rebind.bindingName);
+             global != globals_.end()) {
+    target = &global->second;
+  }
+  if (target == nullptr || target->bindingStorage == nullptr) {
+    addDiagnostic("missing binding storage for '" + rebind.target + "'");
+    return;
+  }
+  const bool sourceUnsigned =
+      rebind.address->result.integerInterpretation == hir::IntegerInterpretation::Unsigned ||
+      rebind.address->result.category == hir::ViewCategory::UnsignedInteger;
+  // Evaluate the source at its own width before adjusting it. In particular,
+  // conditional PHIs and other rvalue producers retain their source width.
+  auto *address = emitIntegerValue(*rebind.address,
+                                   rebind.address->result.staticByteLength,
+                                   sourceUnsigned);
+  if (address == nullptr) {
+    return;
+  }
+  auto *pointerInteger = integerTypeForByteLength(
+      module_->getDataLayout().getPointerSize());
+  address = sourceUnsigned
+      ? builder_.CreateZExtOrTrunc(address, pointerInteger, "binding.width")
+      : builder_.CreateSExtOrTrunc(address, pointerInteger, "binding.width");
+  auto *pointer = builder_.CreateIntToPtr(address, builder_.getPtrTy(),
+                                         rebind.target + ".rebound");
+  builder_.CreateStore(pointer, target->bindingStorage);
 }
 
 void LlvmEmitter::emit(const hir::IntegerStore &store) {
@@ -329,17 +369,18 @@ void LlvmEmitter::emit(const hir::IntegerStore &store) {
     return;
   }
 
-  if (target->isPointerStorage ||
-      (target->abiType &&
-       target->abiType->kind == hir::AbiValueKind::Pointer)) {
+  if (store.offset == 0U &&
+      store.targetByteLength == module_->getDataLayout().getPointerSize() &&
+      (target->isPointerStorage ||
+       (target->abiType && target->abiType->kind == hir::AbiValueKind::Pointer))) {
     auto *pointer = emitPointerValue(*store.value, store.target + ".pointer");
     if (pointer == nullptr) {
       return;
     }
     auto *written = builder_.CreateStore(
-        pointer, bytePointer(target->storageType, target->storage, store.offset,
+        pointer, contentPointer(*target, store.offset, store.targetByteLength, true,
                              store.target + ".addr"));
-    written->setAlignment(alignmentAt(target->alignment, store.offset));
+    written->setAlignment(bindingAlignment(*target, store.offset));
     return;
   }
 
@@ -360,9 +401,9 @@ void LlvmEmitter::emit(const hir::IntegerStore &store) {
   }
 
   auto *written = builder_.CreateStore(
-      value, bytePointer(target->storageType, target->storage, store.offset,
+      value, contentPointer(*target, store.offset, store.targetByteLength, true,
                          store.target + ".addr"));
-  written->setAlignment(alignmentAt(target->alignment, store.offset));
+  written->setAlignment(bindingAlignment(*target, store.offset));
 }
 
 void LlvmEmitter::emit(const hir::FloatStore &store) {
@@ -385,9 +426,9 @@ void LlvmEmitter::emit(const hir::FloatStore &store) {
   }
 
   auto *written = builder_.CreateStore(
-      value, bytePointer(target->storageType, target->storage, store.offset,
+      value, contentPointer(*target, store.offset, store.targetByteLength, true,
                          store.target + ".addr"));
-  written->setAlignment(alignmentAt(target->alignment, store.offset));
+  written->setAlignment(bindingAlignment(*target, store.offset));
 }
 
 void LlvmEmitter::emit(const hir::ViewCopyStore &store) {
@@ -416,8 +457,9 @@ void LlvmEmitter::emit(const hir::ViewCopyStore &store) {
         declareCheckViewLength(),
         {source.length, builder_.getInt64(store.targetByteLength)});
   }
+  checkViewLoad(source);
   builder_.CreateMemCpy(
-      bytePointer(target->storageType, target->storage, store.offset,
+      contentPointer(*target, store.offset, store.targetByteLength, true,
                   store.target + ".addr"),
       llvm::Align(1), source.data, llvm::Align(1), store.targetByteLength);
 }
@@ -453,8 +495,7 @@ void LlvmEmitter::emit(const hir::StringStore &store) {
     if (index < copiedBytes) {
       byte = static_cast<unsigned char>(decoded[index]);
     }
-    auto *pointer = bytePointer(target->storageType, target->storage,
-                                store.offset + index, "str.addr");
+    auto *pointer = contentPointer(*target, store.offset + index, 1, true, "str.addr");
     auto *written = builder_.CreateStore(constantByte(context_, byte), pointer);
     written->setAlignment(llvm::Align(1));
   }
@@ -487,11 +528,16 @@ void LlvmEmitter::emit(const hir::StringCopyStore &store) {
   }
 
   llvm::Value *sourceData = nullptr;
+  bool sourceNeedsCheck = source != nullptr && source->requiresAccessCheck;
   if (store.sourceView) {
-    sourceData = emitViewValue(*store.sourceView).data;
+    const auto view = emitViewValue(*store.sourceView);
+    sourceData = view.data;
+    sourceNeedsCheck = view.requiresAccessCheck;
+    if (sourceData != nullptr && store.sourceView->result.templateName == "cstr") {
+      (void)checkCStringView(view);
+    }
   } else {
-    sourceData = bytePointer(source->storageType, source->storage,
-                             store.sourceOffset, "str.source");
+    sourceData = bindingPointer(*source, store.sourceOffset, "str.source");
   }
   if (sourceData == nullptr) {
     return;
@@ -507,21 +553,36 @@ void LlvmEmitter::emit(const hir::StringCopyStore &store) {
                                        "str.copying");
     active->setAlignment(llvm::Align(1));
     if (index + 1 < store.targetByteLength && index < store.sourceByteLength) {
-      auto *sourcePointer = builder_.CreateInBoundsGEP(
+      // A C string ends at its first zero. In particular a rebound name can
+      // have a larger declared extent than the valid, shorter target string.
+      auto *function = builder_.GetInsertBlock()->getParent();
+      auto *beforeRead = builder_.GetInsertBlock();
+      auto *readBlock = llvm::BasicBlock::Create(context_, "str.read", function);
+      auto *afterRead = llvm::BasicBlock::Create(context_, "str.pad", function);
+      builder_.CreateCondBr(active, readBlock, afterRead);
+      builder_.SetInsertPoint(readBlock);
+      auto *sourcePointer = builder_.CreateGEP(
           builder_.getInt8Ty(), sourceData, builder_.getInt64(index), "str.src");
+      if (sourceNeedsCheck && hasRuntimeSafetyChecks()) {
+        (void)emitCheckedRuntimeCall(declareCheckLoad(),
+                                     {sourcePointer, builder_.getInt64(1)});
+      }
       auto *sourceByte =
           builder_.CreateLoad(builder_.getInt8Ty(), sourcePointer, "str.byte");
       sourceByte->setAlignment(llvm::Align(1));
-      byte = builder_.CreateSelect(active, sourceByte, constantByte(context_, 0),
-                                   "str.copy.byte");
       auto *nonZero = builder_.CreateICmpNE(sourceByte, constantByte(context_, 0),
                                             "str.nonzero");
-      auto *activeStore =
-          builder_.CreateStore(builder_.CreateAnd(active, nonZero), activeStorage);
+      auto *activeStore = builder_.CreateStore(nonZero, activeStorage);
       activeStore->setAlignment(llvm::Align(1));
+      auto *readExit = builder_.GetInsertBlock();
+      builder_.CreateBr(afterRead);
+      builder_.SetInsertPoint(afterRead);
+      auto *selected = builder_.CreatePHI(builder_.getInt8Ty(), 2, "str.copy.byte");
+      selected->addIncoming(constantByte(context_, 0), beforeRead);
+      selected->addIncoming(sourceByte, readExit);
+      byte = selected;
     }
-    auto *targetPointer = bytePointer(target->storageType, target->storage,
-                                      store.targetOffset + index, "str.dst");
+    auto *targetPointer = contentPointer(*target, store.targetOffset + index, 1, true, "str.dst");
     auto *written = builder_.CreateStore(byte, targetPointer);
     written->setAlignment(llvm::Align(1));
   }
@@ -548,8 +609,7 @@ void LlvmEmitter::emit(const hir::BoolStore &store) {
   auto *normalized = builder_.CreateZExt(nonZero, builder_.getInt8Ty());
 
   for (std::size_t index = 0; index < store.targetByteLength; ++index) {
-    auto *pointer = bytePointer(target->storageType, target->storage,
-                                store.offset + index, "bool.addr");
+    auto *pointer = contentPointer(*target, store.offset + index, 1, true, "bool.addr");
     auto *written = builder_.CreateStore(
         index == 0 ? normalized : constantByte(context_, 0), pointer);
     written->setAlignment(llvm::Align(1));
@@ -602,8 +662,8 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
           arguments[formatIndex].get())) {
     specifiers = collectPrintfSpecifiers(decodeStringLiteral(format->value));
   }
-  auto *format = emitBorrowedViewPointer(
-      *arguments[formatIndex], std::string(calleeName) + ".format");
+  const auto formatView = emitViewValue(*arguments[formatIndex]);
+  auto *format = formatView.data;
   if (format == nullptr) {
     return nullptr;
   }
@@ -680,6 +740,9 @@ llvm::Value *LlvmEmitter::emitFormatOutput(
         builder_.CreateStructGEP(descriptorType, entry, 2));
     kindStore->setAlignment(llvm::Align(1));
   }
+  // Later arguments can mutate a captured format View. Validate only after
+  // all arguments have been formed, immediately before its bytes are read.
+  (void)checkCStringView(formatView);
   auto callee = declareCFunction("hs_format_output", i32Ty,
                                  {ptrTy, ptrTy, ptrTy, i64Ty, i32Ty});
   return emitCheckedRuntimeCall(
@@ -743,6 +806,7 @@ ViewValue LlvmEmitter::emitUserTemplateFormatCall(
         {sinkStorage, builder_.getInt64(sizeof(void *))});
   }
 
+  checkViewLoad(source);
   builder_.CreateCall(callee,
                       {firstBytePointer(resultType, result), source.data,
                        sinkStorage});
@@ -768,13 +832,14 @@ void LlvmEmitter::emit(const hir::Call &call) {
   }
 
   if (call.builtin == stdlib::BuiltinId::Memset) {
-    auto *address =
-        emitMemoryOperandPointer(*call.arguments[0], "memset.dst");
+    const auto destination = emitMemoryOperandView(*call.arguments[0], "memset.dst");
+    auto *address = destination.data;
     auto *value = emitViewLowByte(*call.arguments[1]);
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!address || !value || !length) {
       return;
     }
+    checkViewCapacity(destination, length);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memset"
                                                              : "memset",
                                    ptrTy, {ptrTy, i32Ty, i64Ty});
@@ -945,8 +1010,8 @@ void LlvmEmitter::emit(const hir::MultiReturnCallStore &call) {
     auto *value = builder_.CreateExtractValue(
         result, {static_cast<unsigned>(targetInfo.returnIndex)}, "ret.item");
     auto *written = builder_.CreateStore(
-        value, firstBytePointer(target->storageType, target->storage));
-    written->setAlignment(alignmentAt(target->alignment));
+        value, contentPointer(*target, 0, targetInfo.byteLength, true, targetInfo.name));
+    written->setAlignment(bindingAlignment(*target));
   }
 }
 
@@ -975,8 +1040,8 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
     return;
   }
 
-  auto *format =
-      emitBorrowedViewPointer(*call.format, call.callee + ".format");
+  const auto formatView = emitViewValue(*call.format);
+  auto *format = formatView.data;
   if (format == nullptr) {
     return;
   }
@@ -995,8 +1060,7 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
       addDiagnostic("unknown local '" + target.name + "'");
       return nullptr;
     }
-    auto *pointer = bytePointer(storage->storageType, storage->storage,
-                                target.offset, name);
+    auto *pointer = contentPointer(*storage, target.offset, target.byteLength, true, name);
     return pointer;
   };
 
@@ -1044,6 +1108,7 @@ void LlvmEmitter::emit(const hir::InputCallStore &call) {
     kindStore->setAlignment(llvm::Align(1));
   }
 
+  (void)checkCStringView(formatView);
   auto callee = declareCFunction("hs_scan_input", i32Ty,
                                  {ptrTy, ptrTy, ptrTy, i64Ty, i32Ty});
   auto *count = emitCheckedRuntimeCall(
@@ -1085,12 +1150,14 @@ void LlvmEmitter::emit(const hir::Return &ret) {
       const auto copyLength =
           std::min(*value.staticLength, viewAbiResultByteLength_);
       if (copyLength != 0U) {
+        checkViewLoad(value, builder_.getInt64(copyLength));
         builder_.CreateMemCpy(storage, llvm::Align(1), value.data,
                               llvm::Align(1), copyLength);
       }
       value = ViewValue{storage, builder_.getInt64(viewAbiResultByteLength_),
                         viewAbiResultByteLength_};
     }
+    checkViewLoad(value);
     builder_.CreateMemCpy(viewAbiResultStorage_, llvm::Align(1), value.data,
                           llvm::Align(1), viewAbiResultByteLength_);
     emitRuntimeFrameExit();

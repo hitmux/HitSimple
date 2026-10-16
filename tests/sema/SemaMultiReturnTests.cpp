@@ -127,7 +127,7 @@ HS_TEST(Sema_MultiReturnRejectsInvalidDestinationContracts) {
            {floating + "func main() { new a as f64; "
                        "a, _, _ = pair(); return 0; }", "result count"},
            {floating + "func main() { new a as addr; new b as f64; "
-                       "(a &=), b = pair(); return 0; }", "address rebinding"},
+                       "(a &=), b = pair(); return 0; }", "requires an integer or address View"},
            {"template A { value[4] as i32; }\n"
             "template B { value[4] as i32; }\n"
             "func pair() -> (first as A, second as A) {\n"
@@ -161,4 +161,19 @@ HS_TEST(Sema_MultiReturnAndOrdinaryAssignmentsAcceptOpaqueViews) {
     HS_EXPECT_TRUE(result.unit != nullptr);
     HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
   }
+}
+
+HS_TEST(Sema_MultiReturnRebindingUsesCapturedAddresses) {
+  auto result = analyzeSource(
+      "func pair(p as addr, q as addr) -> (addr, addr) { return p, q; } "
+      "func main() { new a[3]; new b[4]; new x[3]; new y[4]; "
+      "(a &=), (b &=) = pair(&x, &y); return 0; }");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto dump = hitsimple::hir::dumpToString(*result.unit);
+  const auto call = dump.find("MultiReturnCallStore callee=pair");
+  const auto first = dump.find("BindingRebind target=a");
+  const auto second = dump.find("BindingRebind target=b");
+  HS_EXPECT_TRUE(call != std::string::npos);
+  HS_EXPECT_TRUE(call < first && first < second);
 }

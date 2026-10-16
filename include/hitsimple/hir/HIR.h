@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 namespace hitsimple::hir {
@@ -360,6 +361,16 @@ struct BooleanTestExpr final : Expr {
   std::unique_ptr<Expr> operand;
 };
 
+// Bounds belonging to a source indexing/slicing operation, independent of
+// the backing allocation currently reached by its name. Plain address
+// arithmetic never carries these bounds. Forming the selected region requires
+// a signed offset in [0, sourceByteLength - resultByteLength], even when its
+// bytes are not read (for example address-of or length).
+struct ViewOffsetBounds final {
+  std::size_t sourceByteLength = 0;
+  std::size_t resultByteLength = 0;
+};
+
 struct BinaryExpr final : Expr {
   BinaryExpr(std::unique_ptr<Expr> left, std::string op,
              std::unique_ptr<Expr> right, ViewSemantics result,
@@ -375,6 +386,7 @@ struct BinaryExpr final : Expr {
   IntegerInterpretation typedIntegerInterpretation =
       IntegerInterpretation::None;
   std::optional<AddressFacts> addressFacts;
+  std::optional<ViewOffsetBounds> viewOffsetBounds;
 };
 
 struct UnaryExpr final : Expr {
@@ -710,6 +722,19 @@ struct LocalMemory final : Stmt {
   std::size_t byteLength = 0;
   MemoryStorage storage = MemoryStorage::Local;
   std::string templateName;
+};
+
+// Rebinding changes a name's locating capability, never its definition bytes.
+struct BindingRebind final : Stmt {
+  BindingRebind(std::string target, std::string bindingName,
+                std::size_t targetByteLength, MemoryStorage storage,
+                std::unique_ptr<Expr> address);
+
+  std::string target;
+  std::string bindingName;
+  std::size_t targetByteLength = 0;
+  MemoryStorage storage = MemoryStorage::Local;
+  std::unique_ptr<Expr> address;
 };
 
 struct IntegerStore final : Stmt {
@@ -1057,6 +1082,9 @@ struct TranslationUnit final {
   std::vector<std::unique_ptr<Function>> functions;
   std::unique_ptr<Block> globalInit;
 };
+
+// Includes nested assignment expressions and global mutations from any function.
+std::unordered_set<std::string> reboundBindings(const TranslationUnit &unit);
 
 // Applies overrides only to definitions in a single HIR translation unit.
 // The operation is atomic: a bad override leaves the unit unchanged.  An
