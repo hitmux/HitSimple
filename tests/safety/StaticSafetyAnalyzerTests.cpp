@@ -941,3 +941,64 @@ HS_TEST(StaticSafetyAnalyzer_UnsignedPointerSnapshotHasViewCapacity) {
   const auto result = analyzeSafety(source);
   HS_EXPECT_TRUE(hasDiagnostic(result, "memory load out of bounds"));
 }
+
+HS_TEST(StaticSafetyAnalyzer_ResizeCopiesValidateActualSourcePrefix) {
+  for (const auto options : {hitsimple::safety::StaticSafetyOptions{true, false},
+                             hitsimple::safety::StaticSafetyOptions{true, true}}) {
+    for (const auto &consumer : {
+             "return memcmp(resize_bytes([8]*pointer, 4), expected, 4)",
+             "return to_i32(length(resize_bytes([8]*pointer, 4)))",
+             "new copied[4] as bytes = resize_bytes([8]*pointer, 4) as bytes; return 0",
+             "return memcmp(resize_bytes(resize_bytes([8]*pointer, 4), 4), expected, 4)"}) {
+      const auto freed = analyzeSafety(
+          "func main() -> i32 {\n"
+          "    new pointer as addr = alloc(8)\n"
+          "    free(pointer)\n"
+          "    new expected[4] as bytes = 'ABCD'\n" +
+          std::string(consumer) + "\n}\n", options);
+      HS_EXPECT_TRUE(hasDiagnostic(freed, "use after free"));
+      const auto shortSource = analyzeSafety(
+          "func main() -> i32 {\n"
+          "    new small[2] as bytes = 'AB'\n"
+          "    new pointer as addr = &small\n"
+          "    new expected[4] as bytes = 'ABCD'\n" +
+          std::string(consumer) + "\n}\n", options);
+      HS_EXPECT_TRUE(hasDiagnostic(shortSource, "memory load out of bounds"));
+      const auto prefix = analyzeSafety(
+          "func main() -> i32 {\n"
+          "    new small[4] as bytes = 'ABCD'\n"
+          "    new pointer as addr = &small\n"
+          "    new expected[4] as bytes = 'ABCD'\n" +
+          std::string(consumer) + "\n}\n", options);
+      HS_EXPECT_TRUE(prefix.diagnostics.empty());
+    }
+    const auto empty = analyzeSafety(
+        "func main() -> i32 {\n"
+        "    new pointer as addr = alloc(8)\n"
+        "    free(pointer)\n"
+        "    new expected[4] as bytes = 'ABCD'\n"
+        "    return memcmp(resize_bytes([8]*pointer, 0), expected, 0)\n}\n", options);
+    HS_EXPECT_TRUE(empty.diagnostics.empty());
+  }
+}
+
+HS_TEST(StaticSafetyAnalyzer_ResizePrefixDoesNotShortenUnsignedSourceSnapshot) {
+  for (const auto options : {hitsimple::safety::StaticSafetyOptions{true, false},
+                             hitsimple::safety::StaticSafetyOptions{true, true}}) {
+    const std::string prefix =
+        "func main() -> i32 { new small[4] as bytes = 'ABCD'; "
+        "new rebound[8] as bytes; rebound &= &small; ";
+    for (const auto &consumer : {
+             "return memcmp(resize_bytes(rebound, 4)?, small, 4); }",
+             "return to_i32(length(resize_bytes(rebound, 0)?)); }"}) {
+      HS_EXPECT_TRUE(analyzeSafety(prefix + consumer, options).diagnostics.empty());
+    }
+    for (const auto &consumer : {
+             "return memcmp(resize_bytes(rebound?, 4), small, 4); }",
+             "return to_i32(length(resize_bytes(rebound?, 0))); }",
+             "return to_i32(length(resize_bytes(byte_swap(rebound?), 0))); }"}) {
+      HS_EXPECT_TRUE(hasDiagnostic(analyzeSafety(prefix + consumer, options),
+                                   "unsigned snapshot out of bounds"));
+    }
+  }
+}

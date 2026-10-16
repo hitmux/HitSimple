@@ -93,12 +93,18 @@ Fixed raw/string ternary materialization composes with the independently reviewe
 ternary stage. Both selected-branch copying and the subsequent unsigned snapshot
 retain the complete View bytes.
 
-Independent existing limits remain: fixed-size `resize_bytes` calls at 1/2/4/8
-bytes retain an integer-lowering fast path that needs its own raw-byte audit;
-explicit typed integer operators currently restrict widths to 1/2/4/8; some
-negative floating-literal contexts lack floating unary lowering. These are not
-redefined as restrictions of Standard §8.9 or §7.8. Host execution does not prove
-other targets, every NaN payload, every library View input, or full conformance.
+The separately reviewed [fixed resize correction](fixed-resize-byte-views.md)
+is now integrated: 1/2/4/8-byte calls also use address-order byte copying and
+raw-only untemplated results. Its integration harness covers suffix/byte-swap/
+ternary composition and positive-to-empty-to-positive reuse. The prior fixed
+resize fast-path prerequisite is therefore resolved in this stack.
+
+Independent existing limits remain: explicit typed integer operators currently
+restrict widths to 1/2/4/8; some negative floating-literal contexts lack floating
+unary lowering; `byte_swap` result templates and full-expression temporary
+invalidation retain the separately documented gaps. These are not redefined as
+restrictions of Standard §8.9 or §7.8. Host execution does not prove other
+targets, every NaN payload, every library View input, or full conformance.
 
 ```sh
 ./build/hsc_unit_tests

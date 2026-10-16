@@ -4124,3 +4124,49 @@ HS_TEST(LLVMCodegen_UnsignedTernarySnapshotsRemainBranchLocalAndFullWidth) {
     HS_EXPECT_EQ(suffixCopies, 1U);
   }
 }
+
+HS_TEST(LLVMCodegen_ResizeBytesCopiesRepresentationsAtFixedWidths) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    for (const auto width : {1U, 2U, 4U, 8U}) {
+      const auto result = emitSource(
+          "func source(value as f64) -> f64 { return value; }\n"
+          "func probe(value as f64) -> [" + std::to_string(width) +
+          "] as bytes { return resize_bytes(source(value), " +
+          std::to_string(width) + ") as bytes; }\n"
+          "func main() -> i32 { return 0; }\n", optionsFor(mode));
+      HS_EXPECT_TRUE(result.diagnostics.empty());
+      HS_EXPECT_TRUE(result.module != nullptr);
+      HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+      const auto ir = llvmIr(result);
+      HS_EXPECT_TRUE(ir.find("@llvm.memcpy") != std::string::npos);
+      HS_EXPECT_TRUE(ir.find("@llvm.memset") != std::string::npos);
+      HS_EXPECT_TRUE(ir.find("fptosi") == std::string::npos);
+      HS_EXPECT_TRUE(ir.find("fptoui") == std::string::npos);
+      std::size_t sourceCalls = 0;
+      std::size_t resizeAllocations = 0;
+      for (const auto &function : *result.module) {
+        for (const auto &block : function) {
+          for (const auto &instruction : block) {
+            if (const auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction);
+                call != nullptr && call->getCalledFunction() != nullptr &&
+                call->getCalledFunction()->getName() == "source") {
+              ++sourceCalls;
+            }
+            if (const auto *allocation = llvm::dyn_cast<llvm::AllocaInst>(&instruction);
+                allocation != nullptr && allocation->getName().starts_with("view.resize.bytes")) {
+              ++resizeAllocations;
+              HS_EXPECT_TRUE(&block == &function.getEntryBlock());
+              const auto *type = llvm::dyn_cast<llvm::ArrayType>(allocation->getAllocatedType());
+              HS_EXPECT_TRUE(type != nullptr);
+              HS_EXPECT_EQ(type->getNumElements(), width);
+            }
+          }
+        }
+      }
+      HS_EXPECT_EQ(sourceCalls, 1U);
+      HS_EXPECT_EQ(resizeAllocations, 1U);
+    }
+  }
+}

@@ -121,6 +121,7 @@ private:
   std::optional<std::string> prepareStaticNamedStore(
       std::string_view bindingName, std::size_t offset, std::size_t byteLength);
   void validateStaticViewFormation(const hir::Expr& expression);
+  void validateStaticResizeCopy(const hir::DynamicByteViewExpr& view);
   std::optional<StaticAddressFact> staticViewAddressFact(
       const hir::Expr& expression) const;
   void validateStaticCStringRead(const hir::Expr& expression);

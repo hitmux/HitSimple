@@ -951,6 +951,10 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
   }
   if (const auto *view =
           dynamic_cast<const hir::DynamicByteViewExpr *>(&expression)) {
+    if (view->operation == hir::DynamicByteViewOperation::ResizeBytes) {
+      validateStaticResizeCopy(*view);
+      return;
+    }
     validateSafety(*view->source);
     if (view->runtimeLength) {
       validateSafety(*view->runtimeLength);
@@ -1226,6 +1230,30 @@ std::size_t StaticSafetyAnalyzer::validateStaticMemoryOperands(
   return count;
 }
 
+void StaticSafetyAnalyzer::validateStaticResizeCopy(
+    const hir::DynamicByteViewExpr& view) {
+  SourceRangeScope sourceRange(*this, view.range);
+  // Forming this rvalue executes a copy even when its consumer only asks for
+  // length or retains a raw View. Preserve the located source before evaluating
+  // the length, and validate precisely the prefix that codegen will read.
+  validateStaticViewFormation(*view.source);
+  const auto sourceFact = staticViewAddressFact(*view.source);
+  if (view.runtimeLength) {
+    validateSafety(*view.runtimeLength);
+  }
+  const auto requested = view.result.lengthKind == hir::ViewLengthKind::Static
+                             ? std::optional<std::uint64_t>{view.result.staticByteLength}
+                             : view.runtimeLength
+                                   ? staticUnsignedInteger(*view.runtimeLength)
+                                   : std::nullopt;
+  if (requested &&
+      view.source->result.lengthKind == hir::ViewLengthKind::Static) {
+    validateStaticMemoryAccess(sourceFact,
+        std::min<std::uint64_t>(*requested,
+                               view.source->result.staticByteLength), "load");
+  }
+}
+
 void StaticSafetyAnalyzer::validateStaticViewFormation(const hir::Expr &expression) {
   if (dynamic_cast<const hir::VariableRef *>(&expression) != nullptr ||
       dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr) {
@@ -1240,6 +1268,10 @@ void StaticSafetyAnalyzer::validateStaticViewFormation(const hir::Expr &expressi
     return;
   }
   if (const auto *view = dynamic_cast<const hir::DynamicByteViewExpr *>(&expression)) {
+    if (view->operation == hir::DynamicByteViewOperation::ResizeBytes) {
+      validateStaticResizeCopy(*view);
+      return;
+    }
     validateStaticViewFormation(*view->source);
     if (view->runtimeLength) {
       validateSafety(*view->runtimeLength);

@@ -1326,6 +1326,28 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_assignment_result_views PROPERTIES
     LABELS "testing;harness;stdlib;float")
   add_test(
+    NAME hsc_fixed_resize_byte_views
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite fixed-resize-byte-views
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_fixed_resize_byte_views PROPERTIES
+    LABELS "testing;harness;stdlib;views")
+  add_test(
+    NAME hsc_resize_unsigned_integration
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite resize-unsigned-integration
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_resize_unsigned_integration PROPERTIES
+    LABELS "testing;harness;stdlib;views;integration")
+  add_test(
     NAME hsc_wide_integer_literals
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py

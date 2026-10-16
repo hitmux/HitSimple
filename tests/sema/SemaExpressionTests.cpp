@@ -375,7 +375,7 @@ HS_TEST(Sema_LowersStandardLibraryCoreCalls) {
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("ByteSwapExpr bytes=2") !=
                  std::string::npos);
-  HS_EXPECT_TRUE(dump.find("CallExpr callee=resize_bytes bytes=1") !=
+  HS_EXPECT_TRUE(dump.find("DynamicByteViewExpr op=resize_bytes") !=
                  std::string::npos);
   HS_EXPECT_TRUE(dump.find("CallExpr callee=to_upper bytes=1") !=
                  std::string::npos);

@@ -1499,8 +1499,20 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       if (resultLength == nullptr) {
         return {};
       }
-      auto *result = builder_.CreateAlloca(builder_.getInt8Ty(), resultLength,
-                                            "view.resize.bytes");
+      // Fixed extents use entry storage so repeated loop evaluations do not
+      // accumulate stack allocations. Still evaluate the length expression:
+      // length(side_effect()) can have a statically known result.
+      const auto staticLength =
+          dynamic->result.lengthKind == hir::ViewLengthKind::Static
+              ? std::optional<std::size_t>{dynamic->result.staticByteLength}
+              : std::nullopt;
+      auto *result = staticLength
+                         ? createFunctionEntryAlloca(
+                               llvm::ArrayType::get(builder_.getInt8Ty(),
+                                                    *staticLength),
+                               "view.resize.bytes")
+                         : builder_.CreateAlloca(builder_.getInt8Ty(), resultLength,
+                                                  "view.resize.bytes");
       result->setAlignment(llvm::Align(1));
       registerTemporaryObject(result, resultLength);
       builder_.CreateMemSet(result, builder_.getInt8(0), resultLength,
@@ -1512,10 +1524,6 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       checkViewLoad(source, copyLength);
       builder_.CreateMemCpy(result, llvm::Align(1), source.data, llvm::Align(1),
                             copyLength);
-      const auto staticLength =
-          dynamic->result.lengthKind == hir::ViewLengthKind::Static
-              ? std::optional<std::size_t>{dynamic->result.staticByteLength}
-              : std::nullopt;
       return ViewValue{result, resultLength, staticLength, std::size_t{1}};
     }
 
@@ -1808,7 +1816,8 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
 
   if (builtin == stdlib::BuiltinId::ResizeBytes) {
-    return emitIntegerValue(*call.arguments[0], call.byteLength, true);
+    addDiagnostic("resize_bytes requires byte-buffer HIR");
+    return nullptr;
   }
   if (builtin == stdlib::BuiltinId::ByteSwap) {
     auto *value = emitIntegerValue(*call.arguments[0], call.byteLength, true);
