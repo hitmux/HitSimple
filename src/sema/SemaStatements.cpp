@@ -243,17 +243,8 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
   }
 
   std::string templateName = item.templateName;
-  if (templateName.empty() && item.initializer &&
-      isHandleExpression(*item.initializer)) {
-    templateName = "handle";
-  }
-  if (templateName.empty() && item.initializer) {
-    const auto initializerTemplate = operatorTemplateName(*item.initializer);
-    if (initializerTemplate && *initializerTemplate == "addr") {
-      templateName = "addr";
-    }
-  }
 
+  std::unique_ptr<hir::Expr> initializer;
   std::size_t length = 0;
   if (!item.length.empty()) {
     const auto parsedLength = parseDeclaredLength(item.length, templateName);
@@ -267,39 +258,63 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
       length = *inferred;
     }
   }
-  if (length == 0 && item.length.empty() && item.initializer) {
-    if (const auto *call = dynamic_cast<const ast::CallExpr *>(
-            item.initializer.get());
-        call != nullptr && stdlib::isRemovedLegacyName(call->callee)) {
-      addDiagnostic("legacy standard library name '" + call->callee +
-                    "' is not accepted; use " +
-                    std::string(stdlib::replacementForRemovedLegacyName(
-                        call->callee)));
+  const auto memoryStorage = storage == "static"
+                                 ? hir::MemoryStorage::StaticLocal
+                                 : hir::MemoryStorage::Local;
+  const bool needsInferredLength = length == 0 && item.length.empty();
+  const auto provisionalLength = needsInferredLength && item.initializer
+                                     ? initializerResultContract(*item.initializer)
+                                     : std::nullopt;
+  Symbol symbol;
+  if (!declare(item.name, provisionalLength.value_or(length), memoryStorage,
+               templateName, symbol)) {
+    addDiagnostic("duplicate declaration '" + item.name + "'",
+                  currentScopeDeclarationRange(item.name));
+    return nullptr;
+  }
+  // Even an unresolved own-name binding shadows an outer declaration. Do not
+  // accidentally infer a self-referential initializer from the outer object.
+  auto &declared = scopes_.back().at(item.name);
+  if (needsInferredLength && item.initializer) {
+    initializer = analyze(*item.initializer);
+    if (!initializer) {
       return nullptr;
     }
-    const auto inferred = inferByteLength(*item.initializer);
-    if (inferred) {
-      length = *inferred;
+    if (initializer->result.lengthKind == hir::ViewLengthKind::Static) {
+      length = initializer->result.staticByteLength;
+    }
+    if (provisionalLength && length != *provisionalLength) {
+      addDiagnostic("initializer View length does not match its fixed result contract");
+      return nullptr;
     }
   }
   if (length == 0) {
     addDiagnostic("invalid byte length for '" + item.name + "'");
     return nullptr;
   }
-  if (templateName.empty() &&
+  declared.byteLength = length;
+  if (templateName.empty() && item.initializer) {
+    // Infer special persistent templates only after reserving the own-name
+    // binding. An outer addr/handle must not determine a circular initializer.
+    if (initializer &&
+        (initializer->result.category == hir::ViewCategory::Address ||
+         initializer->result.category == hir::ViewCategory::Handle)) {
+      declared.templateName = initializer->result.templateName;
+    } else if (!initializer) {
+      // Explicitly sized declarations retain their legacy inference, with
+      // initializer lookup now observing this declaration rather than a shadow.
+      if (isHandleExpression(*item.initializer)) {
+        declared.templateName = "handle";
+      } else if (operatorTemplateName(*item.initializer) == "addr") {
+        declared.templateName = "addr";
+      }
+    }
+  }
+  if (declared.templateName.empty() &&
       floatAssignmentByteLength(item.assignmentOp).has_value()) {
-    templateName = "f" + std::to_string(length * 8U);
+    declared.templateName = "f" + std::to_string(length * 8U);
   }
-
-  const auto memoryStorage = storage == "static"
-                                 ? hir::MemoryStorage::StaticLocal
-                                 : hir::MemoryStorage::Local;
-  Symbol symbol;
-  if (!declare(item.name, length, memoryStorage, std::move(templateName), symbol)) {
-    addDiagnostic("duplicate declaration '" + item.name + "'",
-                  currentScopeDeclarationRange(item.name));
-    return nullptr;
-  }
+  symbol = declared;
 
   std::vector<std::unique_ptr<hir::Stmt>> statements;
   statements.push_back(std::make_unique<hir::LocalMemory>(
@@ -316,7 +331,7 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
     ast::IdentifierExpr targetExpression(symbol.name);
     auto store = lowerAssignmentTarget(
         targetExpression, item.assignmentOp, isUnsignedTemplate(symbol.templateName),
-        *item.initializer, nullptr, &target, "initializer", "target");
+        *item.initializer, std::move(initializer), &target, "initializer", "target");
     if (!store) {
       return std::make_unique<hir::StatementList>(std::move(statements));
     }

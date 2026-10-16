@@ -7,8 +7,8 @@ records bounded witnesses rather than a coverage percentage.
 
 | Stage | Scope and completion gate | State |
 | --- | --- | --- |
-| VIEW-001 | Raw-memory floating Views: preserve argument metadata and fill bytes; four widths, ABI/rvalue paths, safety/provider/optimization matrix | Implemented; candidate review and CI required |
-| LENGTH-001 | Infer declaration lengths from validated expressions; validate every `length()` operand; cover literals, indexing, ternaries, chained `as`, side effects, and dynamic lengths | Open; release probes confirm incomplete inference and invalid-operand acceptance |
+| VIEW-001 | Raw-memory floating Views: preserve argument metadata and fill bytes; four widths, ABI/rvalue paths, safety/provider/optimization matrix | Merged in [PR30](https://github.com/hitmux/HitSimple/pull/30); exact-head CI and independent review passed |
+| LENGTH-001 | Infer declaration lengths from validated expressions; validate every `length()` operand; cover literals, indexing, ternaries, chained `as`, side effects, and dynamic lengths | Implemented with validated HIR lengths and evaluated operands; see [bounded evidence and remaining limits](validated-view-lengths.md), candidate review and CI required |
 | RETURN-001 | Establish named return storage, scope, and explicit/bare returns without invented zero initialization | Implemented; candidate review and CI required; initialization-state diagnostics tracked in INIT-001 |
 | ASSIGN-VIEW-001 | Direct-name assignment results: rvalue metadata and representation-preserving snapshots, independent of later argument writes | Implemented; candidate review and CI required |
 | ASSIGN-001 | Evaluate multi-assignment RHSs before writes; apply each destination's normal assignment contract to multi-return results and writable target forms; cover complex assignment-expression targets | Open; source-inspected hypotheses need executable regression probes |

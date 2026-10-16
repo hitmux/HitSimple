@@ -13,28 +13,25 @@ helper first.
 
 ## Bounded correction
 
-When `as` immediately wraps a ternary, semantic analysis now lowers that
-ternary once, retains the resulting HIR operand, and uses its validated length
-only when it is static and positive. Existing destination-template validation
-still runs. The retained operand is reused, so this does not add evaluation,
-conversion, or a new code-generation path.
+Expression-level `as` now lowers its operand once and uses its validated HIR
+View length and value category. The original direct-ternary correction is
+subsumed by [validated declaration and `length` Views](validated-view-lengths.md),
+which also supports inferred declarations and chained reinterpretations.
+Existing destination-template validation still runs, and the retained operand
+is reused without extra evaluation or numeric conversion.
 
 The normal ternary analyzer remains responsible for the condition, both
-branches, equal templates, and equal lengths. This includes nested ternaries
-and fixed-return call branches. Same-width different-template branches,
-invalid unselected branches or call arguments, dynamic/zero lengths, and
-wrong-width or unknown destination templates remain errors. The result is
-still a non-addressable rvalue.
+branches, equal templates, and equal static positive lengths. This includes
+nested ternaries and fixed-return call branches. Same-width different-template
+branches, invalid unselected branches or call arguments, dynamic/zero branch
+lengths, and wrong-width or unknown destination templates remain errors. The
+result is still a non-addressable rvalue. Dynamic non-ternary interpretations
+have separately checked extent rules described in the linked document.
 
-The shared `inferByteLength` helper is deliberately unchanged. In particular,
-`length()` currently uses that helper without analyzing its argument; merely
-adding branch-width inference there would newly bypass ternary validation.
-General declaration-length inference, chained outer reinterpretations,
-other inference-gated consumers such as template printing, and raw-memory
-builtin argument metadata are separate existing implementation boundaries.
-For example, use `new bits as u64 = (choose ? left : right) as u64` for this
-supported direct expression form; an untyped `new bits = ...` still encounters
-its earlier declaration-length inference boundary.
+For example, `new bits = (choose ? left : right) as u64` now infers eight
+bytes from validated `f64` branches. `length()` validates and evaluates its
+operand rather than querying the incomplete AST helper. Other inference-gated
+consumers, such as template printing, remain separate audit work.
 
 ## Verification
 

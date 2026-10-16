@@ -884,7 +884,19 @@ Symbol *Analyzer::lookup(std::string_view name) {
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
     const auto found = scope->find(std::string(name));
     if (found != scope->end()) {
+      if (found->second.byteLength == 0) {
+        addDiagnostic("cannot infer byte length of '" + std::string(name) +
+                      "' from its own initializer");
+        return nullptr;
+      }
       return &found->second;
+    }
+  }
+  if (const auto pending = pendingGlobals_.find(std::string(name));
+      pending != pendingGlobals_.end()) {
+    const auto *declaration = pending->second;
+    if (declareGlobal(*declaration)) {
+      return lookup(name);
     }
   }
   return nullptr;
@@ -1721,6 +1733,71 @@ std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
 }
 
 std::optional<std::size_t>
+Analyzer::initializerResultContract(const ast::Expr &expression) {
+  // These are independent result contracts, not expression validation. They
+  // only reserve the declaration's own binding before checking its initializer.
+  // A provisional extent must agree with the final validated HIR result.
+  if (const auto *call = dynamic_cast<const ast::CallExpr *>(&expression)) {
+    const auto found = functions_.find(call->callee);
+    if (found == functions_.end() ||
+        found->second.returnByteLengths.size() != 1U) {
+      return std::nullopt;
+    }
+    if (const auto *builtin = stdlib::findBuiltin(found->second.builtin);
+        builtin != nullptr && builtin->returnMode != stdlib::BuiltinReturnMode::Fixed) {
+      return std::nullopt;
+    }
+    return found->second.returnByteLengths.front();
+  }
+  if (const auto *view = dynamic_cast<const ast::AsExpr *>(&expression)) {
+    if (const auto length = templateByteLength(view->templateName)) {
+      return length;
+    }
+    return initializerResultContract(*view->operand);
+  }
+  if (dynamic_cast<const ast::BoolLiteral *>(&expression) != nullptr ||
+      dynamic_cast<const ast::IndexExpr *>(&expression) != nullptr) {
+    return 1;
+  }
+  if (const auto *cast = dynamic_cast<const ast::IntegerCastExpr *>(&expression)) {
+    return cast->byteLength;
+  }
+  if (const auto *deref = dynamic_cast<const ast::DerefExpr *>(&expression)) {
+    const auto length = parseByteLength(deref->length);
+    return length != 0 ? std::optional<std::size_t>{length} : std::nullopt;
+  }
+  if (const auto *unary = dynamic_cast<const ast::UnaryExpr *>(&expression)) {
+    if (unary->op == "!") {
+      return 1;
+    }
+    if (unary->op == "&") {
+      return pointerByteLength();
+    }
+  }
+  if (const auto *binary = dynamic_cast<const ast::BinaryExpr *>(&expression)) {
+    const std::string_view op = binary->op;
+    const auto marker = op.starts_with('%') ? op.find_last_of("duf")
+                                            : std::string_view::npos;
+    const auto suffix = marker == std::string_view::npos ? op : op.substr(marker + 1U);
+    if (suffix == "==" || suffix == "!=" || suffix == "<" || suffix == "<=" ||
+        suffix == ">" || suffix == ">=" || suffix == "&&" || suffix == "||") {
+      return 1;
+    }
+    if (const auto width = integerByteLengthForOperator(binary->op);
+        op.starts_with('%') && marker > 1U && marker != std::string_view::npos &&
+        width && *width != 0) {
+      return width;
+    }
+    if (const auto width = floatByteLengthForOperator(binary->op);
+        op.starts_with('%') && marker > 1U && marker != std::string_view::npos &&
+        width && *width != 0) {
+      return width;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::size_t>
 Analyzer::inferByteLength(const ast::Expr &expression) {
   if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression)) {
     return inferByteLength(*asExpr->operand);
@@ -1808,7 +1885,7 @@ Analyzer::inferByteLength(const ast::Expr &expression) {
     const auto builtin = found != functions_.end() ? found->second.builtin
                                                    : stdlib::BuiltinId::None;
     if (builtin == stdlib::BuiltinId::Length) {
-      return pointerByteLength();
+      return 8;
     }
     if (builtin == stdlib::BuiltinId::ResizeBytes &&
         call->arguments.size() == 2U) {

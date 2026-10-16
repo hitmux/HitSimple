@@ -17,7 +17,7 @@
         },
         {
           "path": "src/codegen/LLVMCodegenExpressions.cpp",
-          "anchor": "return emitViewValue(*view->operand);"
+          "anchor": "auto value = emitViewValue(*view->operand);"
         }
       ],
       "evidence": [
@@ -542,7 +542,7 @@
       "implementation": [
         {
           "path": "src/sema/SemaExpressions.cpp",
-          "anchor": "// A ternary's common View length belongs to its validated HIR. Analyze"
+          "anchor": "// Validate the operand once; its HIR owns length and lvalue semantics."
         }
       ],
       "evidence": [
@@ -847,25 +847,184 @@
           "anchor": "# Named return storage"
         }
       ]
+    },
+    {
+      "id": "validated-declaration-and-length-views",
+      "sections": [
+        "4.1",
+        "5.3",
+        "6.4",
+        "6.7",
+        "12.3",
+        "14.1",
+        "14.2"
+      ],
+      "claim": "Inferred declarations use validated initializer View extents, and length validates and evaluates its operand once while returning an eight-byte u64 extent. Selected forward/self bindings, dynamic interpretations and explicit numeric conversions preserve validated metadata.",
+      "limitation": "Selected static and dynamic resize/byte_swap cases, not all expression or library consumers. Runtime-sized slices, checked zero-length temporary registration, floating assignment materialization and cross-target execution are outside this witness.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaStatements.cpp",
+          "anchor": "// Even an unresolved own-name binding shadows an outer declaration. Do not"
+        },
+        {
+          "path": "src/sema/SemaAnalysis.cpp",
+          "anchor": "bool Analyzer::declareGlobal(const ast::GlobalNewDecl &declaration)"
+        },
+        {
+          "path": "src/sema/SemaAnalysisContext.cpp",
+          "anchor": "Analyzer::initializerResultContract(const ast::Expr &expression)"
+        },
+        {
+          "path": "src/sema/SemaExpressions.cpp",
+          "anchor": "// Keep evaluation in HIR even when the extent is statically known."
+        },
+        {
+          "path": "src/sema/SemaAssignments.cpp",
+          "anchor": "? std::optional<std::size_t>{loweredValue->result.staticByteLength}"
+        },
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "return emitViewValue(*call.arguments.front()).length;"
+        },
+        {
+          "path": "src/safety/StaticSafetyFacts.cpp",
+          "anchor": "constantUnsignedInteger(const hir::Expr &expression)"
+        },
+        {
+          "path": "src/hir/HIR.cpp",
+          "anchor": "\"length requires one View operand and an eight-byte u64 result\""
+        },
+        {
+          "path": "runtime/hitsimple_runtime.c",
+          "anchor": "void hs_check_view_nonempty(uint64_t actual)"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_InfersDeclarationsFromValidatedViewLengths",
+          "assertions": "Local/static initializer forms have exact inferred byte lengths and valid HIR."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_InfersGlobalLengthsAcrossForwardReferences",
+          "assertions": "Forward function/extern/global references infer exact widths in source storage order."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_InferredDeclarationsReserveTheirOwnBindings",
+          "assertions": "Self/shadow and mutual-global length use eight-byte own bindings; an underdetermined self initializer is diagnosed."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_InfersResolvedOperationAndMethodResultLengths",
+          "assertions": "Resolved user operator and method return signatures determine inferred widths."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_LengthRetainsValidatedStaticAndDynamicOperands",
+          "assertions": "Length retains a single operand and identity plan, including handle and dynamic Views, with canonical u64 result."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_LengthRejectsInvalidOperandsAndUnknownExtents",
+          "assertions": "Invalid templates, calls, branches, arithmetic, missing names, dynamic omitted lengths and true cyclic inference are diagnosed."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_LengthRejectsKnownEmptyInterpretedViews",
+          "assertions": "Direct and wrapped known-empty Views reject positive-length templates."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_ConversionsUseValidatedOperandLengthsAndCategories",
+          "assertions": "Assignment/ternary/index conversion operands use HIR width and floating category; floating assignments are sema-only evidence."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_HIRRejectsInconsistentLengthAndInterpretationMetadata",
+          "assertions": "Manually malformed length-result and interpretation value-category metadata fail verification."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_LengthEvaluatesViewWithoutReadingStorage",
+          "assertions": "A call operand remains a call; a local-name length function contains no load instructions."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_LengthChecksDynamicAsExtent",
+          "assertions": "Checked dynamic-to-u64 interpretation emits hs_check_view_length."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_LengthChecksDynamicVariableTemplateExtent",
+          "assertions": "Checked dynamic bytes interpretation emits hs_check_view_nonempty."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_LengthPreservesStaticFactsAndOperandChecks",
+          "assertions": "Static length facts retain memcpy bounds diagnostics; nested resize division and length assignment side effects remain visible to safety analysis."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/validated-view-lengths.json",
+          "ctest": "hsc_validated_view_lengths",
+          "cases": [
+            "optimized",
+            "reference",
+            "invalid_operand",
+            "empty_interpretation",
+            "dynamic_mismatch",
+            "nonempty_runtime_guard"
+          ],
+          "assertions": "Configured positive oracle requires view-lengths 0 and exact source-order/side-effect checks; negative cases require named compile diagnostics or runtime guard failures.",
+          "limitation": "Host O0/O2 and three modes; both providers for positive cases only. Undefined mismatched executions outside checked mode are omitted. Nonempty helper is called directly because checked zero-sized temporary registration fails earlier. Manifest configuration is not an execution result."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_OwnBindingPrecedesAddressAndHandleTemplateInference",
+          "assertions": "Circular own-name inference cannot borrow an outer addr or handle template, including named returns, parameters and static locals; independent sources and self-address controls remain valid."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/validated-view-lengths.md",
+          "anchor": "# Validated declaration and `length` Views"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "8983eb97c684f47e05749e667b11b64685bbb8ed094438fd0b7a8b00d24d55f8",
+    "CMakeLists.txt": "74d073e46ba7b74d4302a53bb8bde5e3d229c8019c61430d689fed4132600f72",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
-    "include/hitsimple/hir/HIR.h": "e5d84aed0c5cf68a792eae2235a6ca7afe754c1ce01840388ef57058df30ba18",
-    "runtime/hitsimple_runtime.c": "7749dfd02823798a5959a8d96f4ba0a69ca7aebc17c759007cfb80bd5e0d9106",
+    "include/hitsimple/hir/HIR.h": "0e2b5bf7988c76a04a7a71fd79af74d9b8cdb9ec87621f560224f9725dab7609",
+    "runtime/hitsimple_runtime.c": "6691e6bf8706ce8e579882290ae8d3d29990557071ab87ba1afcbdb3998ceaaf",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "295763ca5b1bc512c952fff35c607d65a95d95967176e073a3e5646ffc60e5a7",
+    "src/codegen/LLVMCodegenExpressions.cpp": "2293b8452ec78042aeb19323f64e0d4390f6ca42bfe33279ac65c51ce1e56360",
     "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
-    "src/hir/HIR.cpp": "3e482fd1f91f65a68d86b9f23d7e81415f589a28135adaba058b44babafa2f39",
-    "src/safety/StaticSafetyValidation.cpp": "89dc6fa05f3cdd1d16353c4c681432e6b7586a9ae1600f011b8c8e77ac57d541",
-    "src/sema/SemaAnalysis.cpp": "b07d2e526f8231a83313a0bebed630be9a8f505dbfe2a976225d5b8c481e5433",
-    "src/sema/SemaAnalysisContext.cpp": "a1a310a1214fefa2e424a1e654f992fd4c31f3ebdaa737adb68a3f118e560540",
-    "src/sema/SemaExpressions.cpp": "292c4e30621dd292bc2d93005010d08c6022a587029cba87f48e9304d3460459",
-    "src/sema/SemaStatements.cpp": "5cab259367c87c0b44009c3406b06650dc6a497f2579360de5d8b3fbff4d5a7e",
+    "src/hir/HIR.cpp": "33d3ceb74d3f100c12706194b0e16208feabd58934206c78a5e9478eec3ae78f",
+    "src/safety/StaticSafetyValidation.cpp": "68f2ff07de53de98871ec61deaa25a49427e39f4a089b968bb9da22c8eda1630",
+    "src/sema/SemaAnalysis.cpp": "4eca00d7fc11e8c06d6d7c28d6c56e220745beffadd108655cd013f3e112e2cf",
+    "src/sema/SemaAnalysisContext.cpp": "3229fa14e97ef7a93bba491a7d6cccfa003a77c752a94905083c2226b75dd6c7",
+    "src/sema/SemaExpressions.cpp": "894cef948d7c9c7311be657e2403adf0d888e4681ddccf6c3db7714f0be963dd",
+    "src/sema/SemaStatements.cpp": "146a25a0c9b321ee9f2a577e2c306732cc0bbfa204bef8ecb31d5204505f05f2",
     "stdlib/ctype.hs": "0933ff576d7f8403217bf493670acec0e6b682bcf3de195774bc42e4fe50a17f",
     "tests/cases/run/assignment_result_views.hs": "5def66249cb9c085717a94ea9bfd1e2178ebe515000b065c3e7be45788b5a47f",
     "tests/cases/run/bool_value_reads.hs": "dcae6c87fb873ae06117682422c0684d83d4dd0b2453ac7a78762580771ce5d0",
@@ -882,14 +1041,14 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "01ae5ed0eb5658c105bfd0880098f0b4b2fa73d2b27125741cae1f05abccc89b",
+    "tests/codegen/LLVMCodegenTests.cpp": "9f4109c0555f0ae0606d2c655c6b0c7a9d3cdb73217450b5030133a971c02e47",
     "tests/hir/HIRTests.cpp": "fef71fa9bbb8f2744fe385defd22988dd72c126c1330394b9ff83929b0e952de",
-    "tests/safety/StaticSafetyAnalyzerTests.cpp": "a09a78ce1a21944df93d9cbe564deb573ff66daab0ee13aca95c78e16502e75f",
+    "tests/safety/StaticSafetyAnalyzerTests.cpp": "641a45a30f0ddb5a111ce65f5509425cd52f48a0903e488b33ad02077ab7053a",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "cd395720baf4237cab8afc9d527a561d2096622d050b60b00f41ce59cb988be2",
+    "tests/sema/SemaExpressionTests.cpp": "c4d5a23158a549e682bf537c8fe1a43754aea466d22a67754bd54335b3a79ffd",
     "tests/support/harness/manifests/assignment-result-views.json": "a5b2d02945bd84c048c8c870f4c9911a0543f83ea47df7d70ae4a1a7093c1abc",
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
@@ -906,6 +1065,16 @@
     "docs/named-return-storage.md": "b4e2299b08cdb684709b1b4ea1145782857833a7b9858e291a90b6b96695535b",
     "tests/cases/run/named_return_storage.hs": "d9c3e0d30f0522886eccbf98e250285e602fe75e7178279539e0de5409356d72",
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
-    "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b"
+    "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
+    "docs/validated-view-lengths.md": "9692e746f8a12aef69f3a40707ddcd96b43e2ba9090a80280f64edec7934708a",
+    "src/safety/StaticSafetyFacts.cpp": "98bf0455ec80ae3c0a5f443febfb548b1a197646f78f318426ddb05ef96ac1b1",
+    "src/sema/SemaAssignments.cpp": "ce818dbbfda7405de81d32b64db3b37afd7e3d79e3b3eb86f51ed224812b2de8",
+    "tests/cases/run/length_dynamic_mismatch.hs": "294a0265a0379d93747f15faacecfe98825ba09b17e4b256670dabc01e274e00",
+    "tests/cases/run/length_empty_interpretation.hs": "e24e5f31914484b04987ba126534f36d865f38052838e1045ca7e5cd40863ed8",
+    "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
+    "tests/cases/run/length_nonempty_guard.hs": "062b3c28f7df6c26ce329f7cb02590c7e5a33d843355034ea7fba91950130470",
+    "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
+    "tests/sema/SemaViewLengthTests.cpp": "66191f391d21be38b941802013a98a526ba873e3b6e04950e0437b296b18d72a",
+    "tests/support/harness/manifests/validated-view-lengths.json": "d1b4bbfd0fe38b5af2746fdac0d47e940b87052f3af27858b059e359cc603967"
   }
 }

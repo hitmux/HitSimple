@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 17 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 18 inspected witnesses.
 
 ## Validate and run
 
@@ -56,8 +56,8 @@ Standard: [§6.7](../Standard.md#67-expression-level-as), [§7.9](../Standard.md
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L411) (`if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression))`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1245) (`return emitViewValue(*view->operand);`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L422) (`if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression))`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1245) (`auto value = emitViewValue(*view->operand);`)
 
 Evidence:
 - `structural`: [Sema_LowersExpressionAsTemporaryTemplateView](../tests/sema/SemaDiagnosticTests.cpp#L850)
@@ -78,7 +78,7 @@ Standard: [§10.4](../Standard.md#104-default-assignment-operation-op-).
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L375) (`lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L438) (`lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;`)
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L513) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
@@ -98,8 +98,8 @@ Standard: [§10.7](../Standard.md#107-method-calls), [§10.8](../Standard.md#108
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L669) (`bool viewIsCopy = true;`)
-- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L382) (`bool Analyzer::lowerImplMethodBodies(`)
+- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L670) (`bool viewIsCopy = true;`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L445) (`bool Analyzer::lowerImplMethodBodies(`)
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L513) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
@@ -140,8 +140,8 @@ Standard: [§9.1](../Standard.md#91-template-definitions), [§9.2](../Standard.m
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1098) (`viewTemplates.emplace_back(info.name, std::move(hirMembers),`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1355) (`alignmentAt(storage->alignment, variable->offset).value()};`)
+- [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1110) (`viewTemplates.emplace_back(info.name, std::move(hirMembers),`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1370) (`alignmentAt(storage->alignment, variable->offset).value()};`)
 
 Evidence:
 - `structural`: [Sema_LowersSizeofUserTemplate](../tests/sema/SemaAggregateTests.cpp#L99)
@@ -186,8 +186,8 @@ Standard: [§2.4](../Standard.md#24-execution-modes), [§11.6](../Standard.md#11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L529) (`static FILE *hs_require_file(FILE *file) {`)
-- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L644) (`int32_t hs_fclose(FILE *file) {`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L535) (`static FILE *hs_require_file(FILE *file) {`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L650) (`int32_t hs_fclose(FILE *file) {`)
 - [src/codegen/LLVMCodegen.cpp](../src/codegen/LLVMCodegen.cpp#L196) (`bool LlvmEmitter::hasRuntimeSafetyChecks() const {`)
 
 Evidence:
@@ -211,7 +211,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2023) (`value, llvm::ConstantInt::get(i32Ty, 0xff), "ctype.byte");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2041) (`value, llvm::ConstantInt::get(i32Ty, 0xff), "ctype.byte");`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L2) (`func __hs_stdlib_ctype_is_digit(ch as i32) -> bool {`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L32) (`func __hs_stdlib_ctype_to_lower(ch as i32) -> u8 {`)
 
@@ -232,7 +232,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2040) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2058) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
 
 Evidence:
 - `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1209)
@@ -251,9 +251,9 @@ Standard: [§6.7](../Standard.md#67-expression-level-as), [§12.2](../Standard.m
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1487) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L915) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L635) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1479) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L916) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L650) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
 
 Evidence:
 - `structural`: [Sema_RecordsBooleanValueReadBoundaries](../tests/sema/SemaBoolTests.cpp#L51)
@@ -274,8 +274,8 @@ Standard: [§7.9](../Standard.md#79-numeric-conversion-and-byte-reinterpretation
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L683) (`const auto source = lowered->result;`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1997) (`// Sema adds an IntegerCastExpr only for a return width change.`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L698) (`const auto source = lowered->result;`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2027) (`// Sema adds an IntegerCastExpr only for a return width change.`)
 
 Evidence:
 - `structural`: [Sema_ReturnConversionPlansUseExplicitNumericResultViews](../tests/sema/SemaCoreTests.cpp#L333)
@@ -296,7 +296,7 @@ Standard: [§4.8](../Standard.md#48--parsing-rules), [§8.10](../Standard.md#810
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1279) (`// A floating ternary selects a View copy, not an integer conversion or`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1294) (`// A floating ternary selects a View copy, not an integer conversion or`)
 
 Evidence:
 - `IR`: [LLVMCodegen_FloatingTernariesCopySelectedViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3331)
@@ -317,7 +317,7 @@ Standard: [§4.8](../Standard.md#48--parsing-rules), [§6.7](../Standard.md#67-e
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L415) (`// A ternary's common View length belongs to its validated HIR. Analyze`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L423) (`// Validate the operand once; its HIR owns length and lvalue semantics.`)
 
 Evidence:
 - `structural`: [Sema_TernaryAsUsesValidatedStaticViewLength](../tests/sema/SemaExpressionTests.cpp#L1648)
@@ -340,8 +340,8 @@ Standard: [§4.4](../Standard.md#44-return-signatures), [§12.2](../Standard.md#
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L590) (`CallExpr::CallExpr(std::string callee,`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L556) (`UserTemplateOpCallExpr::UserTemplateOpCallExpr(`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L596) (`CallExpr::CallExpr(std::string callee,`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L562) (`UserTemplateOpCallExpr::UserTemplateOpCallExpr(`)
 
 Evidence:
 - `structural`: [Sema_NoneReturnSpellingsProduceCanonicalCallViews](../tests/sema/SemaCoreTests.cpp#L376)
@@ -364,7 +364,7 @@ Standard: [§14.0](../Standard.md#140-signature-notation), [§14.1](../Standard.
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1175) (`// Chapter 14 meta-parameters borrow/read the original View.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1167) (`// Chapter 14 meta-parameters borrow/read the original View.`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1172) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
 
 Evidence:
@@ -394,8 +394,8 @@ Standard: [§7.2](../Standard.md#72-default-assignment-), [§8.2](../Standard.md
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1114) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1270) (`// Copy now: a later argument or nested operation may overwrite the target.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1106) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1285) (`// Copy now: a later argument or nested operation may overwrite the target.`)
 
 Evidence:
 - `structural`: [Sema_AssignmentExpressionsProduceRvalueViews](../tests/sema/SemaExpressionTests.cpp#L1841)
@@ -420,8 +420,8 @@ Standard: [§4.4](../Standard.md#44-return-signatures), [§5.3](../Standard.md#5
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L464) (`std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody(`)
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L447) (`Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L527) (`std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody(`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L462) (`Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {`)
 
 Evidence:
 - `structural`: [Sema_NamedReturnsCreateEntryStorageWithoutInitialization](../tests/sema/SemaNamedReturnTests.cpp#L14)
@@ -449,6 +449,61 @@ Evidence:
 Context: [docs/named-return-storage.md](../docs/named-return-storage.md).
 
 Limit: Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.
+
+### validated-declaration-and-length-views
+
+Inferred declarations use validated initializer View extents, and length validates and evaluates its operand once while returning an eight-byte u64 extent. Selected forward/self bindings, dynamic interpretations and explicit numeric conversions preserve validated metadata.
+
+Standard: [§4.1](../Standard.md#41-top-level-declarations), [§5.3](../Standard.md#53-new-and-static), [§6.4](../Standard.md#64-view-length), [§6.7](../Standard.md#67-expression-level-as), [§12.3](../Standard.md#123-function-calls), [§14.1](../Standard.md#141-memory-management-and-byte-operations), [§14.2](../Standard.md#142-conversion-functions).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L275) (`// Even an unresolved own-name binding shadows an outer declaration. Do not`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L161) (`bool Analyzer::declareGlobal(const ast::GlobalNewDecl &declaration)`)
+- [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1736) (`Analyzer::initializerResultContract(const ast::Expr &expression)`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L645) (`// Keep evaluation in HIR even when the extent is statically known.`)
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L352) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1686) (`return emitViewValue(*call.arguments.front()).length;`)
+- [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L88) (`constantUnsignedInteger(const hir::Expr &expression)`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1860) (`"length requires one View operand and an eight-byte u64 result"`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L416) (`void hs_check_view_nonempty(uint64_t actual)`)
+
+Evidence:
+- `structural`: [Sema_InfersDeclarationsFromValidatedViewLengths](../tests/sema/SemaViewLengthTests.cpp#L12)
+  Local/static initializer forms have exact inferred byte lengths and valid HIR.
+- `structural`: [Sema_InfersGlobalLengthsAcrossForwardReferences](../tests/sema/SemaViewLengthTests.cpp#L47)
+  Forward function/extern/global references infer exact widths in source storage order.
+- `structural`: [Sema_InferredDeclarationsReserveTheirOwnBindings](../tests/sema/SemaViewLengthTests.cpp#L194)
+  Self/shadow and mutual-global length use eight-byte own bindings; an underdetermined self initializer is diagnosed.
+- `structural`: [Sema_InfersResolvedOperationAndMethodResultLengths](../tests/sema/SemaViewLengthTests.cpp#L221)
+  Resolved user operator and method return signatures determine inferred widths.
+- `structural`: [Sema_LengthRetainsValidatedStaticAndDynamicOperands](../tests/sema/SemaViewLengthTests.cpp#L71)
+  Length retains a single operand and identity plan, including handle and dynamic Views, with canonical u64 result.
+- `diagnostic`: [Sema_LengthRejectsInvalidOperandsAndUnknownExtents](../tests/sema/SemaViewLengthTests.cpp#L103)
+  Invalid templates, calls, branches, arithmetic, missing names, dynamic omitted lengths and true cyclic inference are diagnosed.
+- `diagnostic`: [Sema_LengthRejectsKnownEmptyInterpretedViews](../tests/sema/SemaViewLengthTests.cpp#L245)
+  Direct and wrapped known-empty Views reject positive-length templates.
+- `structural`: [Sema_ConversionsUseValidatedOperandLengthsAndCategories](../tests/sema/SemaViewLengthTests.cpp#L173)
+  Assignment/ternary/index conversion operands use HIR width and floating category; floating assignments are sema-only evidence.
+- `diagnostic`: [Sema_HIRRejectsInconsistentLengthAndInterpretationMetadata](../tests/sema/SemaViewLengthTests.cpp#L260)
+  Manually malformed length-result and interpretation value-category metadata fail verification.
+- `IR`: [LLVMCodegen_LengthEvaluatesViewWithoutReadingStorage](../tests/codegen/LLVMCodegenTests.cpp#L3519)
+  A call operand remains a call; a local-name length function contains no load instructions.
+- `IR`: [LLVMCodegen_LengthChecksDynamicAsExtent](../tests/codegen/LLVMCodegenTests.cpp#L3537)
+  Checked dynamic-to-u64 interpretation emits hs_check_view_length.
+- `IR`: [LLVMCodegen_LengthChecksDynamicVariableTemplateExtent](../tests/codegen/LLVMCodegenTests.cpp#L3548)
+  Checked dynamic bytes interpretation emits hs_check_view_nonempty.
+- `diagnostic`: [StaticSafetyAnalyzer_LengthPreservesStaticFactsAndOperandChecks](../tests/safety/StaticSafetyAnalyzerTests.cpp#L213)
+  Static length facts retain memcpy bounds diagnostics; nested resize division and length assignment side effects remain visible to safety analysis.
+- `runtime`: [hsc_validated_view_lengths](../tests/support/harness/manifests/validated-view-lengths.json); cases: `optimized`, `reference`, `invalid_operand`, `empty_interpretation`, `dynamic_mismatch`, `nonempty_runtime_guard`
+  Configured positive oracle requires view-lengths 0 and exact source-order/side-effect checks; negative cases require named compile diagnostics or runtime guard failures.
+  Host O0/O2 and three modes; both providers for positive cases only. Undefined mismatched executions outside checked mode are omitted. Nonempty helper is called directly because checked zero-sized temporary registration fails earlier. Manifest configuration is not an execution result.
+- `structural`: [Sema_OwnBindingPrecedesAddressAndHandleTemplateInference](../tests/sema/SemaViewLengthTests.cpp#L293)
+  Circular own-name inference cannot borrow an outer addr or handle template, including named returns, parameters and static locals; independent sources and self-address controls remain valid.
+
+Context: [docs/validated-view-lengths.md](../docs/validated-view-lengths.md).
+
+Limit: Selected static and dynamic resize/byte_swap cases, not all expression or library consumers. Runtime-sized slices, checked zero-length temporary registration, floating assignment materialization and cross-target execution are outside this witness.
 
 ## Standard navigation inventory
 
@@ -479,7 +534,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 3.6 | [Operators and Punctuation](../Standard.md#36-operators-and-punctuation) | unmapped |  |
 | 3.7 | [Operator Precedence](../Standard.md#37-operator-precedence) | unmapped |  |
 | 4 | [Core Syntax](../Standard.md#4-core-syntax) | unmapped |  |
-| 4.1 | [Top-Level Declarations](../Standard.md#41-top-level-declarations) | unmapped |  |
+| 4.1 | [Top-Level Declarations](../Standard.md#41-top-level-declarations) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 4.1.1 | [Statement Terminators](../Standard.md#411-statement-terminators) | unmapped |  |
 | 4.2 | [Declarations and Template Annotations](../Standard.md#42-declarations-and-template-annotations) | unmapped |  |
 | 4.3 | [User Templates and `impl`](../Standard.md#43-user-templates-and-impl) | unmapped |  |
@@ -491,7 +546,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 5 | [Storage Objects, Addresses, and Lifetimes](../Standard.md#5-storage-objects-addresses-and-lifetimes) | unmapped |  |
 | 5.1 | [Storage Objects](../Standard.md#51-storage-objects) | unmapped |  |
 | 5.2 | [Names, Definition Addresses, and Binding Addresses](../Standard.md#52-names-definition-addresses-and-binding-addresses) | unmapped |  |
-| 5.3 | [`new` and `static`](../Standard.md#53-new-and-static) | inspected | [named-return-storage](#named-return-storage) |
+| 5.3 | [`new` and `static`](../Standard.md#53-new-and-static) | inspected | [named-return-storage](#named-return-storage), [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 5.4 | [Dynamic-Allocation Lifetime](../Standard.md#54-dynamic-allocation-lifetime) | unmapped |  |
 | 5.5 | [Scope-Exit Release Rules](../Standard.md#55-scope-exit-release-rules) | inspected | [named-return-storage](#named-return-storage) |
 | 5.6 | [Address-Of](../Standard.md#56-address-of) | unmapped |  |
@@ -502,10 +557,10 @@ A mapped parent never implicitly maps its children or vice versa.
 | 6.1 | [View Model](../Standard.md#61-view-model) | unmapped |  |
 | 6.2 | [Lvalue Views](../Standard.md#62-lvalue-views) | unmapped |  |
 | 6.3 | [Rvalue Views](../Standard.md#63-rvalue-views) | unmapped |  |
-| 6.4 | [View Length](../Standard.md#64-view-length) | unmapped |  |
+| 6.4 | [View Length](../Standard.md#64-view-length) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 6.5 | [Interpretation Template Carried by a View](../Standard.md#65-interpretation-template-carried-by-a-view) | unmapped |  |
 | 6.6 | [Declaration-Level `as`](../Standard.md#66-declaration-level-as) | unmapped |  |
-| 6.7 | [Expression-Level `as`](../Standard.md#67-expression-level-as) | inspected | [as-reinterpret](#as-reinterpret), [bool-value-read-boundaries](#bool-value-read-boundaries), [ternary-as-static-view-length](#ternary-as-static-view-length) |
+| 6.7 | [Expression-Level `as`](../Standard.md#67-expression-level-as) | inspected | [as-reinterpret](#as-reinterpret), [bool-value-read-boundaries](#bool-value-read-boundaries), [ternary-as-static-view-length](#ternary-as-static-view-length), [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 6.8 | [Persistent Templates Set by `set`](../Standard.md#68-persistent-templates-set-by-set) | unmapped |  |
 | 6.9 | [Template Propagation Rules](../Standard.md#69-template-propagation-rules) | unmapped |  |
 | 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | unmapped |  |
@@ -562,7 +617,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 12 | [Functions, Return Values, and Calling Conventions](../Standard.md#12-functions-return-values-and-calling-conventions) | unmapped |  |
 | 12.1 | [Function Definitions](../Standard.md#121-function-definitions) | unmapped |  |
 | 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage) |
-| 12.3 | [Function Calls](../Standard.md#123-function-calls) | unmapped |  |
+| 12.3 | [Function Calls](../Standard.md#123-function-calls) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 12.4 | [`main`](../Standard.md#124-main) | unmapped |  |
 | 13 | [Control Flow and Error Handling](../Standard.md#13-control-flow-and-error-handling) | unmapped |  |
 | 13.1 | [Conditional Statements](../Standard.md#131-conditional-statements) | unmapped |  |
@@ -572,8 +627,8 @@ A mapped parent never implicitly maps its children or vice versa.
 | 13.5 | [Error Handling](../Standard.md#135-error-handling) | unmapped |  |
 | 14 | [Standard-Library Functions](../Standard.md#14-standard-library-functions) | unmapped |  |
 | 14.0 | [Signature Notation](../Standard.md#140-signature-notation) | inspected | [raw-memory-floating-views](#raw-memory-floating-views) |
-| 14.1 | [Memory Management and Byte Operations](../Standard.md#141-memory-management-and-byte-operations) | inspected | [raw-memory-floating-views](#raw-memory-floating-views) |
-| 14.2 | [Conversion Functions](../Standard.md#142-conversion-functions) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source) |
+| 14.1 | [Memory Management and Byte Operations](../Standard.md#141-memory-management-and-byte-operations) | inspected | [raw-memory-floating-views](#raw-memory-floating-views), [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
+| 14.2 | [Conversion Functions](../Standard.md#142-conversion-functions) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 14.3 | [String and Buffer Functions](../Standard.md#143-string-and-buffer-functions) | unmapped |  |
 | 14.4 | [Standard Input and Output](../Standard.md#144-standard-input-and-output) | unmapped |  |
 | 14.5 | [File I/O](../Standard.md#145-file-io) | inspected | [checked-file-handle-alias](#checked-file-handle-alias), [raw-memory-floating-views](#raw-memory-floating-views) |

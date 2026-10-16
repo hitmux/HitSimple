@@ -217,21 +217,32 @@ std::optional<std::uint64_t> parseDecimalInteger(std::string_view text) {
   return literal::parseUnsignedIntegerLiteral(text);
 }
 
-std::optional<std::size_t> integerLiteralArgument(const ast::CallExpr &call,
-                                                  std::size_t index) {
-  if (index >= call.arguments.size()) {
-    return std::nullopt;
+std::optional<std::size_t> staticByteCount(const hir::Expr &expression) {
+  if (const auto *integer = dynamic_cast<const hir::IntegerLiteral *>(&expression)) {
+    const auto value = literal::parseUnsignedIntegerLiteral(integer->value);
+    if (value && *value <= std::numeric_limits<std::size_t>::max()) {
+      return static_cast<std::size_t>(*value);
+    }
   }
-  const auto *integer =
-      dynamic_cast<const ast::IntegerLiteral *>(call.arguments[index].get());
-  if (integer == nullptr) {
-    return std::nullopt;
+  if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression);
+      call != nullptr && call->builtin == stdlib::BuiltinId::Length &&
+      call->arguments.size() == 1U &&
+      call->arguments.front()->result.lengthKind == hir::ViewLengthKind::Static) {
+    return call->arguments.front()->result.staticByteLength;
   }
-  const auto value = parseDecimalInteger(integer->value);
-  if (!value) {
-    return std::nullopt;
+  return std::nullopt;
+}
+
+bool isKnownEmptyView(const hir::Expr &expression) {
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    return isKnownEmptyView(*view->operand);
   }
-  return static_cast<std::size_t>(*value);
+  if (const auto *dynamic = dynamic_cast<const hir::DynamicByteViewExpr *>(&expression)) {
+    return dynamic->operation == hir::DynamicByteViewOperation::ResizeBytes
+               ? dynamic->runtimeLength && staticByteCount(*dynamic->runtimeLength) == 0
+               : isKnownEmptyView(*dynamic->source);
+  }
+  return false;
 }
 
 bool exceedsExpressionDepth(const ast::Expr &root, std::size_t maximumDepth) {
@@ -409,56 +420,44 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
   }
 
   if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression)) {
-    std::unique_ptr<hir::Expr> operand;
-    std::optional<std::size_t> byteLength;
-    if (dynamic_cast<const ast::TernaryExpr *>(asExpr->operand.get()) != nullptr) {
-      // A ternary's common View length belongs to its validated HIR. Analyze
-      // both branches once before using it; AST-only inference also serves
-      // consumers that do not otherwise validate their argument expressions.
-      operand = analyze(*asExpr->operand);
-      if (!operand) {
-        return nullptr;
-      }
-      if (operand->result.lengthKind == hir::ViewLengthKind::Static) {
-        byteLength = operand->result.staticByteLength;
-      }
-    } else {
-      byteLength = inferByteLength(*asExpr->operand);
-    }
-    if (!byteLength || *byteLength == 0) {
-      addDiagnostic(
-          "expression template view requires a fixed positive byte length");
+    // Validate the operand once; its HIR owns length and lvalue semantics.
+    auto operand = analyze(*asExpr->operand);
+    if (!operand) {
       return nullptr;
     }
+    const auto templateLength = templateByteLength(asExpr->templateName);
     if (asExpr->templateName != "none" && asExpr->templateName != "bytes" &&
-        asExpr->templateName != "cstr") {
-      const auto templateLength = templateByteLength(asExpr->templateName);
-      if (!templateLength) {
-        addDiagnostic("unknown template '" + asExpr->templateName + "'");
-        return nullptr;
-      }
-      if (*templateLength != *byteLength) {
+        asExpr->templateName != "cstr" && !templateLength) {
+      addDiagnostic("unknown template '" + asExpr->templateName + "'");
+      return nullptr;
+    }
+    if (isKnownEmptyView(*operand) && asExpr->templateName != "none") {
+      addDiagnostic("expression template view requires a fixed positive byte length");
+      return nullptr;
+    }
+    auto result = fixedResult(asExpr->templateName, 0,
+                              operand->result.isAddressable,
+                              operand->result.isMutableLValue);
+    if (operand->result.lengthKind == hir::ViewLengthKind::Static) {
+      const auto byteLength = operand->result.staticByteLength;
+      if (byteLength == 0 || (templateLength && *templateLength != byteLength)) {
         addDiagnostic(
             "expression template view byte length does not match template '" +
             asExpr->templateName + "'");
         return nullptr;
       }
+      result.staticByteLength = byteLength;
+    } else if (templateLength) {
+      // A fixed interpretation asserts a runtime extent. Codegen checks that
+      // extent when forming the interpreted View, even for length(as ...).
+      result.staticByteLength = *templateLength;
+    } else {
+      result.lengthKind = hir::ViewLengthKind::Dynamic;
     }
-
-    if (!operand) {
-      operand = analyze(*asExpr->operand);
-    }
-    if (!operand) {
-      return nullptr;
-    }
-    const bool isAddressable =
-        dynamic_cast<const hir::VariableRef *>(operand.get()) != nullptr ||
-        dynamic_cast<const hir::DerefExpr *>(operand.get()) != nullptr ||
-        dynamic_cast<const hir::TemplateViewExpr *>(operand.get()) != nullptr;
+    const bool isAddressable = result.isAddressable;
     return std::make_unique<hir::TemplateViewExpr>(
         std::move(operand), asExpr->templateName, isAddressable,
-        fixedResult(asExpr->templateName, *byteLength, isAddressable,
-                    isAddressable));
+        std::move(result));
   }
 
   if (const auto *string =
@@ -521,12 +520,11 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       }
     };
     if (const auto found = functions_.find(call->callee);
-        found != functions_.end() &&
+        found != functions_.end() && builtin != stdlib::BuiltinId::Length &&
         !validateHandleCallArguments(*call, found->second)) {
       return nullptr;
     }
-    if (builtin == stdlib::BuiltinId::Length ||
-        builtin == stdlib::BuiltinId::ResizeBytes ||
+    if (builtin == stdlib::BuiltinId::ResizeBytes ||
         builtin == stdlib::BuiltinId::ByteSwap ||
         (builtin && isStandardConversion(*builtin))) {
       for (const auto &argument : call->arguments) {
@@ -638,13 +636,16 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic("length expects 1 argument");
         return nullptr;
       }
-      const auto length = inferByteLength(*call->arguments[0]);
-      if (!length) {
-        addDiagnostic("length argument has no known byte length");
+      auto operand = analyze(*call->arguments[0]);
+      if (!operand) {
         return nullptr;
       }
-      return std::make_unique<hir::IntegerLiteral>(std::to_string(*length),
-                                                   fixedResult("u64", pointerByteLength()));
+      std::vector<std::unique_ptr<hir::Expr>> arguments;
+      arguments.push_back(std::move(operand));
+      // Keep evaluation in HIR even when the extent is statically known.
+      return std::make_unique<hir::CallExpr>(
+          call->callee, std::move(arguments), false, *builtin,
+          std::vector<hir::FormatArgKind>{}, 0, "u64", fixedResult("u64", 8));
     }
     if (builtin == stdlib::BuiltinId::Calloc && call->arguments.size() == 2U) {
       std::vector<std::unique_ptr<hir::Expr>> arguments;
@@ -671,7 +672,6 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic(call->callee + " expects 2 arguments");
         return nullptr;
       }
-      const auto resultLength = integerLiteralArgument(*call, 1);
       auto operand = analyze(*call->arguments[0]);
       if (!operand) {
         return nullptr;
@@ -686,8 +686,11 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         addDiagnostic(call->callee + " length must be a pointer-sized integer");
         return nullptr;
       }
-      if (resultLength && (*resultLength == 1 || *resultLength == 2 ||
-                           *resultLength == 4 || *resultLength == 8)) {
+      const auto resultLength = staticByteCount(*length);
+      if (resultLength &&
+          dynamic_cast<const hir::IntegerLiteral *>(length.get()) != nullptr &&
+          (*resultLength == 1 || *resultLength == 2 ||
+           *resultLength == 4 || *resultLength == 8)) {
         std::vector<std::unique_ptr<hir::Expr>> arguments;
         arguments.push_back(std::move(operand));
         arguments.push_back(std::move(length));
@@ -699,7 +702,10 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       }
       return std::make_unique<hir::DynamicByteViewExpr>(
           hir::DynamicByteViewOperation::ResizeBytes, std::move(operand),
-          std::move(length), dynamicBytesResult());
+          std::move(length),
+          resultLength && *resultLength != 0
+              ? fixedResult("bytes", *resultLength)
+              : dynamicBytesResult());
     }
     if (builtin == stdlib::BuiltinId::ByteSwap) {
       if (call->arguments.size() != 1U) {
@@ -710,13 +716,16 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       if (!operand) {
         return nullptr;
       }
-      const auto length = integerExpressionByteLength(*operand);
+      const auto length = operand->result.lengthKind == hir::ViewLengthKind::Static
+                              ? std::optional<std::size_t>{operand->result.staticByteLength}
+                              : std::nullopt;
       if (!length) {
         return std::make_unique<hir::DynamicByteViewExpr>(
             hir::DynamicByteViewOperation::ByteSwap, std::move(operand),
             nullptr, dynamicBytesResult());
       }
-      if (*length == 1 || *length == 2 || *length == 4 || *length == 8) {
+      if (isIntegerExpression(*operand) &&
+          (*length == 1 || *length == 2 || *length == 4 || *length == 8)) {
         std::vector<std::unique_ptr<hir::Expr>> arguments;
         arguments.push_back(std::move(operand));
         return std::make_unique<hir::CallExpr>(
@@ -890,23 +899,15 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         return nullptr;
       }
       const auto targetLength = *floatConversionByteLength(*builtin);
-      const auto sourceLength = inferByteLength(*call->arguments[0]);
-      if (!sourceLength) {
-        addDiagnostic(call->callee + " argument has no known byte length");
-        return nullptr;
-      }
-      const auto sourceTemplate = operatorTemplateName(*call->arguments[0]);
-      const bool sourceIsFloating =
-          dynamic_cast<const ast::FloatLiteral *>(call->arguments[0].get()) !=
-              nullptr ||
-          (sourceTemplate && isFloatTemplate(*sourceTemplate));
-      std::unique_ptr<hir::Expr> operand =
-          sourceIsFloating
-              ? analyzeFloatOperand(*call->arguments[0], *sourceLength)
-              : analyze(*call->arguments[0]);
+      auto operand = analyze(*call->arguments[0]);
       if (!operand) {
         return nullptr;
       }
+      if (operand->result.lengthKind != hir::ViewLengthKind::Static) {
+        addDiagnostic(call->callee + " argument has no known byte length");
+        return nullptr;
+      }
+      const bool sourceIsFloating = hir::isFloatingNumeric(operand->result);
       if (!sourceIsFloating && !isIntegerExpression(*operand)) {
         addDiagnostic(call->callee +
                       " data must be an integer or floating expression");
@@ -930,35 +931,26 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         return nullptr;
       }
       const auto conversion = *integerConversion(*builtin);
-      const auto sourceLength = inferByteLength(*call->arguments[0]);
-      if (!sourceLength) {
+      auto operand = analyze(*call->arguments[0]);
+      if (!operand) {
+        return nullptr;
+      }
+      if (operand->result.lengthKind != hir::ViewLengthKind::Static) {
         addDiagnostic(call->callee + " argument has no known byte length");
         return nullptr;
       }
-      const auto sourceTemplate = operatorTemplateName(*call->arguments[0]);
-      const bool sourceIsFloating =
-          dynamic_cast<const ast::FloatLiteral *>(call->arguments[0].get()) !=
-              nullptr ||
-          (sourceTemplate && isFloatTemplate(*sourceTemplate));
-      if (sourceIsFloating) {
-        if (!isLoweredFloatByteLength(*sourceLength)) {
+      const auto sourceLength = operand->result.staticByteLength;
+      if (hir::isFloatingNumeric(operand->result)) {
+        if (!isLoweredFloatByteLength(sourceLength)) {
           addDiagnostic(call->callee +
                         " requires an f16, f32, f64, or f128 input");
           return nullptr;
         }
-        auto operand = analyzeFloatOperand(*call->arguments[0], *sourceLength);
-        if (!operand) {
-          return nullptr;
-        }
         return std::make_unique<hir::ToIntExpr>(
-            std::move(operand), *sourceLength, conversion.isUnsigned,
+            std::move(operand), sourceLength, conversion.isUnsigned,
             fixedResult(std::string(conversion.isUnsigned ? "u" : "i") +
                             std::to_string(conversion.byteLength * 8U),
                         conversion.byteLength));
-      }
-      auto operand = analyze(*call->arguments[0]);
-      if (!operand) {
-        return nullptr;
       }
       if (!isIntegerExpression(*operand)) {
         addDiagnostic(call->callee +
@@ -1689,6 +1681,11 @@ Analyzer::analyze(const ast::TernaryExpr &expression) {
   }
   auto elseExpr = analyze(*expression.elseExpr);
   if (!elseExpr) {
+    return nullptr;
+  }
+  if (thenExpr->result.lengthKind != hir::ViewLengthKind::Static ||
+      elseExpr->result.lengthKind != hir::ViewLengthKind::Static) {
+    addDiagnostic("ternary requires a fixed positive byte length");
     return nullptr;
   }
   const auto sameBranchView = [](const hir::ViewSemantics &left,

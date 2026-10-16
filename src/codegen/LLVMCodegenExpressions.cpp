@@ -1242,7 +1242,22 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
   };
 
   if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    return emitViewValue(*view->operand);
+    auto value = emitViewValue(*view->operand);
+    if (value.length != nullptr &&
+        view->operand->result.lengthKind == hir::ViewLengthKind::Dynamic &&
+        view->result.lengthKind == hir::ViewLengthKind::Static) {
+      if (hasRuntimeSafetyChecks()) {
+        (void)emitCheckedRuntimeCall(
+            declareCheckViewLength(),
+            {value.length, builder_.getInt64(view->result.staticByteLength)});
+      }
+      value.staticLength = view->result.staticByteLength;
+    } else if (value.length != nullptr && hasRuntimeSafetyChecks() &&
+               view->result.lengthKind == hir::ViewLengthKind::Dynamic &&
+               (view->templateName == "bytes" || view->templateName == "cstr")) {
+      (void)emitCheckedRuntimeCall(declareCheckViewNonempty(), {value.length});
+    }
+    return value;
   }
 
   if (const auto *assignment =
@@ -1397,14 +1412,10 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
                                                resultLength, "view.copy.length");
       builder_.CreateMemCpy(result, llvm::Align(1), source.data, llvm::Align(1),
                             copyLength);
-      std::optional<std::size_t> staticLength;
-      if (const auto *literal = dynamic_cast<const hir::IntegerLiteral *>(
-              dynamic->runtimeLength.get())) {
-        const auto parsed = literal::parseUnsignedIntegerLiteral(literal->value);
-        if (parsed && *parsed <= std::numeric_limits<std::size_t>::max()) {
-          staticLength = static_cast<std::size_t>(*parsed);
-        }
-      }
+      const auto staticLength =
+          dynamic->result.lengthKind == hir::ViewLengthKind::Static
+              ? std::optional<std::size_t>{dynamic->result.staticByteLength}
+              : std::nullopt;
       return ViewValue{result, resultLength, staticLength, std::size_t{1}};
     }
 
@@ -1666,6 +1677,13 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     auto *result = emitCheckedRuntimeCall(callee, {address, value, length},
                                           "memset.ptr");
     return builder_.CreatePtrToInt(result, i64Ty, "memset.addr");
+  }
+  if (builtin == stdlib::BuiltinId::Length) {
+    if (call.arguments.size() != 1U) {
+      addDiagnostic("length HIR requires one View operand");
+      return nullptr;
+    }
+    return emitViewValue(*call.arguments.front()).length;
   }
   if (builtin == stdlib::BuiltinId::Put) {
     auto source = emitViewValue(*call.arguments[0]);

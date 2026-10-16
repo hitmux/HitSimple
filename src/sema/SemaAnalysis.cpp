@@ -16,6 +16,8 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
   scopes_.clear();
   bindingCounts_.clear();
   functions_.clear();
+  pendingGlobals_.clear();
+  resolvingGlobals_.clear();
   globals_.clear();
   currentFunction_ = nullptr;
   currentParameters_.clear();
@@ -52,64 +54,16 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     return std::move(result_);
   }
 
+  // Collect names and callable contracts before inspecting initializers.
+  // Inferred global lengths are resolved lazily, so forward global references
+  // use the same validated expression semantics as ordinary declarations.
   for (const auto *globalNew : unit.globalNews) {
     CurrentRangeGuard rangeGuard(*this, *globalNew);
-    if (!registerTopLevelName(globalNew->name)) {
-      continue;
+    if (registerTopLevelName(globalNew->name)) {
+      pendingGlobals_.emplace(globalNew->name, globalNew);
     }
-    if (globalNew->templateName == "none") {
-      addDiagnostic("declaration template for '" + globalNew->name +
-                    "' cannot be none");
-      continue;
-    }
-
-    std::string templateName = globalNew->templateName;
-    if (templateName.empty() && globalNew->initializer &&
-        isHandleExpression(*globalNew->initializer)) {
-      templateName = "handle";
-    }
-    if (templateName.empty() && globalNew->initializer) {
-      const auto initializerTemplate =
-          operatorTemplateName(*globalNew->initializer);
-      if (initializerTemplate && *initializerTemplate == "addr") {
-        templateName = "addr";
-      }
-    }
-
-    std::size_t length = 0;
-    if (!globalNew->length.empty()) {
-      const auto parsedLength =
-          parseDeclaredLength(globalNew->length, templateName);
-      if (!parsedLength) {
-        continue;
-      }
-      length = *parsedLength;
-    } else if (!templateName.empty()) {
-      const auto inferred = templateByteLength(templateName);
-      if (inferred) {
-        length = *inferred;
-      }
-    }
-    if (length == 0 && globalNew->initializer) {
-      const auto inferred = inferByteLength(*globalNew->initializer);
-      if (inferred) {
-        length = *inferred;
-      }
-    }
-    if (length == 0) {
-      addDiagnostic("invalid byte length for '" + globalNew->name + "'");
-      continue;
-    }
-
-    Symbol symbol;
-    if (!declare(globalNew->name, length, hir::MemoryStorage::Global,
-                 std::move(templateName), symbol)) {
-      addDiagnostic("duplicate declaration '" + globalNew->name + "'",
-                    currentScopeDeclarationRange(globalNew->name));
-      continue;
-    }
-    globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength);
   }
+  (void)collectFunctionSignatures(unit, externFunctions);
   for (const auto *externVariable : unit.externVariables) {
     CurrentRangeGuard rangeGuard(*this, *externVariable);
     if (!registerTopLevelName(externVariable->name)) {
@@ -150,7 +104,21 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
     globals_.emplace_back(symbol.name, symbol.bindingName, symbol.byteLength,
                           true);
   }
-  (void)collectFunctionSignatures(unit, externFunctions);
+  for (const auto *globalNew : unit.globalNews) {
+    (void)lookup(globalNew->name);
+  }
+  if (!result_.diagnostics.empty()) {
+    return std::move(result_);
+  }
+  // Keep storage order and runtime initializer order source based even when
+  // resolving an extent required visiting a later declaration first.
+  for (const auto *globalNew : unit.globalNews) {
+    const auto *symbol = lookup(globalNew->name);
+    if (symbol != nullptr) {
+      globals_.emplace_back(symbol->name, symbol->bindingName,
+                            symbol->byteLength);
+    }
+  }
 
   if (!result_.diagnostics.empty()) {
     return std::move(result_);
@@ -188,6 +156,101 @@ AnalyzeResult Analyzer::analyze(const ast::TranslationUnit &unit,
                              std::make_move_iterator(hirDiagnostics.begin()),
                              std::make_move_iterator(hirDiagnostics.end()));
   return std::move(result_);
+}
+
+bool Analyzer::declareGlobal(const ast::GlobalNewDecl &declaration) {
+  CurrentRangeGuard rangeGuard(*this, declaration);
+  if (!resolvingGlobals_.insert(declaration.name).second) {
+    addDiagnostic("cyclic global byte-length inference for '" +
+                  declaration.name + "'");
+    return false;
+  }
+  // Remove a failed declaration too, so another reference does not repeat
+  // the same recursive analysis and diagnostics.
+  const auto finish = [this, &declaration](bool succeeded) {
+    resolvingGlobals_.erase(declaration.name);
+    pendingGlobals_.erase(declaration.name);
+    return succeeded;
+  };
+  if (declaration.templateName == "none") {
+    addDiagnostic("declaration template for '" + declaration.name +
+                  "' cannot be none");
+    return finish(false);
+  }
+  std::string templateName = declaration.templateName;
+  std::size_t length = 0;
+  if (!declaration.length.empty()) {
+    const auto explicitLength =
+        parseDeclaredLength(declaration.length, templateName);
+    if (!explicitLength) {
+      return finish(false);
+    }
+    length = *explicitLength;
+  } else if (const auto fixedLength = templateByteLength(templateName)) {
+    length = *fixedLength;
+  }
+  Symbol symbol;
+  bool reserved = false;
+  const auto provisionalLength = length == 0 && declaration.initializer
+                                     ? initializerResultContract(*declaration.initializer)
+                                     : std::nullopt;
+  if (provisionalLength) {
+    reserved = declare(declaration.name, *provisionalLength,
+                       hir::MemoryStorage::Global, templateName, symbol);
+    if (!reserved) {
+      addDiagnostic("duplicate declaration '" + declaration.name + "'");
+      return finish(false);
+    }
+  }
+  if (length == 0 && declaration.initializer) {
+    // Extent resolution is not execution. Restore assignment/address facts;
+    // global initializer lowering will revisit the expression in source order.
+    const auto savedFacts = addressFacts_;
+    auto initializer = analyze(*declaration.initializer);
+    addressFacts_ = savedFacts;
+    if (!initializer) {
+      return finish(false);
+    }
+    if (initializer->result.lengthKind == hir::ViewLengthKind::Static) {
+      length = initializer->result.staticByteLength;
+    }
+    if (provisionalLength && length != *provisionalLength) {
+      addDiagnostic("initializer View length does not match its fixed result contract");
+      return finish(false);
+    }
+    if (templateName.empty() &&
+        (initializer->result.category == hir::ViewCategory::Address ||
+         initializer->result.category == hir::ViewCategory::Handle)) {
+      templateName = initializer->result.templateName;
+    }
+  }
+  if (length == 0) {
+    addDiagnostic("invalid byte length for '" + declaration.name + "'");
+    return finish(false);
+  }
+  if (!reserved && !declare(declaration.name, length, hir::MemoryStorage::Global,
+                            templateName, symbol)) {
+    addDiagnostic("duplicate declaration '" + declaration.name + "'",
+                  currentScopeDeclarationRange(declaration.name));
+    return finish(false);
+  }
+  if (reserved) {
+    auto &declared = scopes_.front().at(declaration.name);
+    declared.templateName = templateName;
+    symbol = declared;
+  }
+  finish(true);
+  // Preserve the existing address/handle initializer inference for an
+  // explicitly sized name, after making its own storage available to lookup.
+  if (symbol.templateName.empty() && declaration.initializer) {
+    auto *declared = lookup(declaration.name);
+    if (isHandleExpression(*declaration.initializer)) {
+      declared->templateName = "handle";
+    } else if (operatorTemplateName(*declaration.initializer) == "addr") {
+      declared->templateName = "addr";
+    }
+  }
+  return true;
 }
 
 std::unique_ptr<hir::Block>

@@ -797,6 +797,18 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
     }
     return;
   }
+  if (const auto *view =
+          dynamic_cast<const hir::DynamicByteViewExpr *>(&expression)) {
+    validateSafety(*view->source);
+    if (view->runtimeLength) {
+      validateSafety(*view->runtimeLength);
+    }
+    return;
+  }
+  if (const auto *swap = dynamic_cast<const hir::ByteSwapExpr *>(&expression)) {
+    validateSafety(*swap->source);
+    return;
+  }
   if (const auto *assignment =
           dynamic_cast<const hir::AssignmentExpr *>(&expression)) {
     for (const auto &store : assignment->stores) {

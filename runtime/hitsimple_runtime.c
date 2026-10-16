@@ -413,6 +413,12 @@ void hs_check_store(void *ptr, uint64_t size) {
   hs_check(ptr, size, "invalid checked store");
 }
 
+void hs_check_view_nonempty(uint64_t actual) {
+  if (actual == 0) {
+    hs_fail("temporary bytes/cstr View requires a positive length");
+  }
+}
+
 void hs_check_view_length(uint64_t actual, uint64_t expected) {
   if (actual != expected) {
     hs_fail("dynamic View length does not match fixed context");
