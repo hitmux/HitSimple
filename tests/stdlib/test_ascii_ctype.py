@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 NAMES = ("lower", "upper", "xdigit", "blank", "control", "print", "graph", "punct")
 DOCUMENT = "docs/ascii-character-extensions.md"
-MANIFEST = json.loads((ROOT / "stdlib/StandardLibraryManifest.json").read_text())
+MANIFEST = json.loads((ROOT / "stdlib/StandardLibraryManifest.json").read_text(encoding="utf-8"))
 PARSER = argparse.ArgumentParser()
 PARSER.add_argument("--manifest-tool", type=Path)
 ARGS, UNIT_ARGS = PARSER.parse_known_args()
@@ -28,7 +28,7 @@ class AsciiContractTests(unittest.TestCase):
         self.assertEqual(len(standard), 75)
         self.assertEqual([api["name"] for api in extension], ["is_" + name for name in NAMES])
         self.assertEqual(len(standard) + len(extension), len(MANIFEST["builtins"]))
-        normative_text = (ROOT / "Standard.md").read_text()
+        normative_text = (ROOT / "Standard.md").read_text(encoding="utf-8")
         for api in extension:
             self.assertEqual(api["standardSection"], "")
             self.assertEqual(api["extensionDocument"], DOCUMENT)
@@ -50,7 +50,7 @@ class AsciiContractTests(unittest.TestCase):
         graphical = lower | upper | set(b"0123456789") | punctuation
         controls = set(range(32)) | {127}
         sets = [lower, upper, hexadecimal, {9, 32}, controls, graphical | {32}, graphical, punctuation]
-        source = (ROOT / "tests/cases/run/ctype_ascii_extensions.hs").read_text()
+        source = (ROOT / "tests/cases/run/ctype_ascii_extensions.hs").read_text(encoding="utf-8")
         entries = re.findall(r"expected\[(\d+)\] %d= (\d+)", source)
         self.assertEqual([int(index) for index, _ in entries], list(range(256)))
         for index, mask in entries:
@@ -61,7 +61,7 @@ class AsciiContractTests(unittest.TestCase):
             self.assertIn("is_" + name + "(resize_bytes(value, count))", source)
 
     def test_runtime_matrix_requires_all_twelve_successes(self):
-        matrix = json.loads((ROOT / "tests/support/harness/manifests/ctype-ascii-extensions.json").read_text())
+        matrix = json.loads((ROOT / "tests/support/harness/manifests/ctype-ascii-extensions.json").read_text(encoding="utf-8"))
         self.assertEqual(matrix["suite"], "ctype-ascii-extensions")
         self.assertEqual(matrix["defaults"]["safety"], ["unchecked", "static-checked", "checked"])
         self.assertEqual(matrix["defaults"]["optimization"], ["O0", "O2"])
@@ -74,13 +74,13 @@ class AsciiContractTests(unittest.TestCase):
                 "compile": {"exit_code": 0, "stdout": "", "stderr": ""},
                 "run": {"exit_code": 0, "stdout": "", "stderr": ""},
             })
-        cmake = (ROOT / "CMakeLists.txt").read_text()
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn("NAME hsc_ctype_ascii_extensions", cmake)
         self.assertIn("--suite ctype-ascii-extensions\n      --differential\n      --safety-mode", cmake)
         self.assertIn("add_hsc_shell_test(hsc_installed_ascii_extensions", cmake)
 
     def test_extensions_are_in_selective_native_platform_gates(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         for start, end in (
             ("      - name: Run aarch64 front-end and executable regression", "      - name: Verify native preprocessor macro"),
             ("      - name: Run portable Windows CTest cases", "      - name: Assemble full and slim packages"),
@@ -91,7 +91,7 @@ class AsciiContractTests(unittest.TestCase):
                 self.assertTrue(any(re.fullmatch(pattern, name) for pattern in patterns), name)
 
     def test_editor_grammar_identifies_every_extension_call(self):
-        grammar = json.loads((ROOT / "vscode/hitsimple/syntaxes/hitsimple.tmLanguage.json").read_text())
+        grammar = json.loads((ROOT / "vscode/hitsimple/syntaxes/hitsimple.tmLanguage.json").read_text(encoding="utf-8"))
         def patterns(value):
             if isinstance(value, dict):
                 if "match" in value and "is_digit" in value["match"]:
@@ -124,23 +124,23 @@ class ManifestGenerationTests(unittest.TestCase):
         for relative in paths:
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("fixture\n")
+            path.write_text("fixture\n", encoding="utf-8")
         (self.root / "stdlib").mkdir()
         self.extension = next(api for api in self.manifest["builtins"] if api["name"] == "is_lower")
 
     def generate(self):
         manifest = self.root / "stdlib/manifest.json"
-        manifest.write_text(json.dumps(self.manifest))
+        manifest.write_text(json.dumps(self.manifest), encoding="utf-8")
         return subprocess.run([str(ARGS.manifest_tool.resolve()), "--manifest", str(manifest),
                                "--cpp-out", str(self.root / "generated.cpp"),
                                "--headers-out-dir", str(self.root / "headers")],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, encoding="utf-8", timeout=30)
 
     def test_valid_manifest_generates_all_extension_declarations_and_metadata(self):
         result = self.generate()
         self.assertEqual(result.returncode, 0, result.stderr)
-        header = (self.root / "headers/ctype.hsh").read_text()
-        generated = (self.root / "generated.cpp").read_text()
+        header = (self.root / "headers/ctype.hsh").read_text(encoding="utf-8")
+        generated = (self.root / "generated.cpp").read_text(encoding="utf-8")
         self.assertEqual(header.count("// Optional extension; see " + DOCUMENT), 8)
         for name in NAMES:
             self.assertIn("extern is_" + name + "(ch as u8) -> bool", header)
@@ -151,7 +151,7 @@ class ManifestGenerationTests(unittest.TestCase):
         self.manifest["builtins"] = [api for api in self.manifest["builtins"] if api["standardSection"]]
         result = self.generate()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("Optional extension", (self.root / "headers/ctype.hsh").read_text())
+        self.assertNotIn("Optional extension", (self.root / "headers/ctype.hsh").read_text(encoding="utf-8"))
 
     def test_conflicting_normative_attribution_is_rejected(self):
         self.extension["standardSection"] = "14.7"
