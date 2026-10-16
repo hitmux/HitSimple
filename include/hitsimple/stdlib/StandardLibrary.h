@@ -84,6 +84,14 @@ enum class BuiltinId : std::uint8_t {
   IsAlpha,
   IsAlnum,
   IsSpace,
+  IsLower,
+  IsUpper,
+  IsXdigit,
+  IsBlank,
+  IsControl,
+  IsPrint,
+  IsGraph,
+  IsPunct,
   ToUpper,
   ToLower,
   Srand,
@@ -214,6 +222,8 @@ struct BuiltinSpec final {
   std::span<const std::string_view> checkedObligations;
   std::span<const std::string_view> testOwners;
   std::string_view headerDeclaration;
+  // Exactly one of standardSection and extensionDocument is nonempty.
+  std::string_view extensionDocument;
 };
 
 struct SourceModuleSpec final {

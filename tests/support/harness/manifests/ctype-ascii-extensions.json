@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "suite": "ctype-ascii-extensions",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 120
+  },
+  "tests": [
+    {
+      "name": "optimized",
+      "source": "../../../cases/run/ctype_ascii_extensions.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    },
+    {
+      "name": "reference",
+      "source": "../../../cases/run/ctype_ascii_extensions.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect": {
+        "compile": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        "run": {
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    }
+  ]
+}

@@ -3536,6 +3536,382 @@
       "headerDeclaration": "extern is_space(ch as u8) -> bool"
     },
     {
+      "id": "IsLower",
+      "name": "is_lower",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_lower",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_lower(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsUpper",
+      "name": "is_upper",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_upper",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_upper(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsXdigit",
+      "name": "is_xdigit",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_xdigit",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_xdigit(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsBlank",
+      "name": "is_blank",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_blank",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_blank(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsControl",
+      "name": "is_control",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_control",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_control(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsPrint",
+      "name": "is_print",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_print",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_print(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsGraph",
+      "name": "is_graph",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_graph",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_graph(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
+      "id": "IsPunct",
+      "name": "is_punct",
+      "visibility": "Public",
+      "standardSection": "",
+      "header": "Ctype",
+      "parameters": [
+        [
+          "View",
+          "Bytes4",
+          ""
+        ]
+      ],
+      "results": [
+        [
+          "Bool",
+          "Bytes1",
+          "bool"
+        ]
+      ],
+      "overloads": [
+        [
+          [
+            "View"
+          ],
+          [
+            "Bool"
+          ]
+        ]
+      ],
+      "returnMode": "Fixed",
+      "provider": "Intrinsic",
+      "referenceProvider": "CoreHs",
+      "sourceModule": "Ctype",
+      "implementationSymbol": "__hs_stdlib_ctype_is_punct",
+      "staticDiagnostics": [
+        "header_required",
+        "official_signature"
+      ],
+      "checkedObligations": [],
+      "headerDeclaration": "extern is_punct(ch as u8) -> bool",
+      "extensionDocument": "docs/ascii-character-extensions.md",
+      "testOwners": [
+        "tests/stdlib/StandardLibraryTests.cpp",
+        "tests/cases/run/ctype_ascii_extensions.hs"
+      ]
+    },
+    {
       "id": "ToUpper",
       "name": "to_upper",
       "visibility": "Public",

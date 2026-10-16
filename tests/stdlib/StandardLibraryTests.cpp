@@ -56,7 +56,8 @@ HS_TEST(StandardLibraryManifest_CoversEveryBuiltinWithTypedContract) {
     HS_EXPECT_TRUE(spec != nullptr);
     HS_EXPECT_EQ(spec->visibility, hitsimple::stdlib::BuiltinVisibility::Public);
     HS_EXPECT_TRUE(!spec->name.empty());
-    HS_EXPECT_TRUE(!spec->standardSection.empty());
+    HS_EXPECT_TRUE(spec->standardSection.empty() !=
+                   spec->extensionDocument.empty());
     HS_EXPECT_TRUE(!spec->headerDeclaration.empty());
     HS_EXPECT_TRUE(!spec->overloads.empty());
     HS_EXPECT_TRUE(spec->provider != hitsimple::stdlib::BuiltinProvider::None);
@@ -101,6 +102,14 @@ HS_TEST(StandardLibraryManifest_RegistersCoreHsSourceModules) {
                         hitsimple::stdlib::BuiltinId::IsAlpha,
                         hitsimple::stdlib::BuiltinId::IsAlnum,
                         hitsimple::stdlib::BuiltinId::IsSpace,
+                        hitsimple::stdlib::BuiltinId::IsLower,
+                        hitsimple::stdlib::BuiltinId::IsUpper,
+                        hitsimple::stdlib::BuiltinId::IsXdigit,
+                        hitsimple::stdlib::BuiltinId::IsBlank,
+                        hitsimple::stdlib::BuiltinId::IsControl,
+                        hitsimple::stdlib::BuiltinId::IsPrint,
+                        hitsimple::stdlib::BuiltinId::IsGraph,
+                        hitsimple::stdlib::BuiltinId::IsPunct,
                         hitsimple::stdlib::BuiltinId::ToUpper,
                         hitsimple::stdlib::BuiltinId::ToLower}) {
     const auto* spec = hitsimple::stdlib::findBuiltin(id);
@@ -114,4 +123,32 @@ HS_TEST(StandardLibraryManifest_RegistersCoreHsSourceModules) {
   }
   HS_EXPECT_TRUE(!hitsimple::stdlib::isStandardLibraryImplementationSymbol(
       "not_a_standard_library_symbol"));
+}
+
+HS_TEST(StandardLibraryManifest_DistinguishesOptionalAsciiExtensions) {
+  std::size_t standards = 0;
+  std::size_t extensions = 0;
+  for (const auto &spec : hitsimple::stdlib::builtinSpecs()) {
+    if (spec.extensionDocument.empty()) { ++standards; }
+    else { ++extensions; HS_EXPECT_TRUE(spec.standardSection.empty()); }
+  }
+  HS_EXPECT_EQ(standards, 75U);
+  HS_EXPECT_EQ(extensions, 8U);
+  for (const auto name : {"is_lower", "is_upper", "is_xdigit", "is_blank",
+                          "is_control", "is_print", "is_graph", "is_punct"}) {
+    const auto *spec = hitsimple::stdlib::findBuiltin(name);
+    HS_EXPECT_TRUE(spec != nullptr);
+    HS_EXPECT_TRUE(spec->standardSection.empty());
+    HS_EXPECT_EQ(spec->extensionDocument,
+                 std::string_view("docs/ascii-character-extensions.md"));
+    HS_EXPECT_EQ(spec->header, hitsimple::stdlib::StandardHeader::Ctype);
+    HS_EXPECT_EQ(spec->parameters.size(), 1U);
+    HS_EXPECT_EQ(spec->parameters[0].mode,
+                 hitsimple::stdlib::BuiltinParameterMode::View);
+    HS_EXPECT_EQ(spec->results.size(), 1U);
+    HS_EXPECT_EQ(spec->results[0].mode,
+                 hitsimple::stdlib::BuiltinParameterMode::Bool);
+    HS_EXPECT_EQ(spec->results[0].bootstrapType,
+                 hitsimple::stdlib::BuiltinBootstrapType::Bytes1);
+  }
 }

@@ -198,25 +198,41 @@ def build(root: Path) -> tuple[dict, dict]:
         entry["mapping_status"] = "inspected" if entry["witnesses"] else "unmapped"
     headers = {entry["id"]: entry["file"] for entry in manifest["headers"]}
     apis = []
+    extensions = []
     api_names: set[str] = set()
     for api in manifest["builtins"]:
         require(api["name"] not in api_names, f"duplicate API: {api['name']}")
         api_names.add(api["name"])
-        require(api["standardSection"] in section_ids, f"unknown API section: {api['name']}")
+        extension = api.get("extensionDocument", "")
+        require(isinstance(extension, str), f"invalid extension document: {api['name']}")
+        require(bool(api["standardSection"]) != bool(extension),
+                f"API must declare exactly one Standard section or extension document: {api['name']}")
+        if extension:
+            require(extension.startswith("docs/") and extension.endswith(".md"),
+                    f"invalid extension document: {api['name']}")
+            source(root, extension)
+            inputs.add(extension)
+        else:
+            require(api["standardSection"] in section_ids, f"unknown API section: {api['name']}")
         owners = api.get("testOwners") or manifest.get("defaultTestOwners", [])
         for owner in owners:
             source(root, owner)
             inputs.add(owner)
-        apis.append({"id": api.get("id", api["name"]), "name": api["name"], "visibility": api["visibility"],
+        entry = {"id": api.get("id", api["name"]), "name": api["name"], "visibility": api["visibility"],
                      "section": api["standardSection"], "header": headers[api["header"]],
                      "provider": api["provider"], "implementation_symbol": api["implementationSymbol"],
                      "reference_provider": api.get("referenceProvider", "None"),
                      "source_module": api.get("sourceModule", ""),
                      "test_owners": owners, "owners_inherited": not bool(api.get("testOwners")),
-                     "mapping_status": "declared", "evidence_kind": "structural"})
+                     "mapping_status": "declared", "evidence_kind": "structural"}
+        if extension:
+            entry["extension_document"] = extension
+            extensions.append(entry)
+        else:
+            apis.append(entry)
     inventory = {"version": 1, "purpose": "navigation and bounded evidence, not independent requirements or conformance",
                  "inputs_sha256": {p: digest(source(root, p)) for p in sorted(inputs)},
-                 "sections": sections, "apis": apis,
+                 "sections": sections, "apis": apis, "extensions": extensions,
                  "witnesses": [{"id": w["id"], "mapping_status": "inspected",
                                 "execution_status": "not_recorded"} for w in witnesses]}
     return inventory, crosswalk
@@ -239,7 +255,8 @@ def render(inventory: dict, crosswalk: dict, root: Path) -> str:
              "- Execution is separate: every committed row is `not_recorded`. Source inspection and",
              "  a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.", "",
              f"Inventory: {len(sections)} numbered headings; {sum('.' not in s for s in sections)} chapters; "
-             f"{len(inventory['apis'])} manifest APIs; {len(crosswalk['witnesses'])} inspected witnesses.", "",
+             f"{len(inventory['apis'])} Standard APIs; {len(inventory['extensions'])} optional extension APIs; "
+             f"{len(crosswalk['witnesses'])} inspected witnesses.", "",
              "## Validate and run", "", "```sh", "python3 tools/standard_evidence.py --check",
              "python3 tests/evidence/test_standard_evidence.py",
              "python3 tools/standard_evidence.py --run-unit-witnesses build/hsc_unit_tests --results build/standard-evidence-run.json",
@@ -300,6 +317,16 @@ def render(inventory: dict, crosswalk: dict, root: Path) -> str:
                   + f" | `{api['header']}` | {api['provider']} / `{api['implementation_symbol']}` | "
                   + ", ".join(link(owner) for owner in api["test_owners"])
                   + (" (inherited)" if api["owners_inherited"] else "") + " |"]
+    if inventory["extensions"]:
+        lines += ["", "## Optional implementation extensions", "",
+                  "These APIs are outside Beta.21 and excluded from the Standard API count above.",
+                  "Their metadata is `declared` / `structural`, not a conformance claim.", "",
+                  "| API | Extension contract | Header | Provider / symbol | Test owners |",
+                  "| --- | --- | --- | --- | --- |"]
+        for api in inventory["extensions"]:
+            lines += [f"| `{api['name']}` | " + link(api["extension_document"])
+                      + f" | `{api['header']}` | {api['provider']} / `{api['implementation_symbol']}` | "
+                      + ", ".join(link(owner) for owner in api["test_owners"]) + " |"]
     return "\n".join(lines) + "\n"
 
 
@@ -350,7 +377,8 @@ def main() -> int:
                 require(source(ROOT, path).read_text(encoding="utf-8") == value,
                         f"generated file stale: {path}; run --write after reviewing changes")
         print(f"evidence {'generated' if args.write else 'validated'}: "
-              f"{len(inventory['sections'])} headings, {len(inventory['apis'])} APIs, "
+              f"{len(inventory['sections'])} headings, {len(inventory['apis'])} Standard APIs, "
+              f"{len(inventory['extensions'])} extensions, "
               f"{len(crosswalk['witnesses'])} witnesses; no execution claim")
         return 0
     except (ValueError, KeyError, TypeError, OSError) as error:

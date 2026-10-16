@@ -242,7 +242,7 @@
       "patterns": [
         {
           "name": "support.function.hitsimple",
-          "match": "\\b(?:length|alloc|calloc|realloc|free|resize_bytes|byte_swap|to_f16|to_f32|to_f64|to_f128|to_i8|to_i16|to_i32|to_i64|to_u8|to_u16|to_u32|to_u64|abs|min|max|srand|rand|exit|abort|memset|memcpy|memmove|memcmp|strlen|strcmp|strcpy|strncpy|strcat|strchr|get|put|print|printf|scanf|fopen|fclose|fget|fput|fread|fwrite|fprintf|fscanf|fflush|fseek|ftell|feof|ferror|f_abs|f_sqrt|f_pow|f_sin|f_cos|f_tan|f_log|f_exp|f_floor|f_ceil|f_round|is_digit|is_alpha|is_alnum|is_space|to_upper|to_lower|time_ms|clock_ms|assert|panic)\\b(?=\\s*\\()"
+          "match": "\\b(?:length|alloc|calloc|realloc|free|resize_bytes|byte_swap|to_f16|to_f32|to_f64|to_f128|to_i8|to_i16|to_i32|to_i64|to_u8|to_u16|to_u32|to_u64|abs|min|max|srand|rand|exit|abort|memset|memcpy|memmove|memcmp|strlen|strcmp|strcpy|strncpy|strcat|strchr|get|put|print|printf|scanf|fopen|fclose|fget|fput|fread|fwrite|fprintf|fscanf|fflush|fseek|ftell|feof|ferror|f_abs|f_sqrt|f_pow|f_sin|f_cos|f_tan|f_log|f_exp|f_floor|f_ceil|f_round|is_digit|is_alpha|is_alnum|is_space|is_lower|is_upper|is_xdigit|is_blank|is_control|is_print|is_graph|is_punct|to_upper|to_lower|time_ms|clock_ms|assert|panic)\\b(?=\\s*\\()"
         }
       ]
     },

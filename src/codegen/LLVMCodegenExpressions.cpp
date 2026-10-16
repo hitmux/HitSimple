@@ -67,7 +67,10 @@ bool isLogical(hir::BinaryOperator op) {
 bool isCharacterClassifier(stdlib::BuiltinId builtin) {
   using enum stdlib::BuiltinId;
   return builtin == IsDigit || builtin == IsAlpha || builtin == IsAlnum ||
-         builtin == IsSpace || builtin == ToUpper || builtin == ToLower;
+         builtin == IsSpace || builtin == IsLower || builtin == IsUpper ||
+         builtin == IsXdigit || builtin == IsBlank || builtin == IsControl ||
+         builtin == IsPrint || builtin == IsGraph || builtin == IsPunct ||
+         builtin == ToUpper || builtin == ToLower;
 }
 
 std::optional<llvm::Intrinsic::ID>
@@ -2063,9 +2066,9 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
           std::string(name) + ".upper");
       return builder_.CreateAnd(atLeast, atMost, std::string(name) + ".match");
     };
-    auto *isDigit = inRange(byte, '0', '9', "ctype.digit");
-    auto *isUpper = inRange(byte, 'A', 'Z', "ctype.upper");
-    auto *isLower = inRange(byte, 'a', 'z', "ctype.lower");
+    auto *isDigit = inRange(byte, 48, 57, "ctype.digit");
+    auto *isUpper = inRange(byte, 65, 90, "ctype.upper");
+    auto *isLower = inRange(byte, 97, 122, "ctype.lower");
     // The declared bool result is a canonical one-byte View. Materialize it
     // here so consumers never sign-extend an i1 true to 0xff.
     const auto boolByte = [this](llvm::Value *predicate) {
@@ -2083,10 +2086,45 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
           "ctype.alnum"));
     }
     if (builtin == stdlib::BuiltinId::IsSpace) {
-      auto *control = inRange(byte, '\t', '\r', "ctype.control_space");
+      auto *control = inRange(byte, 9, 13, "ctype.control_space");
       auto *space = builder_.CreateICmpEQ(
-          byte, llvm::ConstantInt::get(i32Ty, ' '), "ctype.space");
+          byte, llvm::ConstantInt::get(i32Ty, 32), "ctype.space");
       return boolByte(builder_.CreateOr(control, space, "ctype.is_space"));
+    }
+    if (builtin == stdlib::BuiltinId::IsLower) {
+      return boolByte(isLower);
+    }
+    if (builtin == stdlib::BuiltinId::IsUpper) {
+      return boolByte(isUpper);
+    }
+    if (builtin == stdlib::BuiltinId::IsXdigit) {
+      auto *hexUpper = inRange(byte, 65, 70, "ctype.hex_upper");
+      auto *hexLower = inRange(byte, 97, 102, "ctype.hex_lower");
+      return boolByte(builder_.CreateOr(
+          isDigit, builder_.CreateOr(hexUpper, hexLower), "ctype.xdigit"));
+    }
+    if (builtin == stdlib::BuiltinId::IsBlank) {
+      auto *tab = builder_.CreateICmpEQ(byte, builder_.getInt32(9));
+      auto *space = builder_.CreateICmpEQ(byte, builder_.getInt32(32));
+      return boolByte(builder_.CreateOr(tab, space, "ctype.blank"));
+    }
+    if (builtin == stdlib::BuiltinId::IsControl) {
+      auto *control = builder_.CreateICmpULE(byte, builder_.getInt32(31));
+      auto *del = builder_.CreateICmpEQ(byte, builder_.getInt32(127));
+      return boolByte(builder_.CreateOr(control, del, "ctype.control"));
+    }
+    if (builtin == stdlib::BuiltinId::IsPrint) {
+      return boolByte(inRange(byte, 32, 126, "ctype.print"));
+    }
+    if (builtin == stdlib::BuiltinId::IsGraph) {
+      return boolByte(inRange(byte, 33, 126, "ctype.graph"));
+    }
+    if (builtin == stdlib::BuiltinId::IsPunct) {
+      auto *graph = inRange(byte, 33, 126, "ctype.graph");
+      auto *alnum = builder_.CreateOr(
+          isDigit, builder_.CreateOr(isUpper, isLower), "ctype.alnum");
+      return boolByte(builder_.CreateAnd(
+          graph, builder_.CreateNot(alnum), "ctype.punct"));
     }
     const auto delta = builtin == stdlib::BuiltinId::ToUpper ? -32 : 32;
     auto *adjusted = builder_.CreateAdd(

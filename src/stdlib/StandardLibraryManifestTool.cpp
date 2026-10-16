@@ -37,6 +37,7 @@ struct Builtin final {
   std::string name;
   std::string visibility;
   std::string standardSection;
+  std::string extensionDocument;
   std::string header;
   std::vector<Parameter> parameters;
   std::vector<Parameter> results;
@@ -253,6 +254,8 @@ bool parseManifest(const std::filesystem::path &path, Manifest &manifest,
         !readString(*object, "name", builtin.name, error) ||
         !readString(*object, "visibility", builtin.visibility, error) ||
         !readString(*object, "standardSection", builtin.standardSection, error) ||
+        (object->get("extensionDocument") &&
+         !readString(*object, "extensionDocument", builtin.extensionDocument, error)) ||
         !readString(*object, "header", builtin.header, error) ||
         !parseParameterArray(*object, "parameters", builtin.parameters, error) ||
         !parseParameterArray(*object, "results", builtin.results, error) ||
@@ -359,10 +362,22 @@ bool validateManifest(const Manifest &manifest,
       return false;
     }
     if (builtin.visibility == "Public" &&
-        (builtin.standardSection.empty() || builtin.headerDeclaration.rfind("extern ", 0U) != 0U ||
+        (builtin.standardSection.empty() == builtin.extensionDocument.empty() ||
+         builtin.headerDeclaration.rfind("extern ", 0U) != 0U ||
          builtin.headerDeclaration.find("->") == std::string::npos)) {
-      error = "a public builtin requires a section and official extern declaration";
+      error = "a public builtin requires exactly one Standard section or extension document, and an official extern declaration";
       return false;
+    }
+    if (!builtin.extensionDocument.empty()) {
+      const std::filesystem::path path(builtin.extensionDocument);
+      if (path.is_absolute() || path.begin() == path.end() ||
+          *path.begin() != "docs" || path.extension() != ".md" ||
+          std::any_of(path.begin(), path.end(), [](const auto &component) {
+            return component == "..";
+          }) || !std::filesystem::is_regular_file(sourceRoot / path)) {
+        error = "an extension document must be an existing Markdown file below docs/";
+        return false;
+      }
     }
     std::set<std::string> testOwners;
     for (const auto &owner : builtin.testOwners) {
@@ -574,7 +589,8 @@ bool writeGeneratedCpp(const Manifest &manifest, const std::filesystem::path &pa
                                   builtin.checkedObligations.size())
         << ", " << spanExpression("std::string_view", prefix + "TestOwners",
                                   builtin.testOwners.size())
-        << ", " << quote(builtin.headerDeclaration) << "},\n";
+        << ", " << quote(builtin.headerDeclaration)
+        << ", " << quote(builtin.extensionDocument) << "},\n";
   }
   out << "}};\n\n"
       << "constexpr bool providerImplemented(BuiltinProvider provider) {\n"
@@ -712,6 +728,9 @@ bool writeHeaders(const Manifest &manifest, const std::filesystem::path &directo
         << "// " << header.summary << "\n";
     for (const auto &builtin : manifest.builtins) {
       if (builtin.visibility == "Public" && builtin.header == header.id) {
+        if (!builtin.extensionDocument.empty()) {
+          out << "// Optional extension; see " << builtin.extensionDocument << ".\n";
+        }
         out << builtin.headerDeclaration << "\n";
       }
     }

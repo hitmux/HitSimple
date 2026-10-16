@@ -523,6 +523,9 @@ install(FILES LICENSE README.md USAGE.md Standard.md
 install(FILES docs/checked-file-handles.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs
 )
+install(FILES docs/ascii-character-extensions.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs
+)
 install(FILES docs/releases/${PROJECT_VERSION}.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}/docs/releases
 )
@@ -1356,6 +1359,25 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_multi_return_assignment_diagnostics PROPERTIES
     LABELS "testing;harness;assignment;returns;diagnostic")
   add_test(
+    NAME hsc_ascii_ctype_tooling
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/stdlib/test_ascii_ctype.py
+      --manifest-tool $<TARGET_FILE:hsc_stdlib_manifest_tool>
+  )
+  set_tests_properties(hsc_ascii_ctype_tooling PROPERTIES LABELS "testing;stdlib;tooling")
+  add_test(
+    NAME hsc_ctype_ascii_extensions
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite ctype-ascii-extensions
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_ctype_ascii_extensions PROPERTIES
+    LABELS "testing;harness;stdlib;extension")
+  add_test(
     NAME hsc_ctype_view_inputs
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
@@ -1433,6 +1455,9 @@ target_link_libraries(hsc_unit_tests
   )
   add_hsc_shell_test(hsc_ctype_reference_multifile_deduplicates_module
     "$<TARGET_FILE:hsc> --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o program && ./program"
+  )
+  add_hsc_shell_test(hsc_installed_ascii_extensions
+    "${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix $PWD/install && test -f $PWD/install/${CMAKE_INSTALL_DOCDIR}/docs/ascii-character-extensions.md && $PWD/install/bin/hsc --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_ascii_extensions.hs -o reference && ./reference && $PWD/install/bin/hsc --stdlib-provider=optimized ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_ascii_extensions.hs -o optimized && ./optimized && $PWD/install/bin/hsc --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_ascii_extensions.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_punct(i32' module.ll && $PWD/install/bin/hsc --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_ascii_extensions.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Eq ' T _?__hs_stdlib_ctype_is_punct'"
   )
   add_hsc_shell_test(hsc_installed_ctype_reference_all_artifacts
     "${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix $PWD/install && $PWD/install/bin/hsc --stdlib-provider=reference ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o program && ./program && $PWD/install/bin/hsc --stdlib-provider=reference --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.ll && grep -Fq 'define i8 @__hs_stdlib_ctype_is_digit(i32' module.ll && $PWD/install/bin/hsc --stdlib-provider=reference --emit-object ${PROJECT_SOURCE_DIR}/tests/cases/run/ctype_reference.hs -o module.o && ${LLVM_NM_EXECUTABLE} module.o | grep -Eq ' T _?__hs_stdlib_ctype_is_digit' && $PWD/install/bin/hsc --stdlib-provider=reference --crate-type=staticlib ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_main.hs ${PROJECT_SOURCE_DIR}/tests/cases/run/multifile/ctype_reference_lib.hs -o libctype.a && test \"$(${LLVM_NM_EXECUTABLE} libctype.a | grep -Ec ' T _?__hs_stdlib_ctype_is_digit$')\" = 1"
