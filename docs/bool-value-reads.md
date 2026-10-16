@@ -41,15 +41,14 @@ extension to `i8`. `fclose`, `fflush`, and `ferror` retain their `i32` results.
 Generic integer casts/assignments, reinterpretation, ordinary View copies,
 and bool arithmetic/bitwise/shift diagnostics are unchanged.
 
-### Existing named-return limitation
+### Named returns
 
 The Standard distinguishes explicit return assignment from expressionless
-return of existing named storage. The compiler currently does not declare
-named return storage or accept expressionless returns for nonempty return
-signatures. This patch does not implement that separate feature or alter its
-diagnostics. A future implementation must preserve the existing storage
-bytes on expressionless return rather than normalize them again. Legacy
-omitted-signature return inference is also outside this correction.
+return of existing named storage. The separately scoped
+[named-storage implementation](named-return-storage.md) now creates those
+slots. Explicit named bool returns normalize through a bool store; bare returns
+preserve existing bytes without normalizing again. Legacy omitted-signature
+return inference and general uninitialized-byte checks remain separate work.
 
 ## Regression gates
 

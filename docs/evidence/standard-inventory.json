@@ -2,11 +2,12 @@
   "version": 1,
   "purpose": "navigation and bounded evidence, not independent requirements or conformance",
   "inputs_sha256": {
-    "CMakeLists.txt": "56de0e95ab1dfd8b6f52e998fa4d273bc248e26703873ad6e4b26783218f6d5a",
+    "CMakeLists.txt": "8983eb97c684f47e05749e667b11b64685bbb8ed094438fd0b7a8b00d24d55f8",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
-    "docs/evidence/standard-witnesses.json": "74f394dd75d014691e78ccb0a356c500ed8573ba27cd47a84cc27776ac6716ee",
+    "docs/evidence/standard-witnesses.json": "511e571de0f10ff4b4c267d348e8e388565762f74d7b062841399256c04e0ce0",
+    "docs/named-return-storage.md": "b4e2299b08cdb684709b1b4ea1145782857833a7b9858e291a90b6b96695535b",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
     "include/hitsimple/hir/HIR.h": "e5d84aed0c5cf68a792eae2235a6ca7afe754c1ce01840388ef57058df30ba18",
     "runtime/hitsimple_runtime.c": "7749dfd02823798a5959a8d96f4ba0a69ca7aebc17c759007cfb80bd5e0d9106",
@@ -15,10 +16,10 @@
     "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
     "src/hir/HIR.cpp": "3e482fd1f91f65a68d86b9f23d7e81415f589a28135adaba058b44babafa2f39",
     "src/safety/StaticSafetyValidation.cpp": "89dc6fa05f3cdd1d16353c4c681432e6b7586a9ae1600f011b8c8e77ac57d541",
-    "src/sema/SemaAnalysis.cpp": "a6ecbe193978ded2bae9467419b89440ff50a2d5f176f0e3b058ca63c1697fba",
+    "src/sema/SemaAnalysis.cpp": "b07d2e526f8231a83313a0bebed630be9a8f505dbfe2a976225d5b8c481e5433",
     "src/sema/SemaAnalysisContext.cpp": "a1a310a1214fefa2e424a1e654f992fd4c31f3ebdaa737adb68a3f118e560540",
     "src/sema/SemaExpressions.cpp": "292c4e30621dd292bc2d93005010d08c6022a587029cba87f48e9304d3460459",
-    "src/sema/SemaStatements.cpp": "0ed8fc3f85d4e2184e70439c5b7af2d5f249cec7c47338d0b4b6eccb08b76dbd",
+    "src/sema/SemaStatements.cpp": "5cab259367c87c0b44009c3406b06650dc6a497f2579360de5d8b3fbff4d5a7e",
     "stdlib/StandardLibraryManifest.json": "e82afa8bc1482541f9a477643156c7478699c4de788681e24c23d56fcd529e91",
     "stdlib/ctype.hs": "0933ff576d7f8403217bf493670acec0e6b682bcf3de195774bc42e4fe50a17f",
     "tests/cases/run/assignment_result_views.hs": "5def66249cb9c085717a94ea9bfd1e2178ebe515000b065c3e7be45788b5a47f",
@@ -31,6 +32,7 @@
     "tests/cases/run/explicit_numeric_returns.hs": "46d68f8bac525c30533a14be046348d31e90c235b945c182f82122e5fbfa71a0",
     "tests/cases/run/floating_ternary_views.hs": "845db9c3a79f1ba1f507b7a067454c15e638c67d56592fbc340c7f6e252ad16a",
     "tests/cases/run/impl_method_value_copy.hs": "a400f4cdd2ea1efd0a9d40a9873551b585b9344c80f6869d5657704aa2978c76",
+    "tests/cases/run/named_return_storage.hs": "d9c3e0d30f0522886eccbf98e250285e602fe75e7178279539e0de5409356d72",
     "tests/cases/run/none_return_views.hs": "f8ce1d0ff3793839dc17940f643fa4a26af35c4e35de16d473ef39c21083c09e",
     "tests/cases/run/p3_packed_offsets.hs": "01e1ed232075e12f5d8563107b240297466718372dd9a34abb54cf7391365a51",
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
@@ -49,10 +51,11 @@
     "tests/preprocessor/PreprocessorTests.cpp": "5e7d28f7d82acf61dd965b41d0ab7ec995002dd841bc75cae3033303548abe53",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "a09a78ce1a21944df93d9cbe564deb573ff66daab0ee13aca95c78e16502e75f",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
-    "tests/sema/SemaBoolTests.cpp": "77cd6c0c1a6d00f3cbce9730f3896630be1372ca87ad60c436d2b37262449f4b",
+    "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
     "tests/sema/SemaExpressionTests.cpp": "cd395720baf4237cab8afc9d527a561d2096622d050b60b00f41ce59cb988be2",
+    "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
     "tests/sema/SemaTryCatchTests.cpp": "9986e67c53dbf25f3ed2b205a4f0deca9ae1a26071d6550adccd1157f1ca0e20",
     "tests/stdlib/StandardLibraryTests.cpp": "40eda71d50acdb8b984013dc4de5d10926e6c6ca98b21612122d282a519cd40b",
     "tests/support/CompilationMetricsTests.cpp": "f058cc2f1f935c179272646d82a913de1770ba034a28b12a6f890c2fcb40b1a0",
@@ -66,6 +69,7 @@
     "tests/support/harness/manifests/explicit-numeric-returns.json": "15f70fa4fa2c93434a9337cca03e147a34907ee169a691d7ff769ef531e747bc",
     "tests/support/harness/manifests/file-handles.json": "284a969e3c1ee28b67416f15f8b17de29cf44d5ec402ecfd975e5e9a49faec2f",
     "tests/support/harness/manifests/floating-ternary-views.json": "6f5a89d0fb2d2d79d9de7556ae82a4c33da430c7d7503fd50a03dd4448b3d665",
+    "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
     "tests/support/harness/manifests/none-return-views.json": "b1dc6a24150a49794cf045c127a21b21d9d5f246a2c216bcc9b7cc454bdf23a6",
     "tests/support/harness/manifests/p3-host-semantics.json": "c5bf829291ac52712260877ccfcb2a46dee32f97d4f40518a8b8f3dff203ccb2",
     "tests/support/harness/manifests/raw-memory-floating-views.json": "33a4d26808dbb3e0ec527d372e04517787a3c9581ccb8472c944dc9dc1e1fcd9",
@@ -326,7 +330,8 @@
       "anchor": "44-return-signatures",
       "parent": "4",
       "witnesses": [
-        "none-return-canonical-view"
+        "none-return-canonical-view",
+        "named-return-storage"
       ],
       "mapping_status": "inspected"
     },
@@ -402,8 +407,10 @@
       "line": 396,
       "anchor": "53-new-and-static",
       "parent": "5",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "named-return-storage"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "5.4",
@@ -420,8 +427,10 @@
       "line": 431,
       "anchor": "55-scope-exit-release-rules",
       "parent": "5",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "named-return-storage"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "5.6",
@@ -1069,7 +1078,8 @@
       "witnesses": [
         "bool-value-read-boundaries",
         "explicit-numeric-return-source",
-        "none-return-canonical-view"
+        "none-return-canonical-view",
+        "named-return-storage"
       ],
       "mapping_status": "inspected"
     },
@@ -2853,6 +2863,11 @@
     },
     {
       "id": "assignment-result-view-copy",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "named-return-storage",
       "mapping_status": "inspected",
       "execution_status": "not_recorded"
     }

@@ -30,6 +30,7 @@ ctest --test-dir build -R '^hsc_none_return_views$' --output-on-failure
 cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
-This correction does not add named return-storage initialization, change the
-existing default for unannotated user-operator returns, broaden C-ABI types,
-or alter generic expression-length inference or raw-memory builtins.
+Named return storage is covered by the later, separately scoped
+[named-storage implementation](named-return-storage.md). This correction does
+not change the existing default for unannotated user-operator returns, broaden
+C-ABI types, or alter generic expression-length inference or raw-memory builtins.

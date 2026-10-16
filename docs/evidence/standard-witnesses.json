@@ -753,10 +753,104 @@
           "anchor": "# Assignment-result View copies"
         }
       ]
+    },
+    {
+      "id": "named-return-storage",
+      "sections": [
+        "4.4",
+        "5.3",
+        "5.5",
+        "12.2"
+      ],
+      "claim": "Named returns create uninitialized entry-local storage; explicit returns assign in item order, while bare returns copy the saved slots without bool renormalization or lexical-shadow rebinding.",
+      "limitation": "Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaAnalysis.cpp",
+          "anchor": "std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody("
+        },
+        {
+          "path": "src/sema/SemaStatements.cpp",
+          "anchor": "Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnsCreateEntryStorageWithoutInitialization",
+          "assertions": "Checks two correctly sized/template-bearing LocalMemory nodes precede body writes, and bare Return reads the saved slot without conversion plans."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnsAssignExplicitValuesInItemOrder",
+          "assertions": "Checks named and mixed signatures have ordered destination stores followed by Return."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnBareReadKeepsBindingAndSignature",
+          "assertions": "A nested shadow and set to u8 do not change the original bool return slot binding, length or signature."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnCopiesCStringRvalueThroughBoundedStorage",
+          "assertions": "Checks a cstr call is materialized once in an 8-byte source slot, then copied through StringCopyStore to a 4-byte named return slot."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnsRejectSameScopeCollisions",
+          "assertions": "Rejects duplicate named slots, parameter collisions and local/static redeclarations, including method/operator cases."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnsRejectAnonymousBareAndWrongCounts",
+          "assertions": "Rejects anonymous/mixed bare returns, wrong explicit counts and return-name leakage into a later function."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "Sema_NamedReturnRejectsInvalidDestinationSources",
+          "assertions": "Rejects an integer source for cstr, a mismatched bytes length and an unconverted float for none."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "LLVMCodegen_NamedReturnsDoNotInventZeroInitialization",
+          "assertions": "Inspects an unexecuted function: one alloca and no StoreInst initializes the unwritten slot."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/sema/SemaNamedReturnTests.cpp",
+          "test": "LLVMCodegen_NamedReturnsStillRequireExplicitReturn",
+          "assertions": "Named-result fallthrough still produces a missing-return diagnostic in all three safety modes."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/named-return-storage.json",
+          "ctest": "hsc_named_return_storage",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Requires views 0, scope 0, methods 0 and exit 0, covering scalar/raw return storage, all 256 bool bytes, shadowing, recursion, ordered/mixed/multiple returns, methods/operators and user assignment side effects.",
+          "limitation": "Host, both providers, three safety modes, O0/O2; all executed return slots are explicitly written. Configuration is not an execution result."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/named-return-storage.md",
+          "anchor": "# Named return storage"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "56de0e95ab1dfd8b6f52e998fa4d273bc248e26703873ad6e4b26783218f6d5a",
+    "CMakeLists.txt": "8983eb97c684f47e05749e667b11b64685bbb8ed094438fd0b7a8b00d24d55f8",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -768,10 +862,10 @@
     "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
     "src/hir/HIR.cpp": "3e482fd1f91f65a68d86b9f23d7e81415f589a28135adaba058b44babafa2f39",
     "src/safety/StaticSafetyValidation.cpp": "89dc6fa05f3cdd1d16353c4c681432e6b7586a9ae1600f011b8c8e77ac57d541",
-    "src/sema/SemaAnalysis.cpp": "a6ecbe193978ded2bae9467419b89440ff50a2d5f176f0e3b058ca63c1697fba",
+    "src/sema/SemaAnalysis.cpp": "b07d2e526f8231a83313a0bebed630be9a8f505dbfe2a976225d5b8c481e5433",
     "src/sema/SemaAnalysisContext.cpp": "a1a310a1214fefa2e424a1e654f992fd4c31f3ebdaa737adb68a3f118e560540",
     "src/sema/SemaExpressions.cpp": "292c4e30621dd292bc2d93005010d08c6022a587029cba87f48e9304d3460459",
-    "src/sema/SemaStatements.cpp": "0ed8fc3f85d4e2184e70439c5b7af2d5f249cec7c47338d0b4b6eccb08b76dbd",
+    "src/sema/SemaStatements.cpp": "5cab259367c87c0b44009c3406b06650dc6a497f2579360de5d8b3fbff4d5a7e",
     "stdlib/ctype.hs": "0933ff576d7f8403217bf493670acec0e6b682bcf3de195774bc42e4fe50a17f",
     "tests/cases/run/assignment_result_views.hs": "5def66249cb9c085717a94ea9bfd1e2178ebe515000b065c3e7be45788b5a47f",
     "tests/cases/run/bool_value_reads.hs": "dcae6c87fb873ae06117682422c0684d83d4dd0b2453ac7a78762580771ce5d0",
@@ -792,7 +886,7 @@
     "tests/hir/HIRTests.cpp": "fef71fa9bbb8f2744fe385defd22988dd72c126c1330394b9ff83929b0e952de",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "a09a78ce1a21944df93d9cbe564deb573ff66daab0ee13aca95c78e16502e75f",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
-    "tests/sema/SemaBoolTests.cpp": "77cd6c0c1a6d00f3cbce9730f3896630be1372ca87ad60c436d2b37262449f4b",
+    "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
     "tests/sema/SemaExpressionTests.cpp": "cd395720baf4237cab8afc9d527a561d2096622d050b60b00f41ce59cb988be2",
@@ -808,6 +902,10 @@
     "tests/support/harness/manifests/p3-host-semantics.json": "c5bf829291ac52712260877ccfcb2a46dee32f97d4f40518a8b8f3dff203ccb2",
     "tests/support/harness/manifests/raw-memory-floating-views.json": "33a4d26808dbb3e0ec527d372e04517787a3c9581ccb8472c944dc9dc1e1fcd9",
     "tests/support/harness/manifests/safety-mode.json": "c92e07e7ce7b6916026d399e2417e375e85eada2eb87875372034cd751b79047",
-    "tests/support/harness/run_tests.py": "d82febccc7b8b698369bd6d88dec9a7d7782eb20bffbbf205f8127d78dab0b36"
+    "tests/support/harness/run_tests.py": "d82febccc7b8b698369bd6d88dec9a7d7782eb20bffbbf205f8127d78dab0b36",
+    "docs/named-return-storage.md": "b4e2299b08cdb684709b1b4ea1145782857833a7b9858e291a90b6b96695535b",
+    "tests/cases/run/named_return_storage.hs": "d9c3e0d30f0522886eccbf98e250285e602fe75e7178279539e0de5409356d72",
+    "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
+    "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b"
   }
 }
