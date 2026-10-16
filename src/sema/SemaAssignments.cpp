@@ -116,64 +116,7 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
       }
       const auto found = functions_.find(call->callee);
       if (found != functions_.end() && found->second.returnByteLengths.size() > 1U) {
-        const auto &signature = found->second;
-        if (assign.targets.size() != signature.returnByteLengths.size()) {
-          addDiagnostic("multi-return call result count does not match target "
-                        "count");
-          return std::nullopt;
-        }
-        auto arguments = analyzeCallArguments(*call, signature);
-        if (!result_.diagnostics.empty()) {
-          return std::nullopt;
-        }
-        std::vector<hir::MultiReturnCallStore::Target> targets;
-        const Symbol *lastTarget = nullptr;
-        for (std::size_t index = 0; index < assign.targets.size(); ++index) {
-          const auto &target = assign.targets[index];
-          if (target.op != "=" && target.op != "%d=") {
-            addDiagnostic("multi-return call targets only support integer "
-                          "assignment");
-            return std::nullopt;
-          }
-          const auto *identifier =
-              dynamic_cast<const ast::IdentifierExpr *>(target.target.get());
-          if (identifier == nullptr) {
-            addDiagnostic("multi-return call targets must be identifiers");
-            return std::nullopt;
-          }
-          if (identifier->name == "_") {
-            continue;
-          }
-          const auto *symbol = lookup(identifier->name);
-          if (symbol == nullptr) {
-            addDiagnostic("use of undeclared variable '" + identifier->name +
-                          "'");
-            return std::nullopt;
-          }
-          if (symbol->byteLength != signature.returnByteLengths[index]) {
-            addDiagnostic("multi-return target '" + identifier->name +
-                          "' byte length does not match return value");
-            return std::nullopt;
-          }
-          targets.emplace_back(symbol->name, symbol->bindingName,
-                               symbol->byteLength, symbol->storage, index);
-          lastTarget = symbol;
-        }
-        AssignmentLowering lowered;
-        lowered.stores.push_back(std::make_unique<hir::MultiReturnCallStore>(
-            call->callee, std::move(arguments), std::move(targets)));
-        if (lastTarget != nullptr) {
-          lowered.byteLength = lastTarget->byteLength;
-          lowered.result = std::make_unique<hir::VariableRef>(
-              lastTarget->name, lastTarget->bindingName, lastTarget->storage,
-              fixedResult(lastTarget->templateName, lastTarget->byteLength,
-                          true, true));
-        } else {
-          lowered.byteLength = 1;
-          lowered.result = std::make_unique<hir::IntegerLiteral>(
-              "0", signedIntegerResult(1));
-        }
-        return lowered;
+        return lowerMultiReturnAssignment(assign, *call, found->second);
       }
     }
   }
@@ -719,7 +662,11 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
         targetRef.name, targetRef.bindingName, targetRef.byteLength,
         targetRef.storage, targetRef.offset, std::move(loweredValue));
   }
-  if (valueIsHandle) {
+  // Boolean tests and equal-length byte copies accept every source View,
+  // including an opaque handle. Other destinations retain handle isolation.
+  if (valueIsHandle && op != "%b=" &&
+      !(op == "=" && (targetRef.templateName == "bool" ||
+                        targetRef.templateName == "bytes"))) {
     addDiagnostic("handle value may only be assigned to a handle target");
     return nullptr;
   }
@@ -915,7 +862,22 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
                     targetName + "'");
       return nullptr;
     }
-    auto floatValue = analyzeFloatOperand(value, targetRef.byteLength);
+    auto floatValue = std::move(loweredValue);
+    if (floatValue) {
+      if (!isFloatExpression(*floatValue)) {
+        addDiagnostic("float operand is not a float expression");
+        return nullptr;
+      }
+      const auto operandLength = floatExpressionByteLength(*floatValue).value_or(0);
+      if (operandLength != targetRef.byteLength) {
+        addDiagnostic("float operand byte length " + std::to_string(operandLength) +
+                      " does not match required byte length " +
+                      std::to_string(targetRef.byteLength));
+        return nullptr;
+      }
+    } else {
+      floatValue = analyzeFloatOperand(value, targetRef.byteLength);
+    }
     if (!floatValue) {
       return nullptr;
     }
