@@ -92,6 +92,9 @@ HS_TEST(Sema_CstrDefaultAcceptsViewsAndMaterializesRvaluesOnce) {
     }
     if (const auto *copy = dynamic_cast<const StringCopyStore *>(statement)) {
       ++boundedCopies;
+      HS_EXPECT_TRUE(copy->sourceView != nullptr);
+      HS_EXPECT_EQ(copy->sourceView->result.templateName, "cstr");
+      HS_EXPECT_EQ(copy->sourceView->result.staticByteLength, copy->sourceByteLength);
       HS_EXPECT_TRUE(copy->targetByteLength == 4U || copy->targetByteLength == 8U);
       HS_EXPECT_TRUE(copy->sourceByteLength == 4U || copy->sourceByteLength == 8U);
     }

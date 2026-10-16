@@ -125,6 +125,9 @@ bool expressionUsesF128(const hir::Expr& expression) {
 }
 
 bool statementUsesF128(const hir::Stmt& statement) {
+  if (const auto* rebind = dynamic_cast<const hir::BindingRebind*>(&statement)) {
+    return rebind->address && expressionUsesF128(*rebind->address);
+  }
   if (const auto* capture = dynamic_cast<const hir::CaptureView*>(&statement)) {
     return capture->source && expressionUsesF128(*capture->source);
   }
@@ -238,6 +241,7 @@ void LlvmEmitter::emit(const hir::GlobalMemory &global) {
                            global.abiType,
                            global.abiType ? global.abiType->alignment
                                           : std::size_t{1}});
+    initializeBinding(globals_.at(global.bindingName), global.bindingName, true);
     internalGlobals_.push_back(
         RuntimeObject{storage, storageType, global.byteLength});
     return;
@@ -260,6 +264,7 @@ void LlvmEmitter::emit(const hir::GlobalMemory &global) {
                          global.abiType,
                          std::max(alignof(std::max_align_t),
                                   requestedAlignment)});
+  initializeBinding(globals_.at(global.bindingName), global.bindingName, true);
   internalGlobals_.push_back(
       RuntimeObject{storage, storageType, global.byteLength});
 }
@@ -531,6 +536,9 @@ void LlvmEmitter::emit(const hir::Function &function) {
       locals_.emplace(parameter.bindingName,
                       Local{storage, storageType, parameter.byteLength,
                             std::nullopt, std::size_t{1}});
+      initializeBinding(locals_.at(parameter.bindingName), parameter.bindingName);
+      locals_.at(parameter.bindingName).requiresAccessCheck =
+          locals_.at(parameter.bindingName).requiresAccessCheck || !parameter.viewIsCopy;
       declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                            storage, static_cast<unsigned>(
                                &parameter - function.parameters.data() + 1U));
@@ -611,6 +619,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
                       Local{&*argument++, storageType, parameter.byteLength,
                             abiType, abiType ? abiType->alignment
                                              : std::size_t{1}});
+      initializeBinding(locals_.at(parameter.bindingName), parameter.bindingName);
       declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                            locals_.at(parameter.bindingName).storage,
                            static_cast<unsigned>(index + 1U));
@@ -625,6 +634,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
                     Local{storage, storageType, parameter.byteLength, abiType,
                           std::max(alignof(std::max_align_t),
                                    requestedAlignment)});
+    initializeBinding(locals_.at(parameter.bindingName), parameter.bindingName);
     registerLocalObject(storage, parameter.byteLength);
     declareDebugVariable(parameter.name, parameter.range, parameter.byteLength,
                          storage, static_cast<unsigned>(index + 1U));

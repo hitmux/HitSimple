@@ -1663,10 +1663,12 @@ Analyzer::lowerIndexAddress(const ast::IndexExpr &expr) {
       reference->name, reference->bindingName, reference->byteLength,
       reference->storage, reference->offset,
       fixedResult("addr", pointerByteLength()));
-  return std::make_unique<hir::BinaryExpr>(
+  auto address = std::make_unique<hir::BinaryExpr>(
       std::move(base), "+", std::move(index),
       fixedResult("addr", pointerByteLength()),
       hir::StandardOperationKind::AddressOffset);
+  address->viewOffsetBounds = hir::ViewOffsetBounds{reference->byteLength, 1};
+  return address;
 }
 
 std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
@@ -1724,10 +1726,13 @@ std::optional<SliceLowering> Analyzer::lowerSlice(const ast::SliceExpr &expr) {
       reference->storage, reference->offset,
       fixedResult("addr", pointerByteLength()));
   SliceLowering lowered;
-  lowered.address = std::make_unique<hir::BinaryExpr>(
+  auto address = std::make_unique<hir::BinaryExpr>(
       std::move(base), "+", std::move(start),
       fixedResult("addr", pointerByteLength()),
       hir::StandardOperationKind::AddressOffset);
+  address->viewOffsetBounds =
+      hir::ViewOffsetBounds{reference->byteLength, byteLength};
+  lowered.address = std::move(address);
   lowered.byteLength = byteLength;
   return lowered;
 }

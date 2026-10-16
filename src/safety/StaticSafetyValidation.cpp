@@ -1,5 +1,6 @@
 #include "safety/StaticSafetyAnalyzerImpl.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -15,6 +16,19 @@ void StaticSafetyAnalyzer::validateSafety(const hir::TranslationUnit &unit) {
   }
 
   resetStaticSafetyState();
+  staticPotentiallyReboundBindings_ = hir::reboundBindings(unit);
+  for (const auto &function : unit.functions) {
+    if (function->usesViewAbi) {
+      auto &copies = staticViewParameterCopies_[function->name];
+      for (const auto &parameter : function->parameters) {
+        copies.push_back(parameter.viewIsCopy);
+      }
+    }
+  }
+  for (const auto &global : unit.globals) {
+    staticDefinitionByteLengths_[global.bindingName] = global.byteLength;
+    staticGlobalBindings_.insert(global.bindingName);
+  }
   if (unit.globalInit) {
     validateSafety(*unit.globalInit);
   }
@@ -30,6 +44,16 @@ void StaticSafetyAnalyzer::validateSafety(const hir::TranslationUnit &unit) {
   recordGlobalBindings(globalBaseline.addressFacts);
   for (const auto &function : unit.functions) {
     restoreStaticSafetyState(globalBaseline);
+    // A function can execute after another invocation changed a global name.
+    // Initializer provenance cannot establish its entry binding address.
+    for (const auto &bindingName : staticGlobalBindings_) {
+      if (staticPotentiallyReboundBindings_.contains(bindingName)) {
+        staticBindingAddressFacts_[bindingName] = std::nullopt;
+      }
+    }
+    for (const auto &parameter : function->parameters) {
+      staticDefinitionByteLengths_[parameter.bindingName] = parameter.byteLength;
+    }
     validateSafety(*function->body);
   }
 }
@@ -145,44 +169,38 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Block &block) {
 
 bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
   SourceRangeScope sourceRange(*this, statement.range);
+  if (const auto *local = dynamic_cast<const hir::LocalMemory *>(&statement)) {
+    staticDefinitionByteLengths_[local->bindingName] = local->byteLength;
+    if (local->storage == hir::MemoryStorage::StaticLocal) {
+      staticGlobalBindings_.insert(local->bindingName);
+      if (staticPotentiallyReboundBindings_.contains(local->bindingName)) {
+        staticBindingAddressFacts_[local->bindingName] = std::nullopt;
+      }
+    } else if (local->storage == hir::MemoryStorage::Local) {
+      // Each automatic declaration execution starts with its definition.
+      staticBindingAddressFacts_.erase(local->bindingName);
+      invalidateStaticBinding(local->bindingName);
+    }
+    return true;
+  }
+  if (const auto *rebind = dynamic_cast<const hir::BindingRebind *>(&statement)) {
+    validateSafety(*rebind->address);
+    recordStaticAddressAssignment("$rebind.address", *rebind->address);
+    staticBindingAddressFacts_[rebind->bindingName] =
+        staticAddressFacts_["$rebind.address"];
+    staticAddressFacts_.erase("$rebind.address");
+    // Rebinding itself neither reads nor writes either object's bytes.
+    return true;
+  }
   if (const auto *capture = dynamic_cast<const hir::CaptureView *>(&statement)) {
     const auto &source = *capture->source;
-    validateSafety(source);
-    const hir::Expr *located = &source;
-    while (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(located)) {
-      located = view->operand.get();
-    }
-    capturedAliases_[capture->captureName] = source.result.isAddressable
-        ? dynamic_cast<const hir::VariableRef *>(located) : nullptr;
-    capturedRanges_[capture->captureName] = source.result.isAddressable
-        ? staticViewRange(source) : std::nullopt;
-    // Freeze the location's lifetime identity separately from an addr View's
-    // mutable bytes. A later RHS can release its object or change its pointer.
-    auto &location = staticAddressFacts_[capture->captureName + ".location"];
-    location = std::nullopt;
     if (source.result.isAddressable) {
-      if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(located)) {
-        location = staticAddressFact(*deref->address);
-      } else if (capturedAliases_[capture->captureName] != nullptr) {
-        location = StaticAddressFact{StaticAddressOrigin::NonDynamicObject, 0,
-                                     false, capturedRanges_[capture->captureName]};
-      }
-    }
-    // A non-named lvalue may depend on an address expression whose value later
-    // changes. Do not recompute that expression or freeze its mutable bytes.
-    staticIntegerValues_[capture->captureName] = source.result.isAddressable
-        ? std::nullopt : staticSignedInteger(source);
-    staticUnsignedIntegerValues_[capture->captureName] = source.result.isAddressable
-        ? std::nullopt : staticUnsignedInteger(source);
-    if (source.result.isAddressable) {
-      staticAddressFacts_[capture->captureName] = std::nullopt;
+      validateStaticViewFormation(source);
     } else {
-      // Allocation/reallocation identity belongs to source evaluation, before
-      // any destination reads it through a captured reference.
-      recordStaticAddressAssignment(capture->captureName, source);
+      validateSafety(source);
     }
-    staticCStringTerminations_[capture->captureName] = source.result.isAddressable
-        ? std::nullopt : staticCStringTerminated(source);
+    recordStaticViewCapture(capture->captureName, source,
+                            source.result.isAddressable);
     return true;
   }
   if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
@@ -204,27 +222,40 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
         character->bytes.size() == store->targetByteLength) {
       cstrTermination = character->bytes.find('\0') != std::string::npos;
     }
-    recordStaticAddressAssignment(store->bindingName, *store->value);
-    const auto addressFact = staticAddressFacts_[store->bindingName];
-    invalidateStaticBinding(store->bindingName);
-    staticIntegerValues_[store->bindingName] = signedValue;
-    staticUnsignedIntegerValues_[store->bindingName] = unsignedValue;
-    staticAddressFacts_[store->bindingName] = addressFact;
-    staticCStringTerminations_[store->bindingName] = cstrTermination;
+    recordStaticAddressAssignment("$store.address", *store->value);
+    auto addressFact = staticAddressFacts_["$store.address"];
+    staticAddressFacts_.erase("$store.address");
+    if (store->targetByteLength < sizeof(void *) && addressFact &&
+        addressFact->origin != StaticAddressOrigin::Null) {
+      // Truncated pointer-valued bytes no longer identify the source object.
+      addressFact = std::nullopt;
+    }
+    const auto key = prepareStaticNamedStore(store->bindingName, store->offset,
+                                             store->targetByteLength);
+    if (key) {
+      staticIntegerValues_[*key] = signedValue;
+      staticUnsignedIntegerValues_[*key] = unsignedValue;
+      staticAddressFacts_[*key] = addressFact;
+      staticCStringTerminations_[*key] = cstrTermination;
+    }
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::FloatStore *>(&statement)) {
     validateSafety(*store->value);
-    invalidateStaticBinding(store->bindingName);
+    (void)prepareStaticNamedStore(store->bindingName, store->offset,
+                                  store->targetByteLength);
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::BoolStore *>(&statement)) {
     validateSafety(*store->value);
     const auto signedValue = staticSignedInteger(*store->value);
     const auto unsignedValue = staticUnsignedInteger(*store->value);
-    invalidateStaticBinding(store->bindingName);
-    staticIntegerValues_[store->bindingName] = signedValue;
-    staticUnsignedIntegerValues_[store->bindingName] = unsignedValue;
+    const auto key = prepareStaticNamedStore(store->bindingName, store->offset,
+                                             store->targetByteLength);
+    if (key) {
+      staticIntegerValues_[*key] = signedValue;
+      staticUnsignedIntegerValues_[*key] = unsignedValue;
+    }
     return true;
   }
   if (const auto *store =
@@ -237,41 +268,53 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
         character->bytes.size() == store->targetByteLength) {
       cstrTermination = character->bytes.find('\0') != std::string::npos;
     }
-    invalidateStaticBinding(store->bindingName);
-    staticCStringTerminations_[store->bindingName] = cstrTermination;
+    const auto key = prepareStaticNamedStore(store->bindingName, store->offset,
+                                             store->targetByteLength);
+    if (key) {
+      staticCStringTerminations_[*key] = cstrTermination;
+    }
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::StringStore *>(&statement)) {
-    invalidateStaticBinding(store->bindingName);
-    staticCStringTerminations_[store->bindingName] = true;
+    const auto key = prepareStaticNamedStore(store->bindingName, store->offset,
+                                             store->targetByteLength);
+    if (key) {
+      staticCStringTerminations_[*key] = true;
+    }
     return true;
   }
   if (const auto *store =
           dynamic_cast<const hir::StringCopyStore *>(&statement)) {
     if (store->sourceView) {
-      validateSafety(*store->sourceView);
+      if (store->sourceView->result.templateName == "cstr") {
+        validateStaticCStringRead(*store->sourceView);
+      } else {
+        validateStaticViewFormation(*store->sourceView);
+        if (store->targetByteLength > 1 && store->sourceByteLength != 0) {
+          validateStaticMemoryAccess(staticViewAddressFact(*store->sourceView),
+                                     1, "cstr read");
+        }
+      }
     }
-    const auto source = staticCStringTerminations_.find(store->sourceBindingName);
-    const auto cstrTermination = source == staticCStringTerminations_.end()
-                                     ? std::optional<bool>{}
-                                     : source->second;
-    invalidateStaticBinding(store->bindingName);
-    staticCStringTerminations_[store->bindingName] = cstrTermination;
+    if (!store->sourceView) {
+      const auto sourceFact = staticBindingAddressFact(store->sourceBindingName,
+          store->sourceOffset, store->sourceByteLength);
+      validateStaticMemoryAccess(sourceFact,
+          store->targetByteLength > 1
+              ? std::min<std::size_t>(1, store->sourceByteLength) : 0, "load");
+    }
+    const auto key = prepareStaticNamedStore(store->bindingName,
+        store->targetOffset, store->targetByteLength);
+    if (key) {
+      // Every successful string assignment writes a destination terminator,
+      // including explicit %s= repairing unterminated raw source bytes.
+      staticCStringTerminations_[*key] = true;
+    }
     return true;
   }
   if (const auto *store = dynamic_cast<const hir::PointerStore *>(&statement)) {
-    const auto address = staticSignedInteger(*store->address);
-    if (address && *address == 0) {
-      addDiagnostic("static safety check failed: null address store");
-    }
-    if (const auto range = staticAddressRange(*store->address)) {
-      if (range->offset < range->lowerBound ||
-          static_cast<std::uint64_t>(range->offset) + store->targetByteLength >
-              range->upperBound) {
-        addDiagnostic("static safety check failed: memory store out of bounds");
-      }
-    }
-    validateStaticAddressAccess(*store->address, "store");
+    validateStaticMemoryAccess(staticAddressFact(*store->address),
+                               store->targetByteLength, "store");
     validateSafety(*store->address);
     validateSafety(*store->value);
     invalidateStaticFactsOverlapping(staticAddressRange(*store->address),
@@ -279,27 +322,32 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     return true;
   }
   if (const auto *call = dynamic_cast<const hir::Call *>(&statement)) {
+    const auto arguments = prepareStaticCallArguments(call->builtin,
+        call->overloadIndex, call->formatArgumentKinds, call->arguments);
     if ((call->builtin == stdlib::BuiltinId::Free ||
          call->builtin == stdlib::BuiltinId::Realloc) &&
-        !call->arguments.empty()) {
-      validateStaticDynamicBase(*call->arguments.front(), call->callee);
+        !arguments.empty()) {
+      validateStaticDynamicBase(*arguments.front(), call->callee);
     }
-    for (const auto &argument : call->arguments) {
-      validateSafety(*argument);
+    const auto memoryOperands = validateStaticMemoryOperands(call->builtin,
+                                                             arguments);
+    for (std::size_t index = memoryOperands; index < arguments.size(); ++index) {
+      validateStaticCallArgument(call->builtin, call->overloadIndex,
+          call->formatArgumentKinds, index, *arguments[index]);
     }
     if ((call->builtin == stdlib::BuiltinId::Free ||
          call->builtin == stdlib::BuiltinId::Realloc) &&
-        !call->arguments.empty()) {
+        !arguments.empty()) {
       if (call->builtin == stdlib::BuiltinId::Free) {
-        (void)releaseStaticDynamicObject(*call->arguments.front());
+        (void)releaseStaticDynamicObject(*arguments.front());
       } else {
-        const auto extent = call->arguments.size() == 2U
-                                ? staticUnsignedInteger(*call->arguments[1])
+        const auto extent = arguments.size() == 2U
+                                ? staticUnsignedInteger(*arguments[1])
                                 : std::optional<std::uint64_t>{};
         if (extent && *extent == 0) {
-          (void)releaseStaticDynamicObject(*call->arguments.front());
+          (void)releaseStaticDynamicObject(*arguments.front());
         } else if (const auto input =
-                       staticAddressFact(*call->arguments.front());
+                       staticAddressFact(*arguments.front());
                    input && input->origin == StaticAddressOrigin::DynamicObject) {
           const auto state = staticDynamicObjectStates_.find(input->dynamicObjectId);
           if (state != staticDynamicObjectStates_.end()) {
@@ -310,7 +358,7 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     }
     if (call->builtin == stdlib::BuiltinId::None) {
       invalidateStaticGlobalFacts();
-      for (const auto &argument : call->arguments) {
+      for (const auto &argument : arguments) {
         invalidateStaticFactsOverlapping(staticMemoryOperandRange(*argument),
                                          std::nullopt);
       }
@@ -318,32 +366,32 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     if ((call->builtin == stdlib::BuiltinId::Memset ||
          call->builtin == stdlib::BuiltinId::Memcpy ||
          call->builtin == stdlib::BuiltinId::Memmove) &&
-        call->arguments.size() == 3U) {
+        arguments.size() == 3U) {
       invalidateStaticFactsOverlapping(
-          staticMemoryOperandRange(*call->arguments[0]),
-          staticUnsignedInteger(*call->arguments[2]));
+          staticMemoryOperandRange(*arguments[0]),
+          staticUnsignedInteger(*arguments[2]));
     }
     if (call->builtin == stdlib::BuiltinId::Fread &&
-        call->arguments.size() == 4U) {
-      const auto size = staticUnsignedInteger(*call->arguments[1]);
-      const auto count = staticUnsignedInteger(*call->arguments[2]);
+        arguments.size() == 4U) {
+      const auto size = staticUnsignedInteger(*arguments[1]);
+      const auto count = staticUnsignedInteger(*arguments[2]);
       const auto byteLength = size && count
                                   ? multiplyUnsignedIntegers(*size, *count)
                                   : std::optional<std::uint64_t>{};
       invalidateStaticFactsOverlapping(
-          staticMemoryOperandRange(*call->arguments[0]), byteLength);
+          staticViewRange(*arguments[0]), byteLength);
     }
+    if ((call->builtin == stdlib::BuiltinId::Strcpy ||
+         call->builtin == stdlib::BuiltinId::Strncpy ||
+         call->builtin == stdlib::BuiltinId::Strcat) && !arguments.empty()) {
+      invalidateStaticFactsOverlapping(staticViewRange(*arguments[0]), std::nullopt);
+    }
+    releaseStaticCallArguments(arguments);
     return true;
   }
   if (const auto *call =
           dynamic_cast<const hir::UserTemplateOpCall *>(&statement)) {
-    for (const auto &argument : call->arguments) {
-      validateSafety(*argument);
-    }
-    if (!call->arguments.empty()) {
-      invalidateStaticFactsOverlapping(
-          staticMemoryOperandRange(*call->arguments.front()), std::nullopt);
-    }
+    validateStaticUserCallArguments(call->callee, call->arguments);
     invalidateStaticGlobalFacts();
     return true;
   }
@@ -361,10 +409,10 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     for (const auto &argument : call->arguments) {
       validateSafety(*argument);
     }
-    for (const auto &target : call->targets) {
-      invalidateStaticBinding(target.bindingName);
-    }
     invalidateStaticGlobalFacts();
+    for (const auto &target : call->targets) {
+      (void)prepareStaticNamedStore(target.bindingName, 0, target.byteLength);
+    }
     return true;
   }
   if (const auto *call =
@@ -372,12 +420,14 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     if (call->file) {
       validateSafety(*call->file);
     }
-    validateSafety(*call->format);
+    validateStaticCStringRead(*call->format);
     for (const auto &target : call->countTargets) {
-      invalidateStaticBinding(target.bindingName);
+      (void)prepareStaticNamedStore(target.bindingName, target.offset,
+                                    target.byteLength);
     }
     for (const auto &target : call->scanTargets) {
-      invalidateStaticBinding(target.bindingName);
+      (void)prepareStaticNamedStore(target.bindingName, target.offset,
+                                    target.byteLength);
     }
     return true;
   }
@@ -557,26 +607,30 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
 
 void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
   SourceRangeScope sourceRange(*this, expression.range);
+  if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
+    validateStaticMemoryAccess(staticBindingAddressFact(variable->bindingName,
+        variable->offset, variable->byteLength), variable->byteLength, "load");
+    return;
+  }
   if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
     const auto location = staticAddressFacts_.find(capture->captureName + ".location");
     if (location != staticAddressFacts_.end()) {
-      validateStaticAddressAccess(location->second, "captured View read");
+      validateStaticMemoryAccess(location->second,
+          capture->result.staticByteLength, "captured View read");
     }
     return;
   }
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
-    const auto address = staticSignedInteger(*deref->address);
-    if (address && *address == 0) {
+    const auto fact = staticAddressFact(*deref->address);
+    // Keep the existing dereference wording for lifetime/null diagnostics.
+    validateStaticAddressAccess(fact, "dereference");
+    if (fact && fact->origin == StaticAddressOrigin::Null) {
       addDiagnostic("static safety check failed: null address dereference");
+    } else if (fact && fact->range) {
+      auto rangeOnly = fact;
+      rangeOnly->origin = StaticAddressOrigin::NonDynamicObject;
+      validateStaticMemoryAccess(rangeOnly, deref->byteLength, "load");
     }
-    if (const auto range = staticAddressRange(*deref->address)) {
-      if (range->offset < range->lowerBound ||
-          static_cast<std::uint64_t>(range->offset) + deref->byteLength >
-              range->upperBound) {
-        addDiagnostic("static safety check failed: memory load out of bounds");
-      }
-    }
-    validateStaticAddressAccess(*deref->address, "dereference");
     validateSafety(*deref->address);
     return;
   }
@@ -605,18 +659,38 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
       return;
     }
 
+    if (binary->viewOffsetBounds) {
+      // Indexing/slicing constrains the source View even if a rebound name
+      // currently points at a larger live allocation. This also validates
+      // formation-only uses such as &name[index] and length(name[index]).
+      validateSafety(*binary->left);
+      validateSafety(*binary->right);
+      const auto offset = staticIndexOffset(*binary->right);
+      const auto &bounds = *binary->viewOffsetBounds;
+      const auto widePositive = !offset &&
+              binary->right->result.staticByteLength > sizeof(std::uint64_t)
+          ? staticUnsignedInteger(*binary->right) : std::nullopt;
+      if (bounds.resultByteLength > bounds.sourceByteLength ||
+          (offset && (*offset < 0 || static_cast<std::uint64_t>(*offset) >
+                       bounds.sourceByteLength - bounds.resultByteLength)) ||
+          (widePositive && *widePositive >
+                           bounds.sourceByteLength - bounds.resultByteLength)) {
+        addDiagnostic("static safety check failed: index or slice out of bounds");
+      }
+      return;
+    }
     const auto op = std::string(hir::toString(binary->operation));
     if (binary->operationKind ==
         hir::StandardOperationKind::StandardCStringCompare) {
-      const auto validateCStringOperand = [this](const hir::Expr &operand) {
-        if (const auto terminated = staticCStringTerminated(operand);
-            terminated && !*terminated) {
-          addDiagnostic(
-              "static safety check failed: missing terminating byte in cstr");
-        }
-      };
-      validateCStringOperand(*binary->left);
-      validateCStringOperand(*binary->right);
+      std::vector<std::unique_ptr<hir::Expr>> operands;
+      for (const auto* operand : {binary->left.get(), binary->right.get()}) {
+        validateStaticViewFormation(*operand);
+        operands.push_back(captureStaticEvaluatedArgument(*operand,
+            operand->result.isAddressable));
+      }
+      for (const auto& operand : operands) validateStaticCStringRead(*operand);
+      releaseStaticCallArguments(operands);
+      return;
     }
     const auto right = staticSignedInteger(*binary->right);
     if ((op == "/" || op == "%") && right && *right == 0) {
@@ -677,7 +751,14 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
   }
   if (const auto *view =
           dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
-    validateSafety(*view->operand);
+    if (view->templateName != "cstr" &&
+        view->operand->result.templateName == "cstr") {
+      validateStaticViewFormation(*view->operand);
+      validateStaticMemoryAccess(staticViewAddressFact(*view->operand),
+                                  view->result.staticByteLength, "load");
+    } else {
+      validateSafety(*view->operand);
+    }
     return;
   }
   if (const auto *test =
@@ -687,9 +768,7 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
   }
   if (const auto *call =
           dynamic_cast<const hir::UserTemplateOpCallExpr *>(&expression)) {
-    for (const auto &argument : call->arguments) {
-      validateSafety(*argument);
-    }
+    validateStaticUserCallArguments(call->callee, call->arguments);
     invalidateStaticGlobalFacts();
     return;
   }
@@ -713,6 +792,14 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
     return;
   }
   if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
+    if (call->builtin == stdlib::BuiltinId::Length) {
+      for (const auto &argument : call->arguments) {
+        validateStaticViewFormation(*argument);
+      }
+      return;
+    }
+    const auto arguments = prepareStaticCallArguments(call->builtin,
+        call->overloadIndex, call->formatArgumentKinds, call->arguments);
     const auto staticUnsignedValue = [this](const hir::Expr &operand) {
       return staticUnsignedInteger(operand);
     };
@@ -730,25 +817,25 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
       }
     };
     if (call->builtin == stdlib::BuiltinId::Realloc &&
-        !call->arguments.empty()) {
-      validateStaticDynamicBase(*call->arguments.front(), call->callee);
+        !arguments.empty()) {
+      validateStaticDynamicBase(*arguments.front(), call->callee);
     }
     if (call->builtin == stdlib::BuiltinId::Calloc &&
-        call->arguments.size() == 2U) {
-      reportProductOverflow(*call->arguments[1], *call->arguments[0],
+        arguments.size() == 2U) {
+      reportProductOverflow(*arguments[1], *arguments[0],
                             call->callee);
     }
     if ((call->builtin == stdlib::BuiltinId::Fread ||
          call->builtin == stdlib::BuiltinId::Fwrite) &&
-        call->arguments.size() == 4U) {
-      reportProductOverflow(*call->arguments[1], *call->arguments[2],
+        arguments.size() == 4U) {
+      reportProductOverflow(*arguments[1], *arguments[2],
                             call->callee);
-      const auto size = staticUnsignedValue(*call->arguments[1]);
-      const auto count = staticUnsignedValue(*call->arguments[2]);
+      const auto size = staticUnsignedValue(*arguments[1]);
+      const auto count = staticUnsignedValue(*arguments[2]);
       if (size && count &&
           (*size == 0 ||
            *count <= std::numeric_limits<std::uint64_t>::max() / *size)) {
-        const auto range = staticViewRange(*call->arguments[0]);
+        const auto range = staticViewRange(*arguments[0]);
         const auto byteLength = *size * *count;
         if (range &&
             (range->offset < range->lowerBound ||
@@ -766,12 +853,12 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
          call->builtin == stdlib::BuiltinId::Memcpy ||
          call->builtin == stdlib::BuiltinId::Memmove ||
          call->builtin == stdlib::BuiltinId::Memcmp) &&
-        call->arguments.size() == 3U) {
-      const auto byteLength = staticUnsignedValue(*call->arguments[2]);
-      const auto destination = staticMemoryOperandRange(*call->arguments[0]);
+        arguments.size() == 3U) {
+      const auto byteLength = staticUnsignedValue(*arguments[2]);
+      const auto destination = staticMemoryOperandRange(*arguments[0]);
       const auto source = call->builtin == stdlib::BuiltinId::Memset
                               ? std::optional<StaticAddressRange>{}
-                              : staticMemoryOperandRange(*call->arguments[1]);
+                              : staticMemoryOperandRange(*arguments[1]);
       const auto isOutOfBounds =
           [&byteLength](const std::optional<StaticAddressRange> &range) {
             return range && byteLength &&
@@ -809,20 +896,23 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
       }
   }
   if (options_.runtimeChecksEnabled && call->builtin == stdlib::BuiltinId::Abs &&
-        call->arguments.size() == 1U) {
-      const auto value = staticSignedInteger(*call->arguments.front());
+        arguments.size() == 1U) {
+      const auto value = staticSignedInteger(*arguments.front());
       const auto minimum = signedMinimumForByteLength(call->byteLength);
       if (value && minimum && *value == *minimum) {
         addDiagnostic(
             "static safety check failed: abs of minimum signed value");
       }
     }
-    for (const auto &argument : call->arguments) {
-      validateSafety(*argument);
+    const auto memoryOperands = validateStaticMemoryOperands(call->builtin,
+                                                             arguments);
+    for (std::size_t index = memoryOperands; index < arguments.size(); ++index) {
+      validateStaticCallArgument(call->builtin, call->overloadIndex,
+          call->formatArgumentKinds, index, *arguments[index]);
     }
     if (call->builtin == stdlib::BuiltinId::None) {
       invalidateStaticGlobalFacts();
-      for (const auto &argument : call->arguments) {
+      for (const auto &argument : arguments) {
         invalidateStaticFactsOverlapping(staticMemoryOperandRange(*argument),
                                          std::nullopt);
       }
@@ -830,21 +920,27 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
     if ((call->builtin == stdlib::BuiltinId::Memset ||
          call->builtin == stdlib::BuiltinId::Memcpy ||
          call->builtin == stdlib::BuiltinId::Memmove) &&
-        call->arguments.size() == 3U) {
+        arguments.size() == 3U) {
       invalidateStaticFactsOverlapping(
-          staticMemoryOperandRange(*call->arguments[0]),
-          staticUnsignedInteger(*call->arguments[2]));
+          staticMemoryOperandRange(*arguments[0]),
+          staticUnsignedInteger(*arguments[2]));
     }
     if (call->builtin == stdlib::BuiltinId::Fread &&
-        call->arguments.size() == 4U) {
-      const auto size = staticUnsignedInteger(*call->arguments[1]);
-      const auto count = staticUnsignedInteger(*call->arguments[2]);
+        arguments.size() == 4U) {
+      const auto size = staticUnsignedInteger(*arguments[1]);
+      const auto count = staticUnsignedInteger(*arguments[2]);
       const auto byteLength = size && count
                                   ? multiplyUnsignedIntegers(*size, *count)
                                   : std::optional<std::uint64_t>{};
       invalidateStaticFactsOverlapping(
-          staticMemoryOperandRange(*call->arguments[0]), byteLength);
+          staticViewRange(*arguments[0]), byteLength);
     }
+    if ((call->builtin == stdlib::BuiltinId::Strcpy ||
+         call->builtin == stdlib::BuiltinId::Strncpy ||
+         call->builtin == stdlib::BuiltinId::Strcat) && !arguments.empty()) {
+      invalidateStaticFactsOverlapping(staticViewRange(*arguments[0]), std::nullopt);
+    }
+    releaseStaticCallArguments(arguments);
     return;
   }
   if (const auto *view =
@@ -865,10 +961,286 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
       validateSafety(*store);
     }
     if (assignment->result) {
-      validateSafety(*assignment->result);
+      if (assignment->result->result.templateName == "cstr") {
+        validateStaticViewFormation(*assignment->result);
+        validateStaticMemoryAccess(staticViewAddressFact(*assignment->result),
+            assignment->result->result.staticByteLength, "assignment snapshot");
+      } else {
+        validateSafety(*assignment->result);
+      }
     }
     return;
   }
+}
+
+void StaticSafetyAnalyzer::validateStaticCStringRead(const hir::Expr &expression) {
+  // A scan observes bytes only up to its first zero, not the whole declared
+  // extent. The exact terminating-byte position is not currently tracked.
+  validateStaticViewFormation(expression);
+  validateStaticMemoryAccess(staticViewAddressFact(expression),
+      expression.result.lengthKind == hir::ViewLengthKind::Static
+          ? std::min<std::size_t>(1, expression.result.staticByteLength) : 1,
+      "cstr read");
+  if (const auto terminated = staticCStringTerminated(expression);
+      terminated && !*terminated) {
+    addDiagnostic("static safety check failed: missing terminating byte in cstr");
+  }
+}
+
+void StaticSafetyAnalyzer::recordStaticViewCapture(
+    const std::string& name, const hir::Expr& source, bool retainLocation) {
+  capturedRanges_[name] = retainLocation ? staticViewRange(source) : std::nullopt;
+  capturedAliases_[name] = retainLocation
+      ? staticContentKey(capturedRanges_[name], source.result.staticByteLength)
+      : std::nullopt;
+  // The location is frozen, while aliased content facts are consulted only
+  // when bytes are consumed. Unknown writes preserve location identities.
+  staticAddressFacts_[name + ".location"] = retainLocation
+      ? staticViewAddressFact(source) : std::nullopt;
+  staticIntegerValues_[name] = retainLocation
+      ? std::nullopt : staticSignedInteger(source);
+  staticUnsignedIntegerValues_[name] = retainLocation
+      ? std::nullopt : staticUnsignedInteger(source);
+  if (retainLocation) {
+    staticAddressFacts_[name] = std::nullopt;
+  } else {
+    recordStaticAddressAssignment(name, source);
+  }
+  staticCStringTerminations_[name] = retainLocation
+      ? std::nullopt : staticCStringTerminated(source);
+}
+
+std::unique_ptr<hir::Expr> StaticSafetyAnalyzer::captureStaticEvaluatedArgument(
+  const hir::Expr& source, bool retainLocation, bool rawMemory) {
+  const auto name = "$safety.call." + std::to_string(nextStaticCallCaptureId_++);
+  recordStaticViewCapture(name, source, retainLocation);
+  auto semantics = source.result;
+  semantics.isAddressable = retainLocation;
+  semantics.isMutableLValue = retainLocation && semantics.isMutableLValue;
+  if (rawMemory) {
+    // Explicit address arithmetic can retain an integer result category.
+    // Remember its raw-address contract after replacing it with a capture.
+    semantics = hir::viewSemanticsForTemplate("addr", sizeof(void*));
+  }
+  auto reference = std::make_unique<hir::CapturedViewRef>(name, semantics);
+  reference->range = source.range;
+  return reference;
+}
+
+void StaticSafetyAnalyzer::releaseStaticCallArguments(
+    const std::vector<std::unique_ptr<hir::Expr>>& arguments) {
+  for (const auto& argument : arguments) {
+    const auto& name = static_cast<const hir::CapturedViewRef&>(*argument).captureName;
+    capturedRanges_.erase(name);
+    capturedAliases_.erase(name);
+    staticAddressFacts_.erase(name);
+    staticAddressFacts_.erase(name + ".location");
+    staticIntegerValues_.erase(name);
+    staticUnsignedIntegerValues_.erase(name);
+    staticCStringTerminations_.erase(name);
+  }
+}
+
+bool StaticSafetyAnalyzer::isStaticCStringArgument(
+    stdlib::BuiltinId builtin, std::uint16_t overloadIndex,
+    const std::vector<hir::FormatArgKind>& kinds, std::size_t index) const {
+  bool stringScan = false;
+  if (const auto *spec = stdlib::findBuiltin(builtin)) {
+    if (overloadIndex < spec->overloads.size() &&
+        index < spec->overloads[overloadIndex].parameterModes.size()) {
+      stringScan = spec->overloads[overloadIndex].parameterModes[index] ==
+                   stdlib::BuiltinParameterMode::CStrView;
+    } else if (index < spec->parameters.size()) {
+      stringScan = spec->parameters[index].mode ==
+                       stdlib::BuiltinParameterMode::CStrView ||
+                   spec->parameters[index].requiresCString;
+    }
+  }
+  if (builtin == stdlib::BuiltinId::Print || builtin == stdlib::BuiltinId::Printf ||
+      builtin == stdlib::BuiltinId::Fprintf) {
+    const auto formatIndex = builtin == stdlib::BuiltinId::Fprintf ? 1U : 0U;
+    stringScan = index == formatIndex ||
+        (index > formatIndex && index < kinds.size() &&
+         kinds[index] == hir::FormatArgKind::String);
+  }
+  return stringScan || (builtin == stdlib::BuiltinId::Strcat && index == 0);
+}
+
+std::vector<std::unique_ptr<hir::Expr>>
+StaticSafetyAnalyzer::prepareStaticCallArguments(
+    stdlib::BuiltinId builtin, std::uint16_t overloadIndex,
+    const std::vector<hir::FormatArgKind>& kinds,
+    const std::vector<std::unique_ptr<hir::Expr>>& arguments) {
+  std::size_t memoryCount = 0;
+  if (builtin == stdlib::BuiltinId::Memset || builtin == stdlib::BuiltinId::Fread ||
+      builtin == stdlib::BuiltinId::Fwrite) memoryCount = 1;
+  if (builtin == stdlib::BuiltinId::Memcpy || builtin == stdlib::BuiltinId::Memmove ||
+      builtin == stdlib::BuiltinId::Memcmp) memoryCount = 2;
+  const bool formatted = builtin == stdlib::BuiltinId::Print ||
+      builtin == stdlib::BuiltinId::Printf || builtin == stdlib::BuiltinId::Fprintf;
+  const auto formatIndex = builtin == stdlib::BuiltinId::Fprintf ? 1U : 0U;
+  std::vector<std::unique_ptr<hir::Expr>> captured;
+  captured.resize(arguments.size());
+  for (std::size_t position = 0; position < arguments.size(); ++position) {
+    // Match the emitter's implementation-chosen order: realloc evaluates its
+    // size before its pointer; fprintf forms its format before its file.
+    const bool reversedPair =
+        (builtin == stdlib::BuiltinId::Realloc && arguments.size() == 2) ||
+        (builtin == stdlib::BuiltinId::Fprintf && arguments.size() >= 2);
+    const auto index = reversedPair && position < 2 ? 1U - position : position;
+    const auto& argument = *arguments[index];
+    SourceRangeScope range(*this, argument.range);
+    const bool rawMemory = index < memoryCount &&
+        builtin != stdlib::BuiltinId::Fread && builtin != stdlib::BuiltinId::Fwrite &&
+        isRawMemoryAddress(argument);
+    const bool stringDestination = index == 0 &&
+        (builtin == stdlib::BuiltinId::Strcpy || builtin == stdlib::BuiltinId::Strcat ||
+         builtin == stdlib::BuiltinId::Strncpy);
+    const bool formattedView = formatted && index >= formatIndex &&
+        (index == formatIndex || index >= kinds.size() ||
+         kinds[index] != hir::FormatArgKind::Float);
+    const bool view = isStaticCStringArgument(builtin, overloadIndex, kinds, index) ||
+        (index < memoryCount && !rawMemory) || stringDestination || formattedView ||
+        (builtin == stdlib::BuiltinId::Put && index == 0) ||
+        (builtin == stdlib::BuiltinId::Fput && index == 1);
+    if (view) {
+      validateStaticViewFormation(argument);
+    } else {
+      // Scalar and low-byte arguments are copied at their evaluation point.
+      // View arguments instead retain their location until the callee reads.
+      validateStaticCallArgument(builtin, overloadIndex, kinds, index, argument);
+    }
+    captured[index] = captureStaticEvaluatedArgument(argument,
+        view && argument.result.isAddressable, rawMemory);
+  }
+  return captured;
+}
+
+void StaticSafetyAnalyzer::validateStaticCallArgument(
+    stdlib::BuiltinId builtin, std::uint16_t overloadIndex,
+    const std::vector<hir::FormatArgKind>& kinds, std::size_t index,
+    const hir::Expr &argument) {
+  const bool character = builtin == stdlib::BuiltinId::IsDigit ||
+      builtin == stdlib::BuiltinId::IsAlpha || builtin == stdlib::BuiltinId::IsAlnum ||
+      builtin == stdlib::BuiltinId::IsSpace || builtin == stdlib::BuiltinId::IsLower ||
+      builtin == stdlib::BuiltinId::IsUpper || builtin == stdlib::BuiltinId::IsXdigit ||
+      builtin == stdlib::BuiltinId::IsBlank || builtin == stdlib::BuiltinId::IsControl ||
+      builtin == stdlib::BuiltinId::IsPrint || builtin == stdlib::BuiltinId::IsGraph ||
+      builtin == stdlib::BuiltinId::IsPunct || builtin == stdlib::BuiltinId::ToUpper ||
+      builtin == stdlib::BuiltinId::ToLower;
+  if ((builtin == stdlib::BuiltinId::Memset && index == 1) ||
+      (character && index == 0) ||
+      (builtin == stdlib::BuiltinId::Strchr && index == 1)) {
+    validateStaticViewFormation(argument);
+    validateStaticMemoryAccess(staticViewAddressFact(argument), 1, "low-byte read");
+    return;
+  }
+  if (isStaticCStringArgument(builtin, overloadIndex, kinds, index)) {
+    validateStaticCStringRead(argument);
+  } else {
+    validateSafety(argument);
+  }
+}
+
+void StaticSafetyAnalyzer::validateStaticUserCallArguments(
+    std::string_view callee,
+    const std::vector<std::unique_ptr<hir::Expr>>& arguments) {
+  const auto contract = staticViewParameterCopies_.find(std::string(callee));
+  const auto isBorrowed = [&contract, this](std::size_t index) {
+    return contract != staticViewParameterCopies_.end() &&
+           index < contract->second.size() && !contract->second[index];
+  };
+  std::vector<std::optional<StaticAddressRange>> borrowedRanges(arguments.size());
+  for (std::size_t index = 0; index < arguments.size(); ++index) {
+    if (isBorrowed(index)) {
+      // Passing a writable destination locates it. Only the callee's actual
+      // member reads/writes consume bytes, so don't assume a full-View read.
+      validateStaticViewFormation(*arguments[index]);
+      borrowedRanges[index] = staticViewRange(*arguments[index]);
+    } else {
+      validateSafety(*arguments[index]);
+    }
+  }
+  for (std::size_t index = 0; index < arguments.size(); ++index) {
+    if (isBorrowed(index)) {
+      invalidateStaticFactsOverlapping(borrowedRanges[index],
+                                       std::nullopt);
+    }
+  }
+}
+
+std::size_t StaticSafetyAnalyzer::validateStaticMemoryOperands(
+    stdlib::BuiltinId builtin,
+    const std::vector<std::unique_ptr<hir::Expr>>& arguments) {
+  std::size_t count = 0;
+  std::optional<std::uint64_t> byteLength;
+  if (arguments.size() == 3U &&
+      (builtin == stdlib::BuiltinId::Memset ||
+       builtin == stdlib::BuiltinId::Memcpy ||
+       builtin == stdlib::BuiltinId::Memmove ||
+       builtin == stdlib::BuiltinId::Memcmp)) {
+    count = builtin == stdlib::BuiltinId::Memset ? 1 : 2;
+    byteLength = staticUnsignedInteger(*arguments[2]);
+  } else if (arguments.size() == 4U &&
+             (builtin == stdlib::BuiltinId::Fread ||
+              builtin == stdlib::BuiltinId::Fwrite)) {
+    count = 1;
+    const auto size = staticUnsignedInteger(*arguments[1]);
+    const auto number = staticUnsignedInteger(*arguments[2]);
+    if (size && number) byteLength = multiplyUnsignedIntegers(*size, *number);
+  }
+  for (std::size_t index = 0; index < count; ++index) {
+    const auto &argument = *arguments[index];
+    std::optional<StaticAddressFact> fact;
+    const bool rawAddress = builtin != stdlib::BuiltinId::Fread &&
+        builtin != stdlib::BuiltinId::Fwrite && isRawMemoryAddress(argument);
+    if (rawAddress) {
+      validateSafety(argument);
+      fact = staticAddressFact(argument);
+    } else {
+      validateStaticViewFormation(argument);
+      fact = staticViewAddressFact(argument);
+      if (fact) fact->range = staticViewRange(argument);
+    }
+    if (byteLength) {
+      const auto operation = index == 0 && builtin != stdlib::BuiltinId::Memcmp &&
+          builtin != stdlib::BuiltinId::Fwrite ? "store" : "load";
+      validateStaticMemoryAccess(fact, *byteLength, operation);
+      // A View's declared capacity remains known even when its binding's
+      // address provenance is unknown. Raw addr operands have no such bound.
+      if (!rawAddress &&
+          argument.result.lengthKind == hir::ViewLengthKind::Static &&
+          *byteLength > argument.result.staticByteLength &&
+          (!fact || !fact->range)) {
+        addDiagnostic("static safety check failed: memory " +
+                      std::string(operation) + " out of bounds");
+      }
+    }
+  }
+  return count;
+}
+
+void StaticSafetyAnalyzer::validateStaticViewFormation(const hir::Expr &expression) {
+  if (dynamic_cast<const hir::VariableRef *>(&expression) != nullptr ||
+      dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr) {
+    return;
+  }
+  if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
+    validateStaticViewFormation(*view->operand);
+    return;
+  }
+  if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
+    validateSafety(*deref->address);
+    return;
+  }
+  if (const auto *view = dynamic_cast<const hir::DynamicByteViewExpr *>(&expression)) {
+    validateStaticViewFormation(*view->source);
+    if (view->runtimeLength) {
+      validateSafety(*view->runtimeLength);
+    }
+    return;
+  }
+  validateSafety(expression);
 }
 
 } // namespace hitsimple::safety::detail

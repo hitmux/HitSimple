@@ -47,6 +47,10 @@ struct StaticSafetyState {
       unsignedIntegerValues;
   std::unordered_map<std::string, std::optional<StaticAddressFact>>
       addressFacts;
+  // A name's current locating capability is distinct from pointer-valued
+  // bytes held at its definition storage. An explicit unknown must survive joins.
+  std::unordered_map<std::string, std::optional<StaticAddressFact>>
+      bindingAddressFacts;
   std::unordered_map<std::string, std::optional<bool>> cstrTerminations;
   std::unordered_map<std::size_t, StaticDynamicObjectState>
       dynamicObjectStates;

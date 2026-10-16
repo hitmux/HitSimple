@@ -16,6 +16,20 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2]
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_checked_memcpy_smokes_match_visible_view_diagnostic(self) -> None:
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        manifest = json.loads((SOURCE_ROOT / "tests/support/harness/manifests/safety-mode.json")
+                              .read_text(encoding="utf-8"))
+        case = next(case for case in manifest["tests"]
+                    if case["name"] == "dynamic_memcpy_destination_boundary")
+        diagnostic = "hitsimple runtime error: access exceeds visible View extent"
+        self.assertEqual(case["stdin"], "2\n")
+        self.assertEqual(case["expect_by_mode"]["checked"]["run"]["exit_code"], 120)
+        self.assertIn(diagnostic, case["expect_by_mode"]["checked"]["run"]["stderr_regex"])
+        self.assertIn(f"grep -Fq '{diagnostic}' stderr", workflow)
+        self.assertIn(f"-notmatch '{diagnostic} at .*checked_memcpy_bounds\\.hs:8:26'", workflow)
+        self.assertNotIn("hitsimple runtime error: invalid memcpy destination range", workflow)
+
     def windows_npm_commands(self) -> list[str]:
         workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         block = workflow.split("      - name: Test extension with Windows release compiler", 1)[1]

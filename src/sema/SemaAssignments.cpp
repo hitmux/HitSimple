@@ -472,6 +472,11 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
     const MemoryReference *directTarget,
     std::string_view lengthDiagnosticSubject,
     std::string_view targetLengthSubject) {
+  if (op == "&=" &&
+      dynamic_cast<const ast::IdentifierExpr *>(&target) == nullptr) {
+    addDiagnostic("left operand of '&=' must be a single IDENT");
+    return nullptr;
+  }
   if (const auto *identifier =
           dynamic_cast<const ast::IdentifierExpr *>(&target)) {
     if (identifier->name == "_") {
@@ -705,6 +710,22 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
     loweredValue = preservePointerDerivedAddress(std::move(loweredValue));
   }
 
+  if (op == "&=") {
+    auto address = loweredValue ? std::move(loweredValue) : analyze(value);
+    if (!address) {
+      return nullptr;
+    }
+    if (!isIntegerExpression(*address)) {
+      addDiagnostic("right operand of '&=' requires an integer or address View");
+      return nullptr;
+    }
+    // The source controls sign/zero extension; the destination's declared
+    // length and template play no role in forming the binding address.
+    return std::make_unique<hir::BindingRebind>(
+        targetRef.name, targetRef.bindingName, targetRef.byteLength,
+        targetRef.storage, std::move(address));
+  }
+
   const bool targetIsHandle = targetRef.templateName == "handle";
   const bool valueIsHandle = isHandleExpression(value);
   if (targetIsHandle) {
@@ -737,26 +758,6 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
     return nullptr;
   }
 
-  if (op == "&=") {
-    if (targetRef.byteLength != pointerByteLength()) {
-      addDiagnostic("address rebinding target '" + targetName +
-                    "' must be pointer-sized");
-      return nullptr;
-    }
-    auto address = loweredValue ? std::move(loweredValue) : analyze(value);
-    if (!address) {
-      return nullptr;
-    }
-    if (!isIntegerExpression(*address) ||
-        integerExpressionByteLength(*address).value_or(0) !=
-            pointerByteLength()) {
-      addDiagnostic("right operand of '&=' is not a pointer-sized expression");
-      return nullptr;
-    }
-    return std::make_unique<hir::IntegerStore>(
-        targetRef.name, targetRef.bindingName, targetRef.byteLength,
-        targetRef.storage, targetRef.offset, std::move(address));
-  }
 
   if (op == "=" && targetRef.templateName == "bytes") {
     if (!loweredValue) {
@@ -861,11 +862,16 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
     }
     if (const auto *source =
             dynamic_cast<const hir::VariableRef *>(loweredValue.get())) {
-      return std::make_unique<hir::StringCopyStore>(
+      auto store = std::make_unique<hir::StringCopyStore>(
           targetRef.name, targetRef.bindingName, targetRef.byteLength,
           targetRef.storage, targetRef.offset, source->name,
           source->bindingName, source->byteLength, source->storage,
           source->offset);
+      // Retain the source's current template as well as its location. A cstr
+      // scan must enforce termination within its visible View, whereas an
+      // explicit %s= raw-byte source can be truncated and terminated by the copy.
+      store->sourceView = std::move(loweredValue);
+      return store;
     }
     if (op == "=") {
       if (loweredValue->result.lengthKind != hir::ViewLengthKind::Static ||
@@ -887,10 +893,17 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
           hir::MemoryStorage::Local, 0, std::move(loweredValue),
           hir::ConversionPlan{hir::ConversionKind::Identity, source,
                               fixedResult("cstr", source.staticByteLength)}));
-      statements.push_back(std::make_unique<hir::StringCopyStore>(
+      auto store = std::make_unique<hir::StringCopyStore>(
           targetRef.name, targetRef.bindingName, targetRef.byteLength,
           targetRef.storage, targetRef.offset, sourceName, sourceName,
-          source.staticByteLength, hir::MemoryStorage::Local, 0));
+          source.staticByteLength, hir::MemoryStorage::Local, 0);
+      // Materialization must retain the cstr interpretation, including for
+      // assignment-expression and return sources. The copy validates that its
+      // source terminates within the complete materialized visible View.
+      store->sourceView = std::make_unique<hir::VariableRef>(
+          sourceName, sourceName, hir::MemoryStorage::Local,
+          fixedResult("cstr", source.staticByteLength));
+      statements.push_back(std::move(store));
       return std::make_unique<hir::StatementList>(std::move(statements));
     }
     addDiagnostic("right operand of '" + std::string(op) +

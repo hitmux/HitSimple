@@ -1413,6 +1413,41 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_multiple_rhs_assignment_diagnostics PROPERTIES
     LABELS "testing;harness;assignment;diagnostic")
   add_test(
+    NAME hsc_true_name_rebinding
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite true-name-rebinding
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_true_name_rebinding PROPERTIES
+    LABELS "testing;harness;assignment;rebinding")
+  add_test(
+    NAME hsc_true_name_rebinding_runtime_errors
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite true-name-rebinding-runtime-errors
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_true_name_rebinding_runtime_errors PROPERTIES
+    LABELS "testing;harness;assignment;rebinding")
+  add_test(
+    NAME hsc_true_name_rebinding_diagnostics
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite true-name-rebinding-diagnostics
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_true_name_rebinding_diagnostics PROPERTIES
+    LABELS "testing;harness;assignment;rebinding")
+  add_test(
     NAME hsc_none_return_views
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
@@ -1819,7 +1854,7 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> --static-checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_abs_minimum.hs -o module.ll && ! grep -Fq '@hs_abs_overflow' module.ll"
   )
   add_hsc_shell_test(hsc_checked_unterminated_fopen_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_unterminated_fopen.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: unterminated checked file name' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_unterminated_fopen.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: unterminated checked string' stderr"
   )
   add_hsc_shell_test(hsc_checked_null_file_handle_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_null_file_handle.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid file handle' stderr"
@@ -1864,28 +1899,28 @@ target_link_libraries(hsc_unit_tests
     PROPERTIES LABELS "phase5;safe-001"
   )
   add_hsc_shell_test(hsc_checked_fread_overflow_runtime_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: fread size overflow' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: View access size overflow' stderr"
   )
   add_hsc_shell_test(hsc_checked_fwrite_overflow_runtime_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fwrite_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: fwrite size overflow' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fwrite_overflow_runtime.hs -o program && ! printf '%s\\n' '18446744073709551615' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: View access size overflow' stderr"
   )
   add_hsc_shell_test(hsc_checked_fread_bounds_runtime_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid fread destination range' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fread_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: access exceeds visible View extent' stderr"
   )
   add_hsc_shell_test(hsc_checked_fwrite_bounds_runtime_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fwrite_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid fwrite source range' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_fwrite_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: access exceeds visible View extent' stderr"
   )
   add_hsc_shell_test(hsc_checked_unterminated_strlen_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_unterminated_strlen.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: unterminated checked string' stderr"
   )
   add_hsc_shell_test(hsc_checked_strcpy_capacity_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_strcpy_capacity.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: insufficient strcpy destination capacity' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_strcpy_capacity.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: insufficient visible cstr destination capacity' stderr"
   )
   add_hsc_shell_test(hsc_checked_strcat_capacity_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_strcat_capacity.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: insufficient strcat destination capacity' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_strcat_capacity.hs -o program && ! ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: insufficient visible cstr destination capacity' stderr"
   )
   add_hsc_shell_test(hsc_checked_memcpy_bounds_runtime_error
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: invalid memcpy destination range' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o program && ! printf '2' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: access exceeds visible View extent' stderr"
   )
   add_hsc_shell_test(hsc_checked_memcpy_overlap_runtime_error
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_overlap.hs -o program && ! printf '1' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: overlapping memcpy ranges' stderr"
@@ -1897,7 +1932,7 @@ target_link_libraries(hsc_unit_tests
     "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_scan_target.hs -o program && ! printf 'x\\n' | ./program >stdout 2>stderr && grep -Fq 'hitsimple runtime error: scan string target must leave room for a NUL terminator' stderr"
   )
   add_hsc_shell_test(hsc_checked_runtime_source_locations
-    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o program && ! printf '2\\n' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: invalid memcpy destination range at .*/checked_memcpy_bounds\\.hs:8:26$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_double_free.hs -o program && ! ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: double free at .*/checked_double_free\\.hs:6:5$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_scan_target.hs -o program && ! printf 'x\\n' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: scan string target must leave room for a NUL terminator at .*/checked_dynamic_scan_target\\.hs:7:5$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_abs_minimum.hs -o program && ! printf '%s\\n' '-128' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: abs of minimum signed value at .*/checked_abs_minimum\\.hs:11:27$' stderr"
+    "$<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o program && ! printf '2\\n' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: access exceeds visible View extent at .*/checked_memcpy_bounds\\.hs:8:26$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_double_free.hs -o program && ! ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: double free at .*/checked_double_free\\.hs:6:5$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_dynamic_scan_target.hs -o program && ! printf 'x\\n' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: scan string target must leave room for a NUL terminator at .*/checked_dynamic_scan_target\\.hs:7:5$' stderr && $<TARGET_FILE:hsc> --checked ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_abs_minimum.hs -o program && ! printf '%s\\n' '-128' | ./program >stdout 2>stderr && grep -Eq 'hitsimple runtime error: abs of minimum signed value at .*/checked_abs_minimum\\.hs:11:27$' stderr"
   )
   add_hsc_shell_test(hsc_runtime_source_location_ir_policy
     "$<TARGET_FILE:hsc> --checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o checked.ll && grep -Fq '@hs_set_source_location' checked.ll && $<TARGET_FILE:hsc> --unchecked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o unchecked.ll && ! grep -Fq '@hs_set_source_location' unchecked.ll && $<TARGET_FILE:hsc> --static-checked --emit-llvm ${PROJECT_SOURCE_DIR}/tests/cases/run/checked_memcpy_bounds.hs -o static-checked.ll && ! grep -Fq '@hs_set_source_location' static-checked.ll"

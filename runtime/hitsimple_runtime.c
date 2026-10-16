@@ -463,6 +463,43 @@ static uint64_t hs_checked_product(uint64_t size, uint64_t count,
   return size * count;
 }
 
+void hs_check_view_offset(int32_t valid) {
+  if (!valid) {
+    hs_fail("index/slice exceeds visible View extent");
+  }
+}
+
+/* A View's visible extent is independent of its backing allocation. */
+void hs_check_view_capacity(uint64_t visible, uint64_t size, uint64_t count) {
+  const uint64_t required = hs_checked_product(size, count,
+                                               "View access size overflow");
+  if (required > visible) {
+    hs_fail("access exceeds visible View extent");
+  }
+}
+
+void hs_check_cstr_capacity(uint64_t visible, uint64_t used, uint64_t append) {
+  if (used >= visible || append >= visible - used) {
+    hs_fail("insufficient visible cstr destination capacity");
+  }
+}
+
+uint64_t hs_check_cstr_view(const char *value, uint64_t visible) {
+  hs_check((void *)value, 1, "invalid checked string View");
+  HsAlloc *entry = hs_find((void *)value);
+  const uint64_t offset = (uint64_t)((uintptr_t)value - (uintptr_t)entry->ptr);
+  const uint64_t remaining = entry->size - offset;
+  const uint64_t limit = visible < remaining ? visible : remaining;
+  for (uint64_t index = 0; index < limit; ++index) {
+    if (value[index] == '\0') {
+      return index;
+    }
+  }
+  hs_fail(visible < remaining ? "unterminated visible cstr View"
+                              : "unterminated checked string");
+  return 0;
+}
+
 static uint64_t hs_cstr_length(const char *value, const char *message) {
   if (value == NULL) {
     hs_fail(message);
@@ -982,8 +1019,7 @@ int32_t hs_format_output(FILE *file, const char *format,
       }
       const char *text = argument->data;
       const uint64_t textLength = checked
-                                      ? hs_cstr_length(text,
-                                                       "unterminated format string argument")
+                                      ? hs_check_cstr_view(text, argument->length)
                                       : (uint64_t)strlen(text);
       if (!hs_write(file, text, (size_t)textLength, &written)) {
         return -1;

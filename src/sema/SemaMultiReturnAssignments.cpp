@@ -9,12 +9,6 @@ std::optional<AssignmentLowering> Analyzer::lowerMultiReturnAssignment(
     addDiagnostic("multi-return call result count does not match target count");
     return std::nullopt;
   }
-  for (const auto &target : assign.targets) {
-    if (target.op == "&=") {
-      addDiagnostic("multi-return call targets do not support address rebinding");
-      return std::nullopt;
-    }
-  }
   auto arguments = analyzeCallArguments(call, signature);
   if (!result_.diagnostics.empty()) {
     return std::nullopt;

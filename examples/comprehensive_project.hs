@@ -295,7 +295,7 @@ func struct_checks() -> [4] {
     pair[s1].left = sizeof(Metric)
     pair[s1].right = sizeof(Pair)
     view.len = sizeof(BufferView)
-    view.ptr &= &metric
+    view.ptr = &metric
 
     if (pair.right != 42) {
         return 80

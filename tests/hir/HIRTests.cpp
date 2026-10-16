@@ -430,3 +430,44 @@ HS_TEST(Hir_CapturedViewsRequireMatchingPriorFormation) {
                    std::string::npos);
   }
 }
+
+HS_TEST(Hir_RebindingVerifierRejectsMissingAddress) {
+  using namespace hitsimple::hir;
+  std::vector<std::unique_ptr<Stmt>> statements;
+  statements.push_back(std::make_unique<BindingRebind>(
+      "x", "x", 4, MemoryStorage::Local, nullptr));
+  std::vector<std::unique_ptr<Function>> functions;
+  functions.push_back(std::make_unique<Function>(
+      "main", std::make_unique<Block>(std::move(statements))));
+  TranslationUnit unit(std::move(functions));
+  const auto diagnostics = verifyHIR(unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("BindingRebind requires") != std::string::npos);
+}
+
+HS_TEST(Hir_ViewOffsetBoundsDescribeOnlyIndexingAndSlicing) {
+  using namespace hitsimple::hir;
+  const auto makeAddress = [] {
+    const auto address = viewSemanticsForTemplate("addr", sizeof(void *));
+    return std::make_unique<BinaryExpr>(
+        std::make_unique<AddressOfExpr>("buffer", "buffer", 4,
+            MemoryStorage::Local, 0, address), "+",
+        std::make_unique<IntegerLiteral>("1", viewSemanticsForTemplate("i32", 4)),
+        address, StandardOperationKind::AddressOffset);
+  };
+  auto plain = makeAddress();
+  HS_EXPECT_TRUE(!plain->viewOffsetBounds.has_value());
+  auto bounded = makeAddress();
+  bounded->viewOffsetBounds = ViewOffsetBounds{4, 1};
+  auto unit = unitWithReturn(std::move(bounded));
+  HS_EXPECT_TRUE(verifyHIR(*unit).empty());
+  const auto dump = dumpToString(*unit);
+  HS_EXPECT_TRUE(dump.find("source_view_bytes=4 selected_view_bytes=1") !=
+                 std::string::npos);
+  auto invalid = makeAddress();
+  invalid->viewOffsetBounds = ViewOffsetBounds{4, 0};
+  const auto diagnostics = verifyHIR(*unitWithReturn(std::move(invalid)));
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("ViewOffsetBounds") !=
+                 std::string::npos);
+}

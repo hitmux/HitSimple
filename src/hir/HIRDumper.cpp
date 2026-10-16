@@ -195,6 +195,17 @@ private:
       return;
     }
 
+    if (const auto *rebind = dynamic_cast<const BindingRebind *>(&statement)) {
+      line("BindingRebind target=" + rebind->target +
+           " binding=" + rebind->bindingName + " bytes=" +
+           std::to_string(rebind->targetByteLength) + " storage=" +
+           std::string(toString(rebind->storage)));
+      indent_ += 1;
+      dump(*rebind->address);
+      indent_ -= 1;
+      return;
+    }
+
     if (const auto *store = dynamic_cast<const IntegerStore *>(&statement)) {
       line("IntegerStore target=" + store->target +
            " binding=" + store->bindingName +
@@ -579,6 +590,12 @@ private:
            " bytes=" + std::to_string(binary->byteLength) +
            " candidate=" + std::string(toString(binary->operationKind)) +
            addressFactsText(binary->addressFacts) +
+           (binary->viewOffsetBounds
+                ? " source_view_bytes=" +
+                      std::to_string(binary->viewOffsetBounds->sourceByteLength) +
+                      " selected_view_bytes=" +
+                      std::to_string(binary->viewOffsetBounds->resultByteLength)
+                : "") +
            " operation=" + std::string(toString(binary->operation)) +
            resultSemantics(*binary));
       ++indent_;

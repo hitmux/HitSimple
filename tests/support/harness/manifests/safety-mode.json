@@ -295,7 +295,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*/checked_cstr_compare_boundary\\.hs:8:19\\n$"
+            "stderr_regex": "^hitsimple runtime error: unterminated checked string at .*/checked_cstr_compare_boundary\\.hs:8:12\\n$"
           }
         }
       }
@@ -330,7 +330,7 @@
           "run": {
             "exit_code": 120,
             "stdout": "",
-            "stderr_regex": "^hitsimple runtime error: invalid memcpy destination range at .*/checked_memcpy_bounds\\.hs:8:26\\n$"
+            "stderr_regex": "^hitsimple runtime error: access exceeds visible View extent at .*/checked_memcpy_bounds\\.hs:8:26\\n$"
           }
         }
       }

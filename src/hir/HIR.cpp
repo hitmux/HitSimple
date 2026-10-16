@@ -781,6 +781,199 @@ LocalMemory::LocalMemory(std::string name, std::string bindingName,
       byteLength(byteLength), storage(storage),
       templateName(std::move(templateName)) {}
 
+std::unordered_set<std::string> reboundBindings(const TranslationUnit &unit) {
+  std::unordered_set<std::string> bindings;
+  std::function<void(const Expr &)> expression;
+  std::function<void(const Stmt &)> statement;
+  const auto expressions = [&](const auto &values) {
+    for (const auto &value : values) {
+      if (value) expression(*value);
+    }
+  };
+  const auto statements = [&](const auto &values) {
+    for (const auto &value : values) {
+      if (value) statement(*value);
+    }
+  };
+  expression = [&](const Expr &node) {
+    if (const auto *value = dynamic_cast<const DerefExpr *>(&node)) {
+      if (value->address) expression(*value->address);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const BooleanTestExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const BinaryExpr *>(&node)) {
+      if (value->left) expression(*value->left);
+      if (value->right) expression(*value->right);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const UnaryExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const TernaryExpr *>(&node)) {
+      if (value->condition) expression(*value->condition);
+      if (value->thenExpr) expression(*value->thenExpr);
+      if (value->elseExpr) expression(*value->elseExpr);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const UnsignedExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const IntegerCastExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const TemplateViewExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const FloatBinaryExpr *>(&node)) {
+      if (value->left) expression(*value->left);
+      if (value->right) expression(*value->right);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const FloatCompareExpr *>(&node)) {
+      if (value->left) expression(*value->left);
+      if (value->right) expression(*value->right);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const ToFloatExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const ToIntExpr *>(&node)) {
+      if (value->operand) expression(*value->operand);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const UserTemplateFormatCallExpr *>(&node)) {
+      if (value->value) expression(*value->value);
+      if (value->file) expression(*value->file);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const DynamicByteViewExpr *>(&node)) {
+      if (value->source) expression(*value->source);
+      if (value->runtimeLength) expression(*value->runtimeLength);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const ByteSwapExpr *>(&node)) {
+      if (value->source) expression(*value->source);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const CallExpr *>(&node)) {
+      expressions(value->arguments);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const UserTemplateOpCallExpr *>(&node)) {
+      expressions(value->arguments);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const AssignmentExpr *>(&node)) {
+      statements(value->stores);
+      if (value->result) expression(*value->result);
+    }
+  };
+  statement = [&](const Stmt &node) {
+    if (const auto *value = dynamic_cast<const BindingRebind *>(&node)) {
+      bindings.insert(value->bindingName);
+      if (value->address) expression(*value->address);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const CaptureView *>(&node)) {
+      if (value->source) expression(*value->source);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const IntegerStore *>(&node)) {
+      if (value->value) expression(*value->value);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const FloatStore *>(&node)) {
+      if (value->value) expression(*value->value);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const ViewCopyStore *>(&node)) {
+      if (value->value) expression(*value->value);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const BoolStore *>(&node)) {
+      if (value->value) expression(*value->value);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const PointerStore *>(&node)) {
+      if (value->address) expression(*value->address);
+      if (value->value) expression(*value->value);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const StringCopyStore *>(&node)) {
+      if (value->sourceView) expression(*value->sourceView);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const UserTemplateFormatCall *>(&node)) {
+      if (value->value) expression(*value->value);
+      if (value->file) expression(*value->file);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const InputCallStore *>(&node)) {
+      if (value->file) expression(*value->file);
+      if (value->format) expression(*value->format);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const Call *>(&node)) {
+      expressions(value->arguments);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const UserTemplateOpCall *>(&node)) {
+      expressions(value->arguments);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const MultiReturnCallStore *>(&node)) {
+      expressions(value->arguments);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const Return *>(&node)) {
+      expressions(value->values);
+      return;
+    }
+    if (const auto *value = dynamic_cast<const StatementList *>(&node)) {
+      statements(value->statements);
+    } else if (const auto *value = dynamic_cast<const If *>(&node)) {
+      if (value->condition) expression(*value->condition);
+      if (value->thenBlock) statements(value->thenBlock->statements);
+      if (value->elseBlock) statements(value->elseBlock->statements);
+    } else if (const auto *value = dynamic_cast<const While *>(&node)) {
+      if (value->condition) expression(*value->condition);
+      if (value->body) statements(value->body->statements);
+    } else if (const auto *value = dynamic_cast<const For *>(&node)) {
+      if (value->init) statement(*value->init);
+      if (value->condition) expression(*value->condition);
+      statements(value->post);
+      if (value->body) statements(value->body->statements);
+    } else if (const auto *value = dynamic_cast<const Label *>(&node)) {
+      if (value->statement) statement(*value->statement);
+    } else if (const auto *value = dynamic_cast<const Throw *>(&node)) {
+      if (value->delivery) statement(*value->delivery);
+    } else if (const auto *value = dynamic_cast<const TryCatch *>(&node)) {
+      if (value->tryBlock) statements(value->tryBlock->statements);
+      if (value->catchBlock) statements(value->catchBlock->statements);
+    }
+  };
+  if (unit.globalInit) statements(unit.globalInit->statements);
+  for (const auto &function : unit.functions) {
+    if (function->body) statements(function->body->statements);
+  }
+  return bindings;
+}
+
+BindingRebind::BindingRebind(std::string target, std::string bindingName,
+                              std::size_t targetByteLength, MemoryStorage storage,
+                              std::unique_ptr<Expr> address)
+    : target(std::move(target)), bindingName(std::move(bindingName)),
+      targetByteLength(targetByteLength), storage(storage),
+      address(std::move(address)) {}
+
 IntegerStore::IntegerStore(std::string target, std::size_t targetByteLength,
                            std::unique_ptr<Expr> value)
     : target(std::move(target)), bindingName(this->target),
@@ -1774,6 +1967,17 @@ verifyHIR(const TranslationUnit &unit) {
         addDiagnostic(*value,
                       "only AddressOffset operations may carry AddressFacts");
       }
+      if (value->viewOffsetBounds &&
+          (value->operationKind != StandardOperationKind::AddressOffset ||
+           value->operation != BinaryOperator::Add ||
+           value->viewOffsetBounds->sourceByteLength == 0 ||
+           value->viewOffsetBounds->resultByteLength == 0 ||
+           (!isIntegerNumeric(value->right->result) &&
+            value->right->result.category != ViewCategory::Boolean &&
+            !isAddressValue(value->right->result)))) {
+        addDiagnostic(*value,
+                      "ViewOffsetBounds requires indexed AddressOffset addition with positive View lengths");
+      }
       verifyExpr(*value->left);
       verifyExpr(*value->right);
       return;
@@ -2000,6 +2204,23 @@ verifyHIR(const TranslationUnit &unit) {
     if (const auto *value = dynamic_cast<const StatementList *>(&statement)) {
       for (const auto &item : value->statements) {
         verifyStmt(*item);
+      }
+    } else if (const auto *value = dynamic_cast<const BindingRebind *>(&statement)) {
+      if (value->bindingName.empty() || value->targetByteLength == 0U ||
+          !value->address) {
+        auto diagnostic = diagnostic::Diagnostic::error(
+            diagnostic::Stage::Hir,
+            "BindingRebind requires a named positive-length target and address");
+        diagnostic.range = value->range;
+        diagnostics.push_back(std::move(diagnostic));
+      } else {
+        if (!isIntegerNumeric(value->address->result) &&
+            value->address->result.category != ViewCategory::Address &&
+            value->address->result.category != ViewCategory::Boolean) {
+          addDiagnostic(*value->address,
+                        "BindingRebind requires an integer or address source View");
+        }
+        verifyExpr(*value->address);
       }
     } else if (const auto *value = dynamic_cast<const IntegerStore *>(&statement)) {
       if (value->conversionPlan) {

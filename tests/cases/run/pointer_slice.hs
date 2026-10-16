@@ -4,7 +4,7 @@ func main() {
     new ptr[8]
     bytes[0:4] = 42
     value = bytes[0:+4]
-    ptr &= &value
+    ptr = &value
     [4]*ptr = [4]*ptr + 1
     return value - 43
 }

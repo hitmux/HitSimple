@@ -7,7 +7,7 @@ func main() {
     new bytes[4]
     new target[1]
     new ptr[8]
-    ptr &= &target
+    ptr = &target
     cell.value = 10
     bytes[0] = 20
     bytes[1:2] = 30

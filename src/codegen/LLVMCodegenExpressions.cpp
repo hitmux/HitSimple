@@ -153,6 +153,7 @@ llvm::Value *LlvmEmitter::emitConditionValue(const hir::Expr &expression) {
   if (view.data == nullptr || view.length == nullptr) {
     return nullptr;
   }
+  checkViewLoad(view);
   if (view.staticLength) {
     if (*view.staticLength == 1 || *view.staticLength == 2 ||
         *view.staticLength == 4 || *view.staticLength == 8 ||
@@ -253,6 +254,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     if (view.data == nullptr || view.length == nullptr) {
       return nullptr;
     }
+    checkViewLoad(view);
     if (view.staticLength) {
       if (*view.staticLength == 0) {
         return llvm::ConstantInt::get(integerType, 0);
@@ -335,14 +337,15 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     }
 
     llvm::Value *loaded = nullptr;
-    if (usesPointerStorage(*storage)) {
+    if (usesPointerStorage(*storage) && variable->offset == 0U &&
+        variable->byteLength == module_->getDataLayout().getPointerSize()) {
       auto *pointer = builder_.CreateLoad(
           builder_.getPtrTy(),
-          bytePointer(storage->storageType, storage->storage, variable->offset,
+          contentPointer(*storage, variable->offset, variable->byteLength, false,
                       variable->name + ".addr"),
           variable->name + ".ptr");
       llvm::cast<llvm::LoadInst>(pointer)->setAlignment(
-          alignmentAt(storage->alignment, variable->offset));
+          bindingAlignment(*storage, variable->offset));
       loaded = builder_.CreatePtrToInt(pointer, sourceType,
                                        variable->name + ".value");
     } else if (storage->abiType &&
@@ -352,11 +355,10 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return nullptr;
     } else {
       loaded = builder_.CreateLoad(
-          sourceType, bytePointer(storage->storageType, storage->storage,
-                                  variable->offset, variable->name + ".addr"),
+          sourceType, contentPointer(*storage, variable->offset, variable->byteLength, false, variable->name + ".addr"),
           variable->name + ".value");
       llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
-          alignmentAt(storage->alignment, variable->offset));
+          bindingAlignment(*storage, variable->offset));
     }
     if (sourceType == integerType) {
       return loaded;
@@ -385,9 +387,16 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       return nullptr;
     }
     auto *pointer =
-        bytePointer(storage->storageType, storage->storage, address->offset,
+        bindingPointer(*storage, address->offset,
                     address->name + ".address");
     return builder_.CreatePtrToInt(pointer, integerType, "ptrtoint");
+  }
+
+  if (const auto *offset = dynamic_cast<const hir::BinaryExpr *>(&expression);
+      offset != nullptr && offset->viewOffsetBounds) {
+    auto *pointer = emitPointerValue(expression, "view.offset.address");
+    return pointer ? builder_.CreatePtrToInt(pointer, integerType,
+                                             "view.offset.integer") : nullptr;
   }
 
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
@@ -528,6 +537,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       llvm::Value *comparison = nullptr;
       if (binary->operationKind ==
           hir::StandardOperationKind::StandardCStringCompare) {
+        (void)checkCStringView(leftView);
+        (void)checkCStringView(rightView);
         auto callee = hasRuntimeSafetyChecks()
                           ? declareCheckedStringCompare()
                           : module_->getOrInsertFunction(
@@ -550,6 +561,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                                                    builder_.getPtrTy(),
                                                    builder_.getInt64Ty()},
                                                   false));
+        checkViewLoad(leftView, commonLength);
+        checkViewLoad(rightView, commonLength);
         comparison = builder_.CreateCall(callee,
                                          {leftView.data, rightView.data,
                                           commonLength},
@@ -1054,7 +1067,7 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
       addDiagnostic("unknown local '" + address->name + "'");
       return nullptr;
     }
-    return bytePointer(storage->storageType, storage->storage, address->offset,
+    return bindingPointer(*storage, address->offset,
                        name);
   }
   if (const auto *offset = dynamic_cast<const hir::BinaryExpr *>(&expression);
@@ -1063,11 +1076,40 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
       offset->addressFacts &&
       offset->addressFacts->origin == hir::AddressOrigin::PointerDerived) {
     auto *base = emitPointerValue(*offset->left, std::string(name) + ".base");
-    auto *byteOffset =
-        emitIntegerValue(*offset->right, sizeof(void *),
-                         sourceUsesZeroExtension(*offset->right));
+    const auto checkedWidth = offset->viewOffsetBounds && hasRuntimeSafetyChecks()
+        ? std::max<std::size_t>(sizeof(void *), offset->right->result.staticByteLength)
+        : sizeof(void *);
+    auto *byteOffset = offset->viewOffsetBounds
+        ? emitIntegerValue(*offset->right, offset->right->result.staticByteLength)
+        : emitIntegerValue(*offset->right, checkedWidth,
+                           sourceUsesZeroExtension(*offset->right));
     if (base == nullptr || byteOffset == nullptr) {
       return nullptr;
+    }
+    if (offset->viewOffsetBounds) {
+      // Indexing interprets the result bytes as signed, even if evaluation of
+      // the offset expression itself used an unsigned operation or postfix ?.
+      byteOffset = builder_.CreateSExtOrTrunc(byteOffset,
+          integerTypeForByteLength(checkedWidth), "view.offset.signed");
+    }
+    if (offset->viewOffsetBounds && hasRuntimeSafetyChecks()) {
+      const auto bounds = *offset->viewOffsetBounds;
+      llvm::Value *valid = builder_.getFalse();
+      if (bounds.resultByteLength <= bounds.sourceByteLength) {
+        auto *type = llvm::cast<llvm::IntegerType>(byteOffset->getType());
+        auto *nonnegative = builder_.CreateICmpSGE(byteOffset,
+            llvm::ConstantInt::get(type, 0), "view.offset.nonnegative");
+        auto *within = builder_.CreateICmpULE(byteOffset,
+            llvm::ConstantInt::get(type, bounds.sourceByteLength - bounds.resultByteLength),
+            "view.offset.within");
+        valid = builder_.CreateAnd(nonnegative, within, "view.offset.valid");
+      }
+      auto callee = declareCFunction("hs_check_view_offset", builder_.getVoidTy(),
+                                     {builder_.getInt32Ty()});
+      (void)emitCheckedRuntimeCall(callee,
+          {builder_.CreateZExt(valid, builder_.getInt32Ty())});
+      byteOffset = builder_.CreateZExtOrTrunc(byteOffset,
+          integerTypeForByteLength(sizeof(void *)), "view.offset.pointer.width");
     }
     // The offset may be outside the original object.  Do not attach inbounds
     // or any alias/range assumption to pointer-derived addresses.
@@ -1088,18 +1130,20 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
       addDiagnostic("unknown local '" + variable->name + "'");
       return nullptr;
     }
-    if (usesPointerStorage(*storage)) {
+    if (usesPointerStorage(*storage) && variable->offset == 0U &&
+        variable->byteLength == module_->getDataLayout().getPointerSize()) {
       auto *loaded = builder_.CreateLoad(
           builder_.getPtrTy(),
-          bytePointer(storage->storageType, storage->storage, variable->offset,
+          contentPointer(*storage, variable->offset, variable->byteLength, false,
                       name),
           std::string(name) + ".value");
-      loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+      loaded->setAlignment(bindingAlignment(*storage, variable->offset));
       return loaded;
     }
-    if (variable->byteLength != sizeof(void *)) {
-      return bytePointer(storage->storageType, storage->storage,
-                         variable->offset, name);
+    if (variable->byteLength != sizeof(void *) &&
+        !hir::isIntegerNumeric(variable->result) &&
+        variable->result.category != hir::ViewCategory::Boolean) {
+      return bindingPointer(*storage, variable->offset, name);
     }
   }
   if (dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
@@ -1128,23 +1172,12 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
   return builder_.CreateIntToPtr(address, builder_.getPtrTy(), std::string(name));
 }
 
-llvm::Value *LlvmEmitter::emitBorrowedViewPointer(
-    const hir::Expr &expression, std::string_view name) {
-  const auto view = emitViewValue(expression);
-  if (view.data == nullptr) {
-    addDiagnostic("cannot materialize borrowed View pointer for '" +
-                  std::string(name) + "'");
-    return nullptr;
-  }
-  return view.data;
-}
-
-llvm::Value *LlvmEmitter::emitMemoryOperandPointer(
+ViewValue LlvmEmitter::emitMemoryOperandView(
     const hir::Expr &expression, std::string_view name) {
   const auto isRawAddress = [](const auto &self,
                                const hir::Expr &candidate) -> bool {
-    if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&candidate)) {
-      return variable->templateName == "addr";
+    if (hir::isAddressValue(candidate.result)) {
+      return true;
     }
     if (const auto *view =
             dynamic_cast<const hir::TemplateViewExpr *>(&candidate)) {
@@ -1168,9 +1201,9 @@ llvm::Value *LlvmEmitter::emitMemoryOperandPointer(
     return false;
   };
   if (isRawAddress(isRawAddress, expression)) {
-    return emitPointerValue(expression, name);
+    return ViewValue{emitPointerValue(expression, name), nullptr, std::nullopt};
   }
-  return emitBorrowedViewPointer(expression, name);
+  return emitViewValue(expression);
 }
 
 llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression) {
@@ -1184,6 +1217,7 @@ llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression) {
     (void)emitCheckedRuntimeCall(
         declareCheckLoad(), {view.data, builder_.getInt64(1)});
   }
+  checkViewLoad(view, builder_.getInt64(1));
   auto *byte = builder_.CreateLoad(builder_.getInt8Ty(), view.data, "view.low.byte");
   byte->setAlignment(llvm::Align(1));
   return builder_.CreateZExt(byte, builder_.getInt32Ty(), "view.low.byte.ext");
@@ -1212,11 +1246,19 @@ ViewValue LlvmEmitter::emitUserTemplateOpCall(
     registerLocalObject(result, resultByteLength);
     arguments.push_back(firstBytePointer(storageType, result));
   }
+  std::size_t argumentIndex = 0;
   for (const auto &argument : callArguments) {
     const auto view = emitViewValue(*argument);
     if (view.data == nullptr || view.length == nullptr) {
       return {};
     }
+    const auto contract = viewParameterCopies_.find(std::string(calleeName));
+    if (contract == viewParameterCopies_.end() ||
+        argumentIndex >= contract->second.size() ||
+        contract->second[argumentIndex]) {
+      checkViewLoad(view);
+    }
+    ++argumentIndex;
     arguments.push_back(view.data);
   }
   builder_.CreateCall(callee, arguments);
@@ -1236,13 +1278,8 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       addDiagnostic("source View used before capture");
       return {};
     }
-    const auto view = found->second;
-    // Later source evaluations may invalidate a captured lvalue's storage.
-    // Check the actual read as well as address formation, without re-evaluating
-    // the expression that located it.
-    if (expression.result.isAddressable && hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(declareCheckLoad(), {view.data, view.length});
-    }
+    auto view = found->second;
+    view.requiresAccessCheck = view.requiresAccessCheck || expression.result.isAddressable;
     return view;
   }
   auto makeStorage = [&](llvm::Type *type, llvm::Value *value,
@@ -1302,6 +1339,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     storage->setAlignment(llvm::Align(1));
     registerTemporaryObject(storage, builder_.getInt64(assignment->byteLength));
     // Copy now: a later argument or nested operation may overwrite the target.
+    checkViewLoad(source);
     builder_.CreateMemCpy(storage, llvm::Align(1), source.data,
                           alignmentAt(source.alignment), assignment->byteLength);
     return ViewValue{storage, builder_.getInt64(assignment->byteLength),
@@ -1343,6 +1381,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
         addDiagnostic("floating ternary branch does not match its View length");
         return false;
       }
+      checkViewLoad(view);
       builder_.CreateMemCpy(storage, llvm::Align(1), view.data,
                             alignmentAt(view.alignment), ternary->byteLength);
       builder_.CreateBr(mergeBlock);
@@ -1382,11 +1421,11 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
       addDiagnostic("unknown local '" + variable->name + "'");
       return {};
     }
-    return ViewValue{bytePointer(storage->storageType, storage->storage,
-                                 variable->offset, variable->name + ".view"),
+    return ViewValue{bindingPointer(*storage, variable->offset, variable->name + ".view"),
                      builder_.getInt64(variable->byteLength),
                      variable->byteLength,
-                     alignmentAt(storage->alignment, variable->offset).value()};
+                     bindingAlignment(*storage, variable->offset).value(),
+                     storage->requiresAccessCheck};
   }
 
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
@@ -1394,13 +1433,12 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     if (pointer == nullptr) {
       return {};
     }
-    if (hasRuntimeSafetyChecks() &&
-        !hasKnownStaticAddressRange(*deref->address, deref->byteLength)) {
-      (void)emitCheckedRuntimeCall(
-          declareCheckLoad(), {pointer, builder_.getInt64(deref->byteLength)});
-    }
+    // Locating a View (including length()) does not read its bytes. Consumers
+    // check the actual access extent, and captured Views retain this pointer.
     return ViewValue{pointer, builder_.getInt64(deref->byteLength),
-                     deref->byteLength, std::size_t{1}};
+                     deref->byteLength, std::size_t{1},
+                     !hasKnownStaticAddressRange(*deref->address,
+                                                  deref->byteLength)};
   }
 
   if (const auto *dynamic =
@@ -1429,6 +1467,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
                                                     "view.copy.shorter");
       auto *copyLength = builder_.CreateSelect(sourceShorter, source.length,
                                                resultLength, "view.copy.length");
+      checkViewLoad(source, copyLength);
       builder_.CreateMemCpy(result, llvm::Align(1), source.data, llvm::Align(1),
                             copyLength);
       const auto staticLength =
@@ -1442,6 +1481,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
                                           "view.swap.bytes");
     result->setAlignment(llvm::Align(1));
     registerTemporaryObject(result, source.length);
+    checkViewLoad(source);
     (void)emitCheckedRuntimeCall(declareReverseBytes(),
                                  {result, source.data, source.length});
     return ViewValue{result, source.length, std::nullopt, std::size_t{1}};
@@ -1457,6 +1497,7 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
         "view.swap.bytes");
     result->setAlignment(llvm::Align(1));
     registerTemporaryObject(result, builder_.getInt64(swap->byteLength));
+    checkViewLoad(source);
     if (swap->byteLength == 1 || swap->byteLength == 2 ||
         swap->byteLength == 4 || swap->byteLength == 8 ||
         swap->byteLength == 16) {
@@ -1587,10 +1628,10 @@ llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
       }
       auto *loaded = builder_.CreateLoad(
           type,
-          bytePointer(storage->storageType, storage->storage, variable->offset,
+          contentPointer(*storage, variable->offset, variable->byteLength, false,
                       std::string(name) + ".vector.addr"),
           std::string(name) + ".vector");
-      loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+      loaded->setAlignment(bindingAlignment(*storage, variable->offset));
       return loaded;
     }
     if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
@@ -1623,17 +1664,17 @@ llvm::Value *LlvmEmitter::emitValueForType(const hir::Expr &expression,
         return nullptr;
       }
       if (storage->storageType == type && variable->offset == 0) {
-        auto *loaded = builder_.CreateLoad(type, storage->storage,
+        auto *loaded = builder_.CreateLoad(type, contentPointer(*storage, 0, variable->byteLength, false, name),
                                            std::string(name) + ".aggregate");
-        loaded->setAlignment(alignmentAt(storage->alignment));
+        loaded->setAlignment(bindingAlignment(*storage));
         return loaded;
       }
       auto *loaded = builder_.CreateLoad(
           type,
-          bytePointer(storage->storageType, storage->storage, variable->offset,
+          contentPointer(*storage, variable->offset, variable->byteLength, false,
                       std::string(name) + ".aggregate.addr"),
           std::string(name) + ".aggregate");
-      loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+      loaded->setAlignment(bindingAlignment(*storage, variable->offset));
       return loaded;
     }
     if (const auto *call = dynamic_cast<const hir::CallExpr *>(&expression)) {
@@ -1683,13 +1724,14 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                             call.callee);
   }
   if (builtin == stdlib::BuiltinId::Memset) {
-    auto *address =
-        emitMemoryOperandPointer(*call.arguments[0], "memset.dst");
+    const auto destination = emitMemoryOperandView(*call.arguments[0], "memset.dst");
+    auto *address = destination.data;
     auto *value = emitViewLowByte(*call.arguments[1]);
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (address == nullptr || value == nullptr || length == nullptr) {
       return nullptr;
     }
+    checkViewCapacity(destination, length);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memset"
                                                              : "memset",
                                    ptrTy, {ptrTy, i32Ty, i64Ty});
@@ -1770,12 +1812,16 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   if (builtin == stdlib::BuiltinId::Memcpy ||
       builtin == stdlib::BuiltinId::Memmove) {
-    auto *dst = emitMemoryOperandPointer(*call.arguments[0], "mem.dst");
-    auto *src = emitMemoryOperandPointer(*call.arguments[1], "mem.src");
+    const auto destination = emitMemoryOperandView(*call.arguments[0], "mem.dst");
+    const auto source = emitMemoryOperandView(*call.arguments[1], "mem.src");
+    auto *dst = destination.data;
+    auto *src = source.data;
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!dst || !src || !length) {
       return nullptr;
     }
+    checkViewCapacity(destination, length);
+    checkViewCapacity(source, length);
     const auto calleeName = hasRuntimeSafetyChecks()
                                 ? "hs_" + call.callee
                                 : call.callee;
@@ -1785,14 +1831,16 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return result;
   }
   if (builtin == stdlib::BuiltinId::Memcmp) {
-    auto *left =
-        emitMemoryOperandPointer(*call.arguments[0], "memcmp.left");
-    auto *right =
-        emitMemoryOperandPointer(*call.arguments[1], "memcmp.right");
+    const auto leftView = emitMemoryOperandView(*call.arguments[0], "memcmp.left");
+    const auto rightView = emitMemoryOperandView(*call.arguments[1], "memcmp.right");
+    auto *left = leftView.data;
+    auto *right = rightView.data;
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!left || !right || !length) {
       return nullptr;
     }
+    checkViewCapacity(leftView, length);
+    checkViewCapacity(rightView, length);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_memcmp"
                                                              : "memcmp",
                                    i32Ty, {ptrTy, ptrTy, i64Ty});
@@ -1800,23 +1848,27 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
                                   "memcmp.ret");
   }
   if (builtin == stdlib::BuiltinId::Strlen) {
-    auto *str = emitBorrowedViewPointer(*call.arguments[0], "strlen.str");
+    const auto stringView = emitViewValue(*call.arguments[0]);
+    auto *str = stringView.data;
     if (!str) {
       return nullptr;
     }
+    (void)checkCStringView(stringView);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strlen"
                                                              : "strlen",
                                    i64Ty, {ptrTy});
     return emitCheckedRuntimeCall(callee, {str}, "strlen.ret");
   }
   if (builtin == stdlib::BuiltinId::Strcmp) {
-    auto *left =
-        emitBorrowedViewPointer(*call.arguments[0], "strcmp.left");
-    auto *right =
-        emitBorrowedViewPointer(*call.arguments[1], "strcmp.right");
+    const auto leftView = emitViewValue(*call.arguments[0]);
+    const auto rightView = emitViewValue(*call.arguments[1]);
+    auto *left = leftView.data;
+    auto *right = rightView.data;
     if (!left || !right) {
       return nullptr;
     }
+    (void)checkCStringView(leftView);
+    (void)checkCStringView(rightView);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strcmp"
                                                              : "strcmp",
                                    i32Ty, {ptrTy, ptrTy});
@@ -1824,10 +1876,18 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   if (builtin == stdlib::BuiltinId::Strcpy ||
       builtin == stdlib::BuiltinId::Strcat) {
-    auto *dst = emitBorrowedViewPointer(*call.arguments[0], "str.dst");
-    auto *src = emitBorrowedViewPointer(*call.arguments[1], "str.src");
+    const auto destination = emitViewValue(*call.arguments[0]);
+    const auto source = emitViewValue(*call.arguments[1]);
+    auto *dst = destination.data;
+    auto *src = source.data;
     if (!dst || !src) {
       return nullptr;
+    }
+    if (hasRuntimeSafetyChecks()) {
+      auto *sourceLength = checkCStringView(source);
+      auto *used = builtin == stdlib::BuiltinId::Strcat
+                       ? checkCStringView(destination) : builder_.getInt64(0);
+      checkCStringCapacity(destination, used, sourceLength);
     }
     const auto calleeName = hasRuntimeSafetyChecks()
                                 ? "hs_" + call.callee
@@ -1838,14 +1898,16 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return result;
   }
   if (builtin == stdlib::BuiltinId::Strncpy) {
-    auto *dst =
-        emitBorrowedViewPointer(*call.arguments[0], "strncpy.dst");
-    auto *src =
-        emitBorrowedViewPointer(*call.arguments[1], "strncpy.src");
+    const auto destination = emitViewValue(*call.arguments[0]);
+    const auto source = emitViewValue(*call.arguments[1]);
+    auto *dst = destination.data;
+    auto *src = source.data;
     auto *count = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!dst || !src || !count) {
       return nullptr;
     }
+    checkViewCapacity(destination, count);
+    (void)checkCStringView(source);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strncpy"
                                                              : "strncpy",
                                    ptrTy, {ptrTy, ptrTy, i64Ty});
@@ -1854,11 +1916,13 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return result;
   }
   if (builtin == stdlib::BuiltinId::Strchr) {
-    auto *str = emitBorrowedViewPointer(*call.arguments[0], "strchr.str");
-    auto *byte = emitIntegerValue(*call.arguments[1], 4, true);
+    const auto stringView = emitViewValue(*call.arguments[0]);
+    auto *str = stringView.data;
+    auto *byte = emitViewLowByte(*call.arguments[1]);
     if (!str || !byte) {
       return nullptr;
     }
+    (void)checkCStringView(stringView);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_strchr"
                                                              : "strchr",
                                    ptrTy, {ptrTy, i32Ty});
@@ -1866,11 +1930,15 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return result;
   }
   if (builtin == stdlib::BuiltinId::Fopen) {
-    auto *name = emitBorrowedViewPointer(*call.arguments[0], "fopen.name");
-    auto *mode = emitBorrowedViewPointer(*call.arguments[1], "fopen.mode");
+    const auto nameView = emitViewValue(*call.arguments[0]);
+    const auto modeView = emitViewValue(*call.arguments[1]);
+    auto *name = nameView.data;
+    auto *mode = modeView.data;
     if (!name || !mode) {
       return nullptr;
     }
+    (void)checkCStringView(nameView);
+    (void)checkCStringView(modeView);
     auto callee = declareCFunction(hasRuntimeSafetyChecks() ? "hs_fopen"
                                                              : "fopen",
                                    ptrTy, {ptrTy, ptrTy});
@@ -1934,8 +2002,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   if (builtin == stdlib::BuiltinId::Fread ||
       builtin == stdlib::BuiltinId::Fwrite) {
-    auto *buffer =
-        emitBorrowedViewPointer(*call.arguments[0], call.callee + ".buffer");
+    // File buffers use lview/view, not the mem_lview/mem_view raw-address
+    // exception. An addr argument denotes its own pointer-content bytes.
+    const auto view = emitViewValue(*call.arguments[0]);
+    auto *buffer = view.data;
     auto *size = emitIntegerValue(*call.arguments[1], sizeof(void *), true);
     auto *count = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     auto *file = emitPointerValue(*call.arguments[3], call.callee + ".file");
@@ -1945,6 +2015,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     const auto calleeName = hasRuntimeSafetyChecks()
                                 ? "hs_" + call.callee
                                 : call.callee;
+    checkViewCapacity(view, size, count);
     auto callee = declareCFunction(calleeName, i64Ty,
                                    {ptrTy, i64Ty, i64Ty, ptrTy});
     return emitCheckedRuntimeCall(callee, {buffer, size, count, file},
@@ -2197,6 +2268,7 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       addDiagnostic("floating View does not match requested float width");
       return nullptr;
     }
+    checkViewLoad(view);
     auto *loaded = builder_.CreateLoad(floatType, view.data, "view.float");
     llvm::cast<llvm::LoadInst>(loaded)->setAlignment(
         alignmentAt(view.alignment));
@@ -2242,10 +2314,9 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
       return nullptr;
     }
     auto *loaded = builder_.CreateLoad(
-        sourceType, bytePointer(storage->storageType, storage->storage,
-                                variable->offset, variable->name + ".addr"),
+        sourceType, contentPointer(*storage, variable->offset, variable->byteLength, false, variable->name + ".addr"),
         variable->name + ".float");
-    loaded->setAlignment(alignmentAt(storage->alignment, variable->offset));
+    loaded->setAlignment(bindingAlignment(*storage, variable->offset));
     if (sourceType == floatType) {
       return loaded;
     }

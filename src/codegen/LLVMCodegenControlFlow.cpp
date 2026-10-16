@@ -205,6 +205,7 @@ void LlvmEmitter::emit(const hir::TryCatch &tryCatch) {
                   Local{errorStorage, errorStorageType,
                         tryCatch.errorByteLength, std::nullopt,
                         std::size_t{1}});
+  initializeBinding(locals_.at(tryCatch.errorBindingName), tryCatch.errorBindingName);
   registerLocalObject(errorStorage, tryCatch.errorByteLength);
 
   builder_.CreateBr(tryBlock);

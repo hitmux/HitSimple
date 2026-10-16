@@ -1118,11 +1118,11 @@ HS_TEST(LLVMCodegen_EmitsEscapedStringBytes) {
   HS_EXPECT_TRUE(llvmIr(result).find("store i8 0") != std::string::npos);
 }
 
-HS_TEST(LLVMCodegen_EmitsAddressRebindAndDereference) {
+HS_TEST(LLVMCodegen_EmitsPointerValueAndDereference) {
   auto result = emitSource("func main() {\n"
                            "    new x[4]\n"
                            "    new ptr[8]\n"
-                           "    ptr &= &x\n"
+                           "    ptr = &x\n"
                            "    [4]*ptr = 42\n"
                            "    return [4]*ptr\n"
                            "}\n");
@@ -1413,7 +1413,7 @@ HS_TEST(LLVMCodegen_CheckedRegistersInternalObjectsAndFrames) {
                            "func main() {\n"
                            "    new local_value[4]\n"
                            "    new ptr[8]\n"
-                           "    ptr &= &global_value\n"
+                           "    ptr = &global_value\n"
                            "    [4]*ptr = 42\n"
                            "    return local_value\n"
                            "}\n",
@@ -3058,8 +3058,8 @@ HS_TEST(LLVMCodegen_EmitsAddressOfStaticAndGlobalMemory) {
                            "    static local[4]\n"
                            "    new gptr[8]\n"
                            "    new lptr[8]\n"
-                           "    gptr &= &global\n"
-                           "    lptr &= &local\n"
+                           "    gptr = &global\n"
+                           "    lptr = &local\n"
                            "    return 0\n"
                            "}\n");
 
@@ -3761,4 +3761,151 @@ HS_TEST(LLVMCodegen_MultipleAssignmentKeepsContextualFloatingTrees) {
     HS_EXPECT_TRUE(ir.find("store float") != std::string::npos);
     HS_EXPECT_TRUE(ir.find("fadd double") == std::string::npos);
   }
+}
+
+HS_TEST(LLVMCodegen_SeparatesNameBindingFromDefinitionStorage) {
+  auto result = emitSource(
+      "func main() { new x as i32 = 1; new y as i32 = 9; "
+      "new saved as addr = &x; x &= &y; x = 17; return x; }");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("x.binding = alloca ptr") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("store ptr %x, ptr %x.binding") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("store ptr %x.rebound, ptr %x.binding") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("load ptr, ptr %x.binding") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("store i32 17, ptr %x.addr.binding") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingAdjustsSignedAndUnsignedWidths) {
+  auto result = emitSource(
+      "func use(s as i8, u as u8, wide[16]) -> addr { new x[3]; "
+      "x &= s; x &= u; x &= wide; return &x; } "
+      "func main() { return 0; }");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("sext i8") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("zext i8") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("trunc i128") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingGlobalsIsTranslationUnitWide) {
+  auto result = emitSource(
+      "new value as i32 = 1; new target as i32 = 2; "
+      "func read() -> i32 { return value; } "
+      "func change() { value &= &target; } "
+      "func main() { change(); return read(); }");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("@value.binding = internal global ptr @value") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("load ptr, ptr @value.binding") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("store ptr @target, ptr @value.binding") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingOpaqueHandleRetainsTemplate) {
+  auto result = emitSource(
+      "func choose(first as handle, second as handle) -> handle { "
+      "first &= &second; return first; } func main() { return 0; }");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(llvmIr(result).find("first.binding = alloca ptr") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingStrchrReadsOnlyLowByte) {
+  auto result = emitSource(
+      "func search(ch[16] as bytes) -> addr { return strchr(\"abc\", ch); } "
+      "func main() { return 0; }");
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("load i8") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("load i128") == std::string::npos);
+  HS_EXPECT_TRUE(ir.find("call ptr @strchr") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingPreservesVisibleMemoryAndStringExtents) {
+  auto result = emitSource(
+      "func amount() -> u64 { return 2; } "
+      "func main() { new small[2] as cstr; new large[8] as cstr = \"abc\"; "
+      "small &= &large; memset(small, 0, amount()); return to_i32(strlen(small)); }",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("@hs_check_view_capacity(i64") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("@hs_check_cstr_view(ptr") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingIndexChecksBeforePointerWidthTruncation) {
+  auto result = emitSource(
+      "func locate(index[16]) -> addr { new small[1] as bytes; new large[8] as bytes; "
+      "small &= &large; return &small[index]; } func main() { return 0; }",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  const auto ir = llvmIr(result);
+  HS_EXPECT_TRUE(ir.find("icmp sge i128") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("icmp ule i128") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("@hs_check_view_offset") != std::string::npos);
+  HS_EXPECT_TRUE(ir.find("trunc i128") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingTernaryRetainsSourceWidth) {
+  for (const auto *type : {"i8", "u8", "none"}) {
+    const auto length = std::string(type) == "none" ? "[16]" : "";
+    auto result = emitSource(
+        "func choose(flag as bool, first" + std::string(length) + " as " + type +
+        ", second" + length + " as " + type + ") -> addr { "
+        "new target as i32; target &= flag ? first : second; return &target; } "
+        "func main() { return 0; }");
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    const auto ir = llvmIr(result);
+    HS_EXPECT_TRUE(ir.find(std::string("phi i") + (std::string(type) == "none" ? "128" : "8")) != std::string::npos);
+  }
+}
+
+HS_TEST(LLVMCodegen_BorrowedRebindingTargetsAvoidInboundsBeforeChecks) {
+  auto result = emitSource(
+      "template Pair { first[4] as i32; last[4] as i32; }\n"
+      "impl Pair { op = (dst as Pair, src as Pair) -> Pair { "
+      "dst.last = src.last; return dst; } }\n"
+      "func main() { new dst as Pair; new src as Pair; dst = src; return 0; }",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+  const auto *operation = result.module->getFunction("__hitsimple.implop.Pair.0");
+  HS_EXPECT_TRUE(operation != nullptr);
+  bool foundBorrowedMember = false;
+  for (const auto &block : *operation) {
+    for (const auto &instruction : block) {
+      const auto *gep = llvm::dyn_cast<llvm::GetElementPtrInst>(&instruction);
+      if (gep && gep->getPointerOperand() == operation->getArg(1)) {
+        foundBorrowedMember = true;
+        HS_EXPECT_TRUE(!gep->isInBounds());
+      }
+    }
+  }
+  HS_EXPECT_TRUE(foundBorrowedMember);
+  HS_EXPECT_TRUE(llvmIr(result).find("call void @hs_check_store") != std::string::npos);
+}
+
+HS_TEST(LLVMCodegen_RebindingFileBuffersUseAddressViewBytes) {
+  auto result = emitSource(
+      "func transfer(file as handle) { new backing[16] as bytes; "
+      "new pointer as addr = &backing; new read_count = fread(pointer, 1, 8, file); "
+      "new write_count = fwrite(pointer, 1, 8, file); } func main() { return 0; }",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+  const auto *function = result.module->getFunction("transfer");
+  HS_EXPECT_TRUE(function != nullptr);
+  unsigned checkedBuffers = 0;
+  for (const auto &block : *function) {
+    for (const auto &instruction : block) {
+      const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+      if (call && (call->getName() == "fread.ret" || call->getName() == "fwrite.ret")) {
+        const auto *storage = llvm::dyn_cast<llvm::AllocaInst>(call->getArgOperand(0));
+        HS_EXPECT_TRUE(storage != nullptr);
+        HS_EXPECT_EQ(storage->getName().str(), "pointer");
+        ++checkedBuffers;
+      }
+    }
+  }
+  HS_EXPECT_EQ(checkedBuffers, 2U);
 }

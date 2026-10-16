@@ -158,7 +158,7 @@ jobs:
             SourceLocation_ Diagnostic_ CCompat_ Lexer_ Parser_ \
             Preprocessor_ Sema_ ResourcePaths_ Process_ Toolchain_
           cmake -DBUILD_DIR=build-release \
-            '-DTEST_REGEX=^(hsc_ctype_bool_representation|hsc_bool_value_reads|hsc_explicit_numeric_returns|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_ctype_ascii_extensions|hsc_ascii_ctype_tooling|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_cstr_assignment_contracts|hsc_cstr_assignment_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*|hsc_feof_bool_value_.*)$' \
+            '-DTEST_REGEX=^(hsc_ctype_bool_representation|hsc_bool_value_reads|hsc_explicit_numeric_returns|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_ctype_ascii_extensions|hsc_ascii_ctype_tooling|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_cstr_assignment_contracts|hsc_cstr_assignment_diagnostics|hsc_true_name_rebinding|hsc_true_name_rebinding_runtime_errors|hsc_true_name_rebinding_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*|hsc_feof_bool_value_.*)$' \
             -P cmake/RunQuietTests.cmake
           ./build-release/hsc --checked examples/hello.hs -o hello-checked
           ./hello-checked | grep -Fx 42
@@ -180,7 +180,7 @@ jobs:
             echo 'checked memcpy bounds unexpectedly succeeded' >&2
             exit 1
           fi
-          grep -Fq 'hitsimple runtime error: invalid memcpy destination range' stderr
+          grep -Fq 'hitsimple runtime error: access exceeds visible View extent' stderr
           ./build-release/hsc --checked tests/cases/run/checked_memcpy_overlap.hs \
             -o checked-memcpy-overlap
           if printf '1\n' | ./checked-memcpy-overlap >stdout 2>stderr; then
@@ -830,7 +830,7 @@ jobs:
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_bounds.hs -o checked-memcpy-bounds.exe
           $boundsOutput = "2" | & ./checked-memcpy-bounds.exe 2>&1
-          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: invalid memcpy destination range at .*checked_memcpy_bounds\.hs:8:26') {
+          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: access exceeds visible View extent at .*checked_memcpy_bounds\.hs:8:26') {
             throw "Windows checked memcpy bounds did not fail as required: $boundsOutput"
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_double_free.hs -o checked-double-free.exe
@@ -929,7 +929,7 @@ jobs:
         shell: pwsh
         run: |
           $env:HITSIMPLE_CLANG = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
-          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm|hsc_runtime_file_handles|hsc_harness_file_handles|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_ctype_ascii_extensions|hsc_ascii_ctype_tooling|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_cstr_assignment_contracts|hsc_cstr_assignment_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*)$' -P cmake/RunQuietTests.cmake
+          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm|hsc_runtime_file_handles|hsc_harness_file_handles|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_ctype_ascii_extensions|hsc_ascii_ctype_tooling|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_cstr_assignment_contracts|hsc_cstr_assignment_diagnostics|hsc_true_name_rebinding|hsc_true_name_rebinding_runtime_errors|hsc_true_name_rebinding_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*)$' -P cmake/RunQuietTests.cmake
 
       - name: Assemble full and slim packages
         shell: pwsh

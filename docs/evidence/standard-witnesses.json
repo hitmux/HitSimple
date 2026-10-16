@@ -178,7 +178,7 @@
         },
         {
           "path": "src/codegen/LLVMCodegenExpressions.cpp",
-          "anchor": "alignmentAt(storage->alignment, variable->offset).value()};"
+          "anchor": "bindingAlignment(*storage, variable->offset).value(),"
         }
       ],
       "evidence": [
@@ -1159,7 +1159,7 @@
         },
         {
           "path": "src/safety/StaticSafetyValidation.cpp",
-          "anchor": "// Freeze the location's lifetime identity separately from an addr View's"
+          "anchor": "void StaticSafetyAnalyzer::recordStaticViewCapture("
         },
         {
           "path": "src/safety/StaticSafetyFacts.cpp",
@@ -1415,23 +1415,468 @@
           "anchor": "# C-string literal assignment padding"
         }
       ]
+    },
+    {
+      "id": "true-name-rebinding",
+      "sections": [
+        "5.2",
+        "5.6",
+        "7.7",
+        "18.2"
+      ],
+      "claim": "Name rebinding updates a distinct current binding address while preserving definition storage, declared extent, persistent template and lifetime; byte consumers follow that address and non-identifier targets are diagnosed.",
+      "limitation": "Bounded HIR, LLVM, safety and native witnesses, not full conformance. Integer-interpreted RHS matrix follows \u00a7\u00a77.2/7.3/11.6/11.10; general postfix ? View source formation is a separate known gap. Static alias/loop/interprocedural proofs and other platforms remain limited. Section18.2 evidence is only required diagnostic18.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaAssignments.cpp",
+          "anchor": "std::make_unique<hir::BindingRebind>"
+        },
+        {
+          "path": "include/hitsimple/hir/HIR.h",
+          "anchor": "struct BindingRebind final : Stmt"
+        },
+        {
+          "path": "src/hir/HIR.cpp",
+          "anchor": "std::unordered_set<std::string> reboundBindings("
+        },
+        {
+          "path": "src/codegen/LLVMCodegenRuntime.cpp",
+          "anchor": "void LlvmEmitter::initializeBinding("
+        },
+        {
+          "path": "src/codegen/LLVMCodegenStatements.cpp",
+          "anchor": "void LlvmEmitter::emit(const hir::BindingRebind &rebind)"
+        },
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "view.requiresAccessCheck = view.requiresAccessCheck || expression.result.isAddressable;"
+        },
+        {
+          "path": "src/safety/StaticSafetyValidation.cpp",
+          "anchor": "if (const auto *rebind = dynamic_cast<const hir::BindingRebind *>(&statement))"
+        },
+        {
+          "path": "src/safety/StaticSafetyFacts.cpp",
+          "anchor": "StaticSafetyAnalyzer::staticBindingAddressFact("
+        },
+        {
+          "path": "src/safety/StaticSafetyStateFlow.cpp",
+          "anchor": "// Missing here means the unchanged definition address, whereas nullopt"
+        },
+        {
+          "path": "runtime/hitsimple_runtime.c",
+          "anchor": "uint64_t hs_check_cstr_view(const char *value, uint64_t visible)"
+        },
+        {
+          "path": "include/hitsimple/hir/HIR.h",
+          "anchor": "struct ViewOffsetBounds"
+        },
+        {
+          "path": "src/codegen/LLVMCodegenRuntime.cpp",
+          "anchor": "void LlvmEmitter::checkViewCapacity("
+        },
+        {
+          "path": "src/sema/SemaAssignments.cpp",
+          "anchor": "store->sourceView = std::move(loweredValue);"
+        },
+        {
+          "path": "src/safety/StaticSafetyValidation.cpp",
+          "anchor": "StaticSafetyAnalyzer::prepareStaticCallArguments("
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_LowersNonPointerSizedNameRebinding",
+          "assertions": "Three-byte target lowers to BindingRebind instead of IntegerStore."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_RejectsNonIdentifierRebindingTargets",
+          "assertions": "Rejects member, index, slice, template View, and dereference targets."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/hir/HIRTests.cpp",
+          "test": "Hir_RebindingVerifierRejectsMissingAddress",
+          "assertions": "Malformed BindingRebind without an address is rejected by HIR verification."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_SeparatesNameBindingFromDefinitionStorage",
+          "assertions": "LLVM has distinct original storage and mutable binding slot; later content store follows the slot."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingAdjustsSignedAndUnsignedWidths",
+          "assertions": "LLVM includes signed and unsigned i8 widening and i128 truncation to pointer width."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingGlobalsIsTranslationUnitWide",
+          "assertions": "Global binding slot is shared by earlier reader and later rebinding function."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingOpaqueHandleRetainsTemplate",
+          "assertions": "A handle target can be rebound through an address source without losing its target contract."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingChecksCurrentBindingAccesses",
+          "assertions": "Known null and short current bindings diagnose accesses; address and length observation do not read."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingTracksDynamicAndScopeLifetimes",
+          "assertions": "Dynamic free and scope expiry diagnose current binding reads, while the external target survives a rebound local name."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingSeparatesPointerContentsFromLocation",
+          "assertions": "Pointer content and binding location have separate alias facts; writes affect target content."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingKeepsCapturedLvalueLocation",
+          "assertions": "A captured source retains its old storage even if another RHS expression rebinds its source name."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingMergesUnknownLocationsConservatively",
+          "assertions": "CFG joins, calls, and unknown aliases do not restore stale original binding facts."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingChecksOnlyAccessedMemberExtent",
+          "assertions": "A small valid member is accepted and an invalid tail or oversized memory operation is rejected."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingPreservesOriginalDefinitionContents",
+          "assertions": "Saved definition pointers retain content provenance and global calls invalidate aliased facts."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingCStringScanUsesActualReadExtent",
+          "assertions": "Short terminated cstr scan is accepted; full assignment snapshot and raw copy are rejected on insufficient storage."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingDiscardedCaptureDoesNotReadBytes",
+          "assertions": "Null lvalue capture/discard is accepted; reading null pointer content as rebinding RHS is rejected."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/hir/HIRTests.cpp",
+          "test": "Hir_ViewOffsetBoundsDescribeOnlyIndexingAndSlicing",
+          "assertions": "Index/slice source extent metadata is distinct from unrestricted address arithmetic."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_IndexAndSliceCarrySourceViewBounds",
+          "assertions": "Index/slice HIR retains source and result extents."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultiReturnTests.cpp",
+          "test": "Sema_MultiReturnRebindingUsesCapturedAddresses",
+          "assertions": "Explicit multi-return rebinding consumes captured address results once."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingStrchrReadsOnlyLowByte",
+          "assertions": "Character search reads the low byte of its View argument."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingPreservesVisibleMemoryAndStringExtents",
+          "assertions": "Checked memory and string consumers receive visible View capacity."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingIndexChecksBeforePointerWidthTruncation",
+          "assertions": "Wide dynamic index checks precede narrowing to pointer width."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingCStringBooleanReadsWholeView",
+          "assertions": "Boolean interpretation reads the full View even for cstr storage."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingUserOpHonorsCopyAndBorrowContracts",
+          "assertions": "Copied operands validate full bytes; borrowed targets validate actual accesses."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingLowByteConsumersReadOneByte",
+          "assertions": "Low-byte consumers do not require the full larger declared extent."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingIndexAndSliceUseDeclaredBounds",
+          "assertions": "Static index and slice formation use declared source extent."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingCStringDoesNotInheritLargerTerminationFact",
+          "assertions": "Larger backing termination does not prove smaller View termination."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingMemoryConsumersRespectSelectedViewExtent",
+          "assertions": "Memory reads retain selected slice, dereference and template View capacity."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_UnknownBindingRetainsDeclaredCapacity",
+          "assertions": "Declared View capacity remains known without pointer provenance."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_CapturedSliceRetainsVisibleExtent",
+          "assertions": "Captured selected Views retain read/write capacity in valid HIR."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RawMemoryAddressesDoNotAcquirePointerWidthCapacity",
+          "assertions": "Memory builtins with mem_view/mem_lview arguments use the raw address pointed-to range, rather than pointer-storage capacity."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_DefaultCStringCopyRequiresTerminatedSource",
+          "assertions": "Default cstr copies validate source termination even for narrow destinations."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RawStringCopyGuaranteesTerminatedDestination",
+          "assertions": "Raw %s= writes establish a terminated destination."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingTernaryRetainsSourceWidth",
+          "assertions": "Narrow signed/unsigned and wide ternary source PHIs retain their width before binding-address adjustment."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_BorrowedRebindingTargetsAvoidInboundsBeforeChecks",
+          "assertions": "Borrowed destinations use ordinary byte GEPs before checked member access, without an unjustified inbounds promise."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_RebindingFileBuffersUseAddressViewBytes",
+          "assertions": "File lview/view buffers use addr pointer-content storage, rather than the memory-builtin raw-address exception."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_CStringCallsReadAfterLaterArgumentEffects",
+          "assertions": "Call and comparison string reads occur after all argument effects; a later repair is accepted."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_DeferredCStringReadsObserveLaterContentWrites",
+          "assertions": "Deferred string reads observe changed contents instead of a stale pre-call termination fact."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_DeferredCStringReadsFreezeBindingLocations",
+          "assertions": "Deferred argument records retain original locations when a later argument rebinds the name."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_MemoryCallsFreezeViewsBeforeLaterRebinding",
+          "assertions": "Memory operands retain the runtime-selected captured View location and its extent."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_FileCallsUsePointerStorageViewCapacity",
+          "assertions": "fread/fwrite consume an addr View storage range and reject capacity beyond P."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/true-name-rebinding.json",
+          "ctest": "hsc_true_name_rebinding",
+          "cases": [
+            "true_name_rebinding_optimized",
+            "true_name_rebinding_lifetimes_optimized",
+            "true_name_rebinding_captures_optimized",
+            "true_name_rebinding_input_optimized",
+            "true_name_rebinding_reference",
+            "true_name_rebinding_lifetimes_reference",
+            "true_name_rebinding_captures_reference",
+            "true_name_rebinding_input_reference",
+            "integrated_contracts_optimized",
+            "integrated_contracts_reference"
+          ],
+          "assertions": "Zero-failure output observes current names, saved definition bytes, snapshots, captured old locations, lifetime/storage classes, typed/raw content paths and input. Integrated fixtures combine cstr assignment-expression materialization, frozen RHS locations, named/anonymous/rebound return storage, first-NUL padding, and optional ASCII raw-byte reads from rebound floating Views.",
+          "limitation": "Host runtime matrix: both providers, three safety modes, O0/O2; not cross-platform execution evidence."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/true-name-rebinding-runtime-errors.json",
+          "ctest": "hsc_true_name_rebinding_runtime_errors",
+          "cases": [
+            "null_optimized",
+            "store_optimized",
+            "short_optimized",
+            "freed_optimized",
+            "expired_optimized",
+            "raw_copy_optimized",
+            "null_reference",
+            "store_reference",
+            "short_reference",
+            "freed_reference",
+            "expired_reference",
+            "raw_copy_reference",
+            "visible_memset_optimized",
+            "visible_memset_reference",
+            "visible_memcpy_optimized",
+            "visible_memcpy_reference",
+            "visible_memmove_optimized",
+            "visible_memmove_reference",
+            "visible_memcmp_optimized",
+            "visible_memcmp_reference",
+            "visible_strlen_optimized",
+            "visible_strlen_reference",
+            "visible_cstr_compare_optimized",
+            "visible_cstr_compare_reference",
+            "visible_format_string_optimized",
+            "visible_format_string_reference",
+            "visible_format_argument_optimized",
+            "visible_format_argument_reference",
+            "visible_strcpy_optimized",
+            "visible_strcpy_reference",
+            "visible_strcat_optimized",
+            "visible_strcat_reference",
+            "visible_strncpy_optimized",
+            "visible_strncpy_reference",
+            "visible_fread_optimized",
+            "visible_fread_reference",
+            "visible_fwrite_optimized",
+            "visible_fwrite_reference",
+            "index_read_optimized",
+            "index_read_reference",
+            "index_store_optimized",
+            "index_store_reference",
+            "index_address_optimized",
+            "index_address_reference",
+            "index_length_optimized",
+            "index_length_reference",
+            "slice_optimized",
+            "slice_reference",
+            "late_cstr_argument_optimized",
+            "late_cstr_argument_reference",
+            "late_format_argument_optimized",
+            "late_format_argument_reference",
+            "visible_cstr_copy_optimized",
+            "visible_cstr_copy_reference",
+            "borrowed_tail_optimized",
+            "borrowed_tail_reference",
+            "cstr_result_missing_nul_optimized",
+            "cstr_return_missing_nul_optimized",
+            "cstr_result_short_snapshot_optimized",
+            "cstr_result_missing_nul_reference",
+            "cstr_return_missing_nul_reference",
+            "cstr_result_short_snapshot_reference"
+          ],
+          "assertions": "Checked errors reject null/short/freed/expired access, visible View memory/file/string overrun, invalid dynamic index/slice formation and late-argument string mutation, with exit 120. Additional integration errors require materialized cstr expression/return sources to terminate within their visible extent and reject a snapshot exceeding the rebound object.",
+          "limitation": "Checked mode only, both providers and O0/O2; invalid accesses are not executed unchecked."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/true-name-rebinding-diagnostics.json",
+          "ctest": "hsc_true_name_rebinding_diagnostics",
+          "cases": [
+            "member",
+            "index",
+            "slice",
+            "view",
+            "deref"
+          ],
+          "assertions": "All five non-identifier target forms reject with the name-target diagnostic.",
+          "limitation": "Compile-negative harness only, three safety modes and O0/O2; no runtime claim."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaCstrAssignmentTests.cpp",
+          "test": "Sema_CstrDefaultAcceptsViewsAndMaterializesRvaluesOnce",
+          "assertions": "Every bounded cstr copy, including materialized fixed rvalues, retains a cstr sourceView and the same visible source length."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingCStringRvaluesKeepTerminationAndSnapshotBounds",
+          "assertions": "Rebinding-expression and named-return cstr sources preserve missing-termination diagnostics; snapshots check the complete retained extent against a short backing object."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/safety/StaticSafetyAnalyzerTests.cpp",
+          "test": "StaticSafetyAnalyzer_RebindingAsciiExtensionsReadOnlyLowByte",
+          "assertions": "All eight optional ASCII predicates permit a wide rebound floating View into one valid byte and diagnose a null bound address."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/true-name-rebinding.md",
+          "anchor": "# Name binding addresses"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "8b0ea9201519c81868694fa1b7567b6b24e3ace79e2fb3902c7ce890849ca76e",
+    "CMakeLists.txt": "b1b1916dfa0addeea8bf02831c808e50aae7776b4c5b7713de5d01a406c2ddb1",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
-    "include/hitsimple/hir/HIR.h": "2c94efae58d606b895e7a6e493d8d58268df4cbc637c14d6ded4c4215a92d24a",
-    "runtime/hitsimple_runtime.c": "6691e6bf8706ce8e579882290ae8d3d29990557071ab87ba1afcbdb3998ceaaf",
-    "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "4a5408cb3dea9eb74c31d32838167a60dd759afcf761cfa3cf71de3c7497b76c",
-    "src/codegen/LLVMCodegenFunctions.cpp": "8f83f61094e9c82f8c63a550fc90cf300fc120f8cbef64f5b19728e562c01d13",
-    "src/hir/HIR.cpp": "16c8c81918d5733450fd0243df65bebba7446981a713406333ac00b3ab95c160",
-    "src/safety/StaticSafetyValidation.cpp": "9da51c9b89d4fb12aca4f48fea7d0b22e58ea03aa575820fd27c61d6f87a1105",
+    "include/hitsimple/hir/HIR.h": "61c03b3382535f0fa6684e1da688ae9109aef95a8d0ad551072c4b42cdd3bd92",
+    "runtime/hitsimple_runtime.c": "b0417623724daeee4866d54cd6ca61e968cd7027854f042de15813d02e330b97",
+    "src/codegen/LLVMCodegen.cpp": "3c3662c310c6785fef941a74489eeea75cc8f60dc132fc6a1c092cfd85c9364c",
+    "src/codegen/LLVMCodegenExpressions.cpp": "c41b48cffa8b12d2dff22ba8c2350b69be9f4f32bb0b84ba7630e4e0baccf2f4",
+    "src/codegen/LLVMCodegenFunctions.cpp": "3cfa3bbe563acb8b80296ef350d6920c6145d41375c5569da7d9983bce96f1e9",
+    "src/hir/HIR.cpp": "32ca40572b855d79626ca9956d6ce2144a5f723d36d626a656993bdd69ba7c70",
+    "src/safety/StaticSafetyValidation.cpp": "e9b3baf4f565aaf9c2dd39624181d9e3ae7fa5d93d3206f17b9d8d624909f2b4",
     "src/sema/SemaAnalysis.cpp": "1786741dba8082c9e4e8031a8c293672d0b5a3c62610ec4b38004e2924c296f6",
-    "src/sema/SemaAnalysisContext.cpp": "3229fa14e97ef7a93bba491a7d6cccfa003a77c752a94905083c2226b75dd6c7",
+    "src/sema/SemaAnalysisContext.cpp": "2fff3d4fe802b42224fe83b40d73b494a4cb981dc9f2a033ac2c07665f223c8e",
     "src/sema/SemaExpressions.cpp": "894cef948d7c9c7311be657e2403adf0d888e4681ddccf6c3db7714f0be963dd",
     "src/sema/SemaStatements.cpp": "e1a3ee9ce31ebae3aee28617f6288247af5b3c74716188f7e491ea831dde307f",
     "stdlib/ctype.hs": "a659b27716c4d717bb12bd437ef012ed79cf4583cf5655d52f7c1849b31b97e5",
@@ -1450,14 +1895,14 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "8eabac53a6e0f99084d08a28770e6d8e9fad31fd75ab308097a0d656d0a32ea5",
-    "tests/hir/HIRTests.cpp": "b613fae2f87674be0f653656d284283840ca0a947a498f2371a6acada013359f",
-    "tests/safety/StaticSafetyAnalyzerTests.cpp": "641a45a30f0ddb5a111ce65f5509425cd52f48a0903e488b33ad02077ab7053a",
+    "tests/codegen/LLVMCodegenTests.cpp": "5acbda497d46bc009b25f1acc83085f2fdc47b506a5192fca7cc877f100cbc38",
+    "tests/hir/HIRTests.cpp": "3be9dbe8158f9a698777df4babf871f3d40c401a2d919ff0d2d2077f35c54323",
+    "tests/safety/StaticSafetyAnalyzerTests.cpp": "8d1ac168c72a695a92ad188a845deb3b6f37ce5d925c9ef68e0c117d0b9f35f7",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "c207ac373299b4bfd17031b0b6be0d7114a81eb827a7a8166a4c282a695e2511",
+    "tests/sema/SemaExpressionTests.cpp": "2855157a08b5c3c0d3aaa7d653cedb28624bf350895431bf530e424b06857f66",
     "tests/support/harness/manifests/assignment-result-views.json": "a5b2d02945bd84c048c8c870f4c9911a0543f83ea47df7d70ae4a1a7093c1abc",
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
@@ -1469,15 +1914,15 @@
     "tests/support/harness/manifests/none-return-views.json": "b1dc6a24150a49794cf045c127a21b21d9d5f246a2c216bcc9b7cc454bdf23a6",
     "tests/support/harness/manifests/p3-host-semantics.json": "c5bf829291ac52712260877ccfcb2a46dee32f97d4f40518a8b8f3dff203ccb2",
     "tests/support/harness/manifests/raw-memory-floating-views.json": "33a4d26808dbb3e0ec527d372e04517787a3c9581ccb8472c944dc9dc1e1fcd9",
-    "tests/support/harness/manifests/safety-mode.json": "c92e07e7ce7b6916026d399e2417e375e85eada2eb87875372034cd751b79047",
+    "tests/support/harness/manifests/safety-mode.json": "8e9f153ff57c323f8bb37063b8e058f8c404c5182037422b50158e2fbd6961ef",
     "tests/support/harness/run_tests.py": "d82febccc7b8b698369bd6d88dec9a7d7782eb20bffbbf205f8127d78dab0b36",
     "docs/named-return-storage.md": "9478c32dbbd8dbb03c8bafe7856492443805e6e2b866c998001649bb4a74f6af",
     "tests/cases/run/named_return_storage.hs": "d9c3e0d30f0522886eccbf98e250285e602fe75e7178279539e0de5409356d72",
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
     "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
     "docs/validated-view-lengths.md": "9692e746f8a12aef69f3a40707ddcd96b43e2ba9090a80280f64edec7934708a",
-    "src/safety/StaticSafetyFacts.cpp": "00d6111b2ebea647bede098b5fe4b878184fe9f3705e274c0e7f524b5729c47c",
-    "src/sema/SemaAssignments.cpp": "1bc3dcec0159c556b8a8643a92251fbe1dd39604a25e5ccd614763c92f924325",
+    "src/safety/StaticSafetyFacts.cpp": "e7df80f11c797ce03863bc0db28cbcfe6d0536b302a1618fbcc87b2080070b4b",
+    "src/sema/SemaAssignments.cpp": "050375b7de8cbfdc7f9779b2effb93fb2e046742cf4132a12512a445920cefa8",
     "tests/cases/run/length_dynamic_mismatch.hs": "294a0265a0379d93747f15faacecfe98825ba09b17e4b256670dabc01e274e00",
     "tests/cases/run/length_empty_interpretation.hs": "e24e5f31914484b04987ba126534f36d865f38052838e1045ca7e5cd40863ed8",
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
@@ -1485,18 +1930,18 @@
     "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
     "tests/sema/SemaViewLengthTests.cpp": "66191f391d21be38b941802013a98a526ba873e3b6e04950e0437b296b18d72a",
     "tests/support/harness/manifests/validated-view-lengths.json": "d1b4bbfd0fe38b5af2746fdac0d47e940b87052f3af27858b059e359cc603967",
-    "docs/multi-return-assignments.md": "1ea38b9dfb98cd18061a146e7f028f584206682822b652729ba35f520d01e675",
+    "docs/multi-return-assignments.md": "24c692719dd125a940025d43ae3bfbcd097f791034c513ee88b9c84305f812a3",
     "tests/cases/run/multi_return_assignments.hs": "299978aef88c83bd2300d4e74e4f6bd20f64f7ed247a6e7d66da4d13673925c3",
     "tests/support/harness/manifests/multi-return-assignment-diagnostics.json": "b02487a1bbfca71bd132063f7794f9b16315b64d114be01d881842f8a8cdc2fd",
     "tests/support/harness/manifests/multi-return-assignments.json": "6f2718b270070cef3799c05670bbc9848f092ba03896edf0bd1fbecffe9eefeb",
-    "tests/sema/SemaMultiReturnTests.cpp": "d809c9756a0c83c7555360455d66e63a7b33f70f9d7cafbeb74eb5e17660287c",
+    "tests/sema/SemaMultiReturnTests.cpp": "b375fe7d0052c78bcef944e978714c6d55673c4011c9cbc54abd36dcd4cc5d0c",
     "tests/cases/sema/multi_return_float_integer.hs": "83a842c5d574b137558ecd1a13bdf8b37f501081c9f892776fd3b8f58e4bb4f7",
-    "src/sema/SemaMultiReturnAssignments.cpp": "95d38c24f5447bef1190a213f28cbaf0e3d70781569c09c72569bd40caa04e57",
+    "src/sema/SemaMultiReturnAssignments.cpp": "2ec61bc82702a00d0b55c040ad5e0e6c9dd9e9bca7c5dafd758fbcb0aa06ec96",
     "docs/ctype-view-inputs.md": "b732d3b50af5ee1ebcc7d5f0c677bf2dab975fd8b61b92802b84f624af5029ec",
     "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
     "tests/support/harness/manifests/ctype-view-inputs.json": "878b4cba4019e706799fe84971a81005386371fe2c65266cb95ce55104ce808a",
-    "docs/multiple-rhs-assignments.md": "527078e7707565a1d5bf7614a8f0e1e34a97565e642fd8cedb983f9ac5617d2c",
-    "src/codegen/LLVMCodegenStatements.cpp": "8643bd298b574a79d6584405f192c00e93e0c524bdbc5b268f4701461e749f5d",
+    "docs/multiple-rhs-assignments.md": "501786168ab378e088b09165828d9f84038a9aac86a84bd7988ed76738b3db4d",
+    "src/codegen/LLVMCodegenStatements.cpp": "5e1cb33409e51cceee62ca9bbac632bc763b0e18a4e6c5d8cad2f3b3f501707c",
     "tests/cases/run/multiple_rhs_destination_contracts.hs": "ea4faa88d521d5d27d7d23149dd07b0adc76b508605ecf487bad46b08fdda21f",
     "tests/cases/run/multiple_rhs_evaluation.hs": "3855ed3b32238a5e098512bb6faa765b61fdce3a581e9e98b89b907b9e9653b9",
     "tests/cases/sema/multiple_rhs_bytes_length.hs": "82ca59120d5d5433389d034b19ec315b7aa2f411deb088486d10a5d0553bf572",
@@ -1510,7 +1955,7 @@
     "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json": "62d72d966cd8e3a34b58b373cf781c39a1729b6d2a8db0a3211ff9e2517050cb",
     "tests/support/harness/manifests/multiple-rhs-assignments.json": "d17d8bb748fcda80fd3bd348dec85f5f2ea7e85d3f7df914dde6ef19e30fb233",
     "docs/cstr-assignment-contracts.md": "bcd515e73935b78f731e3e9044596097e31a545f30ad23d88a8683e1848682a4",
-    "tests/sema/SemaCstrAssignmentTests.cpp": "1679a414aa511198fdc213c6f2ef3ffbb5af95b38dff47333312617470a671ac",
+    "tests/sema/SemaCstrAssignmentTests.cpp": "99593ee6980dea5cdd4bfc580a5504ed504487f72ac685219b97b5686d260264",
     "tests/codegen/LLVMCstrAssignmentTests.cpp": "29499a0ca1f0e20abd0040662be27b8352ccc1927d08b0ed915ec013805d1189",
     "tests/cases/run/cstr_assignment_contracts.hs": "2778dace3fff27cd8f8da570d492924d181faa69bb349b6a1f24187d4a93005f",
     "tests/cases/sema/cstr_default_float.hs": "75fb4afcb90b8efac17435ac8d2de17569386af4b023ad0bf03cd9643316fe23",
@@ -1519,6 +1964,53 @@
     "tests/support/harness/manifests/cstr-assignment-contracts.json": "d2062ba424dd5c9d27e0c21195873acb8011328e790297f517fe2b4c6164ad89",
     "tests/support/harness/manifests/cstr-assignment-diagnostics.json": "feb8593f1b6c131c5614d8f2512964cbc210de5dc3377f42653dea7df604de6f",
     "tests/cases/run/cstr_literal_padding.hs": "d24329ec41dd39d562adbaeb1585a6049a0178d409d3498d39c2366c7bb0f22d",
-    "docs/cstr-literal-padding.md": "b13842c768d76a6f32362fa2afb2bb40c62460a606476ca284c3b0c211fc9450"
+    "docs/cstr-literal-padding.md": "b13842c768d76a6f32362fa2afb2bb40c62460a606476ca284c3b0c211fc9450",
+    "docs/true-name-rebinding.md": "f50dfdd345e5d6d7bf0fb00d07e5c59a515b169e02edd795407a9a74371db5c1",
+    "src/codegen/LLVMCodegenRuntime.cpp": "b8eff50e39928103fcac44d629848a61f6104e7db14f745dd2c63af09c3e01c0",
+    "src/safety/StaticSafetyStateFlow.cpp": "7fa1ebf6fc5497f83c3e8fc8fed1530c4ab51aa6609c1ee3e4472b17faba51bf",
+    "tests/cases/run/checked_rebinding_expired.hs": "77c7a1915fa1464e33f7ddcfc3ff9d2c41e0f288965f14ad39a2e333dcd9178e",
+    "tests/cases/run/checked_rebinding_freed.hs": "1a053427b050ef5f57fc0648156dfdba611186a63b70b12092cc91dc2896a38e",
+    "tests/cases/run/checked_rebinding_null.hs": "8807bff059467b1cc3778cf8d01c64a2a44f3e24abc02eba1b493b34df41dd1a",
+    "tests/cases/run/checked_rebinding_raw_copy.hs": "35d07453156cbe171db84e7c66f3a850baba4884b35b29514249ac4a44fd9bd7",
+    "tests/cases/run/checked_rebinding_short.hs": "c2fa8444a8b53ee5f1ceadc0a0de9c3cb319379be747f575fe4e974de1f070e7",
+    "tests/cases/run/checked_rebinding_store.hs": "e8e14c9d8572bf766f11025815fd25c2e31ffd197c394293fdd522595efc9850",
+    "tests/cases/run/true_name_rebinding.hs": "c31cfd2828d2cc1a8f3c6aba069562464a3d76917bd9ccb3aeca665e2ce9f67a",
+    "tests/cases/run/true_name_rebinding_captures.hs": "e654ceed4d011f93ee549dde4c61c73e608cddd2f5fc82b568ad1feb0681dd4a",
+    "tests/cases/run/true_name_rebinding_input.hs": "2f47b0b95c3806b331627781036af6c6b849de48d59e95c21c3bc862b45e8cff",
+    "tests/cases/run/true_name_rebinding_lifetimes.hs": "990aa0bc006301872a6c7a96db9a2f20c396ba9d5040c4cecd786d8ed99b1b7b",
+    "tests/cases/sema/rebind_non_identifier_deref.hs": "1aa4fbfd4c79515eba7ca835c910c5f8f6e04fd1fb4009ff53d74ddddc8fc7c1",
+    "tests/cases/sema/rebind_non_identifier_index.hs": "1de59c52c23b9fa2bbdd98fa03b11c7d5e3b8aa1d4efe6b1b3f7d982bf8fb457",
+    "tests/cases/sema/rebind_non_identifier_member.hs": "0bbc3e843f1cd8c20c0e5c72279665077a13efd53ee3586c3614b9eb8be8d5a0",
+    "tests/cases/sema/rebind_non_identifier_slice.hs": "4109535d701fe3d6e059192139df1ba8785f818c257ddb2d001ab43ead378b1b",
+    "tests/cases/sema/rebind_non_identifier_view.hs": "07d7fa603b5c634e2613687874878cca80a5b6de1d5c3fb756e165eac9c7bfad",
+    "tests/support/harness/manifests/true-name-rebinding-diagnostics.json": "dada6f5a36983dd4d4a856bb0f9a8c23b72e4f233df01931c683b9d9e7e15cfe",
+    "tests/support/harness/manifests/true-name-rebinding-runtime-errors.json": "8e0af522428417b6e1b559ececc2d8f084240f3dd754e8bedb9d1eaf41664ad2",
+    "tests/support/harness/manifests/true-name-rebinding.json": "742968bcf55d7431ad7de83593887fbe6122c301e7fccb577f42cdd585eee82c",
+    "tests/cases/run/checked_rebinding_slice.hs": "b531fd2a7f5332a979bd828a867a2930f5805ff5cc721fbadc9b0c81858c596a",
+    "tests/cases/run/checked_rebinding_visible_strncpy.hs": "36345eb1e8d87edcc63c54655e04ac30807300b8b734fb4a7a833e6c07a4b4e2",
+    "tests/cases/run/checked_rebinding_visible_cstr_compare.hs": "578d6366f3f612f22b0ba1f9573f14401a4f511fb369a38bc0654a4f0cd7adc8",
+    "tests/cases/run/checked_rebinding_index_read.hs": "4aed2676dfa58d0f14fdd62f060b955316cef18f1fba0919b866e81beb4a0d02",
+    "tests/cases/run/checked_rebinding_visible_strcpy.hs": "834713537427d538f45f31bf05fd687e0638bb56a103de5bcb6d6cc7115fe066",
+    "tests/cases/run/checked_rebinding_visible_memset.hs": "624f84c2944a0a3594e39c71c409b2a2a9698292452aebda166244608926030b",
+    "tests/cases/run/checked_rebinding_visible_format_argument.hs": "9987852fc0226bf6c4675aa2e7d6b6790e57c84c0052032941b51af0f8fca4de",
+    "tests/cases/run/checked_rebinding_visible_format_string.hs": "ef7456eb2a8f9901f15aef429b346dab8881f79819167e25c282c1f441c82765",
+    "tests/cases/run/checked_rebinding_index_length.hs": "9ffc39ee20fc14cda4bf3437f7f43f32eda555fe2e280c3b991a013026356f5d",
+    "tests/cases/run/checked_rebinding_visible_memcmp.hs": "5974195a10f36aec84386aae274385abda9edc790326d323a8897af8e8ae9755",
+    "tests/cases/run/checked_rebinding_index_store.hs": "2e65123ec47b0def5c88a79b69c1dabf983fce7b0cb6edc44391f52348b64e6b",
+    "tests/cases/run/checked_rebinding_visible_strcat.hs": "315566e82996a933a1fcd06c9296056034a7213e75a831b9e7f6fc109b60b69b",
+    "tests/cases/run/checked_rebinding_visible_cstr_copy.hs": "b5a549d8edde72af526cc99927afd22d28a2993a714c51a39234cb328131e240",
+    "tests/cases/run/checked_rebinding_visible_strlen.hs": "4845c6d1bac851f04d7d4acdaad54c5cdc2e497a326969cce94600ded2c695c5",
+    "tests/cases/run/checked_rebinding_visible_fread.hs": "6219244d670fe7b7e460899603f578377c94e7c8b00629c794b96eee40685b35",
+    "tests/cases/run/checked_rebinding_visible_memmove.hs": "e7eda2c1f69e3f444136fa7c0f67e97b8836f219c7320233065ad04c47ccffa2",
+    "tests/cases/run/checked_rebinding_visible_fwrite.hs": "343337a23bfc1015670b7bd12d8f2feac184061b97a1a953367924195283bbd7",
+    "tests/cases/run/checked_rebinding_visible_memcpy.hs": "cbbb8bdb7e058224dcd0ac7f62eb456f1d29e983ca30e95a4bdff27b0db48c15",
+    "tests/cases/run/checked_rebinding_index_address.hs": "275c303e25dfc3e1e8f94a25785ce39296acb608de6a464c7553e1d6c644de2d",
+    "tests/cases/run/checked_rebinding_late_cstr_argument.hs": "0ba3010b15c69205de25ba1c823efd21bc057a550cc21bf1fcc3731f7b0ca148",
+    "tests/cases/run/checked_rebinding_late_format_argument.hs": "450e9eaa87c350c6146d9058a7d7fd96b226a63f1b2042bb2ca007cfe3d8a4c3",
+    "tests/cases/run/checked_rebinding_borrowed_tail.hs": "6c33bcd973e930ba984fef9b414694f79484f130262b255db42526ec24a7d5d3",
+    "tests/cases/run/rebinding_integrated_contracts.hs": "eb4309c6f13e10de78de83bbb637ba120230df723517a41f60ab26c22192c925",
+    "tests/cases/run/checked_rebinding_cstr_result_missing_nul.hs": "3edb21c10001a24ef4f3c89c6e65f724cdbf3012fc0660bda1b947cef65df800",
+    "tests/cases/run/checked_rebinding_cstr_return_missing_nul.hs": "cd4bf41789284fd20e2c59060b0d8632df8a9e675880d399eed237944478a6d4",
+    "tests/cases/run/checked_rebinding_cstr_result_short_snapshot.hs": "10b7139e258074b88794939d45b35f912669bfd7a7d7f1505ae1a5180f3a2d98"
   }
 }
