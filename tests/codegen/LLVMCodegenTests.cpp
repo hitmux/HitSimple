@@ -1208,7 +1208,8 @@ HS_TEST(LLVMCodegen_EmitsStandardLibraryCoreCalls) {
 
 HS_TEST(LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes) {
   for (const std::string predicate :
-       {"is_digit", "is_alpha", "is_alnum", "is_space"}) {
+       {"is_digit", "is_alpha", "is_alnum", "is_space", "is_lower", "is_upper",
+        "is_xdigit", "is_blank", "is_control", "is_print", "is_graph", "is_punct"}) {
     // Nonconstant parameters keep the predicate and its widening visible.
     const auto call = predicate + "(ch)";
     const auto source =
@@ -3604,6 +3605,14 @@ HS_TEST(LLVMCodegen_CharacterClassifiersObserveOneRawByte) {
         "    result = is_alpha(value) as u8\n"
         "    result = is_alnum(value) as u8\n"
         "    result = is_space(value) as u8\n"
+        "    result = is_lower(value) as u8\n"
+        "    result = is_upper(value) as u8\n"
+        "    result = is_xdigit(value) as u8\n"
+        "    result = is_blank(value) as u8\n"
+        "    result = is_control(value) as u8\n"
+        "    result = is_print(value) as u8\n"
+        "    result = is_graph(value) as u8\n"
+        "    result = is_punct(value) as u8\n"
         "    result = to_upper(value)\n"
         "    return to_lower(value)\n"
         "}\n"
@@ -3626,7 +3635,7 @@ HS_TEST(LLVMCodegen_CharacterClassifiersObserveOneRawByte) {
         }
       }
     }
-    HS_EXPECT_EQ(byteLoads, 6U);
+    HS_EXPECT_EQ(byteLoads, 14U);
   }
 }
 

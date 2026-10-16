@@ -110,6 +110,41 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(inventory["apis"][0]["test_owners"], ["tests/unit.cpp"])
         self.assertTrue(inventory["apis"][0]["owners_inherited"])
 
+    def test_extensions_are_separate_from_standard_api_count(self):
+        path = "stdlib/StandardLibraryManifest.json"
+        manifest = json.loads((self.root / path).read_text())
+        extension = copy.deepcopy(manifest["builtins"][0])
+        extension.update(name="optional_api", standardSection="", extensionDocument="docs/optional.md")
+        manifest["builtins"].append(extension)
+        self.write("docs/optional.md", "# Optional API contract\n")
+        self.write(path, json.dumps(manifest))
+        inventory, crosswalk = evidence.build(self.root)
+        self.assertEqual(len(inventory["apis"]), 1)
+        self.assertEqual(len(inventory["extensions"]), 1)
+        self.assertEqual(inventory["extensions"][0]["section"], "")
+        self.assertEqual(inventory["extensions"][0]["extension_document"], "docs/optional.md")
+        self.assertIn("docs/optional.md", inventory["inputs_sha256"])
+        rendered = evidence.render(inventory, crosswalk, self.root)
+        self.assertIn("1 Standard APIs; 1 optional extension APIs", rendered)
+        self.assertIn("outside Beta.21", rendered)
+
+    def test_extension_attribution_and_documents_fail_closed(self):
+        path = "stdlib/StandardLibraryManifest.json"
+        manifest = json.loads((self.root / path).read_text())
+        api = manifest["builtins"][0]
+        for section, document, message in (
+            ("1.1", "docs/optional.md", "exactly one"),
+            ("", "", "exactly one"),
+            ("", "docs/missing.md", "missing source"),
+            ("", "../outside.md", "invalid extension"),
+            ("", False, "invalid extension"),
+        ):
+            with self.subTest(section=section, document=document):
+                api.update(standardSection=section, extensionDocument=document)
+                self.write(path, json.dumps(manifest))
+                with self.assertRaisesRegex(ValueError, message):
+                    evidence.build(self.root)
+
     def test_missing_or_duplicate_anchor_fails(self):
         for text in ("gone", "void implement() void implement()"):
             with self.subTest(text=text):

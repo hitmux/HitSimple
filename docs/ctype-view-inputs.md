@@ -12,8 +12,9 @@ retains the ASCII-only, unchanged-other-byte rule.
 
 ## Evidence and boundaries
 
-The LLVM regression verifies six aligned i8 loads and no floating-to-integer
-conversion for f16/f32/f64/f128 parameters. The runtime oracle exhausts all 256
+The LLVM regression verifies aligned i8 loads for the six Standard functions
+(and now eight [optional extensions](ascii-character-extensions.md)), without
+floating-to-integer conversion for f16/f32/f64/f128 parameters. The runtime oracle exhausts all 256
 low-byte values independently for those four floating widths and 1-, 3-, and
 32-byte raw Views. It also covers floating calls evaluated once, ternaries,
 assignment-result snapshots, positive dynamic one-byte Views, character and

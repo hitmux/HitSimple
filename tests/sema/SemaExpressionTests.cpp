@@ -1859,3 +1859,26 @@ HS_TEST(Sema_AssignmentExpressionsProduceRvalueViews) {
     HS_EXPECT_TRUE(assignment->result->result.isMutableLValue);
   }
 }
+
+HS_TEST(Sema_SelectsAsciiExtensionReferenceProviderAndHeader) {
+  for (const std::string name : {"is_lower", "is_upper", "is_xdigit", "is_blank",
+                                 "is_control", "is_print", "is_graph", "is_punct"}) {
+    const auto body = "func probe(value as f128) -> bool { return " + name +
+                      "(value); }\nfunc main() -> i32 { return 0; }\n";
+    auto result = analyzePreprocessedSource("$include <ctype.hsh>\n" + body);
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    const auto modules = hitsimple::stdlib::selectStandardLibraryProviders(
+        *result.unit, hitsimple::stdlib::BuiltinProviderSelection::Reference);
+    HS_EXPECT_EQ(modules.size(), 1U);
+    HS_EXPECT_EQ(modules.front(), std::string("Ctype"));
+    const auto dump = hitsimple::hir::dumpToString(*result.unit);
+    HS_EXPECT_TRUE(dump.find("CallExpr callee=__hs_stdlib_ctype_" + name) != std::string::npos);
+    HS_EXPECT_TRUE(dump.find("provider=CoreHs") != std::string::npos);
+    HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
+
+    const auto missing = analyzePreprocessedSource(body);
+    HS_EXPECT_TRUE(!missing.diagnostics.empty());
+    HS_EXPECT_TRUE(missing.diagnostics.front().message.find("requires $include <ctype.hsh>") != std::string::npos);
+  }
+}

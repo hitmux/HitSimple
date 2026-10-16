@@ -38,6 +38,12 @@ selects a manifest-declared reference implementation when one exists, and uses
 the default provider for the remaining APIs. Provider selection happens at
 compile time and does not alter public semantics or the selected safety mode.
 
+The eight [optional ASCII character predicates](docs/ascii-character-extensions.md)
+(`is_lower`, `is_upper`, `is_xdigit`, `is_blank`, `is_control`, `is_print`,
+`is_graph`, `is_punct`) are also available from `<ctype.hsh>` with both
+providers. They inspect one raw byte and return canonical `bool` values.
+These implementation extensions are separate from the 75 Beta.21 Standard APIs.
+
 ## Build from Source
 
 Requirements:
