@@ -1015,7 +1015,7 @@
         "18.2"
       ],
       "claim": "A direct multiple-return call is captured once before ordinary destination assignments; selected template/width/operator contracts, writable target forms, discard behavior, and user assignment effects are enforced without making captured sources lvalues.",
-      "limitation": "Only the existing direct multiple-return call path and ordinary supported assignments. Does not fix multiple separate RHS ordering, single-source discard, rebinding, dynamic returns, or every ordinary destination/operator limitation.",
+      "limitation": "Only the existing direct multiple-return call path and ordinary supported assignments. Separate RHS ordering and single-source discard have their own witness. Does not implement rebinding, dynamic returns, or every ordinary destination/operator combination.",
       "implementation": [
         {
           "path": "src/sema/SemaMultiReturnAssignments.cpp",
@@ -1125,21 +1125,172 @@
           "anchor": "# Raw View inputs to character functions"
         }
       ]
+    },
+    {
+      "id": "multiple-rhs-source-views",
+      "sections": [
+        "6.1",
+        "7.1",
+        "7.10",
+        "8.10"
+      ],
+      "claim": "Separate RHS expressions form their complete source View sequence before ordered target assignments. Captured lvalues retain located storage, rvalues retain evaluated bytes, discarded expressions execute, and the selected ordinary destination contracts remain enforced.",
+      "limitation": "Bounded ordinary assignment forms only. No true address rebinding, complex assignment-expression targets, universal RHS peer order, exhaustive lifetime/conflict diagnostics, dynamic cstr copies, or mixed multiple-return call expansion.",
+      "implementation": [
+        {
+          "path": "include/hitsimple/hir/HIR.h",
+          "anchor": "struct CaptureView final : Stmt {"
+        },
+        {
+          "path": "src/sema/SemaAssignments.cpp",
+          "anchor": "std::vector<std::unique_ptr<hir::Expr>> capturedSources;"
+        },
+        {
+          "path": "src/hir/HIR.cpp",
+          "anchor": "CapturedViewRef::CapturedViewRef("
+        },
+        {
+          "path": "src/codegen/LLVMCodegenStatements.cpp",
+          "anchor": "capturedViews_.insert_or_assign(capture->captureName, view);"
+        },
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "const auto found = capturedViews_.find(capture->captureName);"
+        },
+        {
+          "path": "src/safety/StaticSafetyValidation.cpp",
+          "anchor": "// Freeze the location's lifetime identity separately from an addr View's"
+        },
+        {
+          "path": "src/safety/StaticSafetyFacts.cpp",
+          "anchor": "const std::optional<StaticAddressFact> &fact, std::string_view operation) {"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultipleAssignmentTests.cpp",
+          "test": "Sema_MultipleAssignmentCapturesViewsBeforeStores",
+          "assertions": "Three captures precede all destination stores; references match their captures and preserve call-rvalue versus named-lvalue flags and original widths/templates."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultipleAssignmentTests.cpp",
+          "test": "Sema_MultipleAssignmentRetainsDiscardEffectsAndDynamicViews",
+          "assertions": "Single/all discard retains call captures; dynamic resize source length stays dynamic through the destination Boolean test."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultipleAssignmentTests.cpp",
+          "test": "Sema_MultipleAssignmentPreservesUserSourceAndDestinationContracts",
+          "assertions": "User op= borrows mutable destinations and consumes captured Box lvalue Views in target order."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaMultipleAssignmentTests.cpp",
+          "test": "Sema_MultipleAssignmentRejectsInvalidSourcesAndTargets",
+          "assertions": "Rejects invalid discarded calls/references, float-to-integer defaults, unequal bytes, count mismatch, and non-writable targets."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultipleAssignmentTests.cpp",
+          "test": "Sema_MultipleAssignmentLiteralContextsRetainViewAcceptance",
+          "assertions": "Bool and bytes preserve floating literal source width; f16/f128 and integer extremes keep contextual acceptance; short bytes destination rejects an f64 literal."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/hir/HIRTests.cpp",
+          "test": "Hir_CapturedViewsRequireMatchingPriorFormation",
+          "assertions": "Verifier accepts a matching captured lvalue and rejects absent capture or changed lvalue flags."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_MultipleAssignmentFormsSourcesBeforeWrites",
+          "assertions": "Verified LLVM places the first observe call before the global write and preserves the subsequent discarded observe call."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_MultipleAssignmentCapturedFloatingViews",
+          "assertions": "Verified modules preserve captured f16/f32/f64/f128 call results and lvalues without fptosi/fptoui."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_MultipleAssignmentKeepsStaticSafetyEffects",
+          "assertions": "Static safety sees discarded division by zero, immediate captured constants, and live aliased named-lvalue facts without false-positive old-value reads."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_MultipleAssignmentKeepsCapturedAllocationFacts",
+          "assertions": "Captured allocation/calloc retains identity and extent; double free, freed captured lvalue reads, out-of-range dereference, and interior free are rejected; valid realloc remains accepted."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_MultipleAssignmentKeepsContextualFloatingTrees",
+          "assertions": "Default and explicit f32 assignment contexts preserve literal and nested widthless floating operator trees in verified modules."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/multiple-rhs-assignments.json",
+          "ctest": "hsc_multiple_rhs_assignments",
+          "cases": [
+            "evaluation_optimized",
+            "destination_contracts_optimized",
+            "evaluation_reference",
+            "destination_contracts_reference"
+          ],
+          "assertions": "Exact zero-failure outputs and successful exit observe source barriers, discard effects, lvalue aliasing versus rvalue copies, address/index capture and target order, user op=, compound destinations, floating contexts, conversions, dynamic resize lengths, and cstr copies.",
+          "limitation": "Host runtime matrix: both providers, three safety modes, O0/O2. Release selections configure other platforms without claiming their local execution."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json",
+          "ctest": "hsc_multiple_rhs_assignment_diagnostics",
+          "cases": [
+            "reject_float_integer_optimized",
+            "reject_user_template_optimized",
+            "reject_bytes_length_optimized",
+            "reject_too_many_sources_optimized",
+            "reject_too_few_sources_optimized",
+            "reject_literal_range_optimized",
+            "reject_discard_invalid_optimized",
+            "reject_float_integer_reference",
+            "reject_user_template_reference",
+            "reject_bytes_length_reference",
+            "reject_too_many_sources_reference",
+            "reject_too_few_sources_reference",
+            "reject_literal_range_reference",
+            "reject_discard_invalid_reference"
+          ],
+          "assertions": "Compile-negative cases reject float-to-integer default assignment, mismatched user templates, unequal bytes, source counts, out-of-range literal, and an invalid discarded reference.",
+          "limitation": "Compile-negative host matrix only: both providers, three safety modes, O0/O2."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/multiple-rhs-assignments.md",
+          "anchor": "# Multiple-assignment source Views"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "f4e21bd7a8294fa4a60a7341189ddece0e1a84b6ba7761c9d099b4bc0039e746",
+    "CMakeLists.txt": "778eeae302a64f14b35a4fa81247783203b9d47e59733227d58e1e73d5a53dc4",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
-    "include/hitsimple/hir/HIR.h": "0e2b5bf7988c76a04a7a71fd79af74d9b8cdb9ec87621f560224f9725dab7609",
+    "include/hitsimple/hir/HIR.h": "2c94efae58d606b895e7a6e493d8d58268df4cbc637c14d6ded4c4215a92d24a",
     "runtime/hitsimple_runtime.c": "6691e6bf8706ce8e579882290ae8d3d29990557071ab87ba1afcbdb3998ceaaf",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "a25813128ad49a977f2b561bafffc5fc011a76759c6abf50f5bc421fe9e2a05b",
-    "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
-    "src/hir/HIR.cpp": "33d3ceb74d3f100c12706194b0e16208feabd58934206c78a5e9478eec3ae78f",
-    "src/safety/StaticSafetyValidation.cpp": "68f2ff07de53de98871ec61deaa25a49427e39f4a089b968bb9da22c8eda1630",
+    "src/codegen/LLVMCodegenExpressions.cpp": "2ed7ec73b65c44bfcca7cd556ed4f830f2de6c07f6a183e955f3d62f9fa03c80",
+    "src/codegen/LLVMCodegenFunctions.cpp": "8f83f61094e9c82f8c63a550fc90cf300fc120f8cbef64f5b19728e562c01d13",
+    "src/hir/HIR.cpp": "16c8c81918d5733450fd0243df65bebba7446981a713406333ac00b3ab95c160",
+    "src/safety/StaticSafetyValidation.cpp": "9da51c9b89d4fb12aca4f48fea7d0b22e58ea03aa575820fd27c61d6f87a1105",
     "src/sema/SemaAnalysis.cpp": "4eca00d7fc11e8c06d6d7c28d6c56e220745beffadd108655cd013f3e112e2cf",
     "src/sema/SemaAnalysisContext.cpp": "3229fa14e97ef7a93bba491a7d6cccfa003a77c752a94905083c2226b75dd6c7",
     "src/sema/SemaExpressions.cpp": "894cef948d7c9c7311be657e2403adf0d888e4681ddccf6c3db7714f0be963dd",
@@ -1160,8 +1311,8 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "333cf9030ff02c96885b6dd7478a7e2c3187ca8a28b3029ae67cfd6ff7186024",
-    "tests/hir/HIRTests.cpp": "fef71fa9bbb8f2744fe385defd22988dd72c126c1330394b9ff83929b0e952de",
+    "tests/codegen/LLVMCodegenTests.cpp": "dc864a0a48a833e6559caa8f4d4ceae217d88db536776555df0c5e36439510de",
+    "tests/hir/HIRTests.cpp": "b613fae2f87674be0f653656d284283840ca0a947a498f2371a6acada013359f",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "641a45a30f0ddb5a111ce65f5509425cd52f48a0903e488b33ad02077ab7053a",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
@@ -1186,8 +1337,8 @@
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
     "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
     "docs/validated-view-lengths.md": "9692e746f8a12aef69f3a40707ddcd96b43e2ba9090a80280f64edec7934708a",
-    "src/safety/StaticSafetyFacts.cpp": "98bf0455ec80ae3c0a5f443febfb548b1a197646f78f318426ddb05ef96ac1b1",
-    "src/sema/SemaAssignments.cpp": "50dd12d8a880ced09846ab90da8c1aafa23607d0d7e1acdc181be2e03748e443",
+    "src/safety/StaticSafetyFacts.cpp": "00d6111b2ebea647bede098b5fe4b878184fe9f3705e274c0e7f524b5729c47c",
+    "src/sema/SemaAssignments.cpp": "a0d4f9022bfc0ecf65985b16744baeeb2cd0807c9299c400abb7a85d040917af",
     "tests/cases/run/length_dynamic_mismatch.hs": "294a0265a0379d93747f15faacecfe98825ba09b17e4b256670dabc01e274e00",
     "tests/cases/run/length_empty_interpretation.hs": "e24e5f31914484b04987ba126534f36d865f38052838e1045ca7e5cd40863ed8",
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
@@ -1195,7 +1346,7 @@
     "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
     "tests/sema/SemaViewLengthTests.cpp": "66191f391d21be38b941802013a98a526ba873e3b6e04950e0437b296b18d72a",
     "tests/support/harness/manifests/validated-view-lengths.json": "d1b4bbfd0fe38b5af2746fdac0d47e940b87052f3af27858b059e359cc603967",
-    "docs/multi-return-assignments.md": "9889580d827cc3c5f36fc46dfb4e5db31a75fca6f98b573d7133c340e5265993",
+    "docs/multi-return-assignments.md": "1ea38b9dfb98cd18061a146e7f028f584206682822b652729ba35f520d01e675",
     "tests/cases/run/multi_return_assignments.hs": "299978aef88c83bd2300d4e74e4f6bd20f64f7ed247a6e7d66da4d13673925c3",
     "tests/support/harness/manifests/multi-return-assignment-diagnostics.json": "b02487a1bbfca71bd132063f7794f9b16315b64d114be01d881842f8a8cdc2fd",
     "tests/support/harness/manifests/multi-return-assignments.json": "6f2718b270070cef3799c05670bbc9848f092ba03896edf0bd1fbecffe9eefeb",
@@ -1204,6 +1355,20 @@
     "src/sema/SemaMultiReturnAssignments.cpp": "95d38c24f5447bef1190a213f28cbaf0e3d70781569c09c72569bd40caa04e57",
     "docs/ctype-view-inputs.md": "79a37dd3a7c0ebb528deeacf7c394b6dd0658dd6e9e2c7fa71f7acf9b1ee0eef",
     "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
-    "tests/support/harness/manifests/ctype-view-inputs.json": "878b4cba4019e706799fe84971a81005386371fe2c65266cb95ce55104ce808a"
+    "tests/support/harness/manifests/ctype-view-inputs.json": "878b4cba4019e706799fe84971a81005386371fe2c65266cb95ce55104ce808a",
+    "docs/multiple-rhs-assignments.md": "527078e7707565a1d5bf7614a8f0e1e34a97565e642fd8cedb983f9ac5617d2c",
+    "src/codegen/LLVMCodegenStatements.cpp": "933c9b0a5830c3be6980c30c9eaa3f60a40325052e6708a0ad34b537b3fd485c",
+    "tests/cases/run/multiple_rhs_destination_contracts.hs": "ea4faa88d521d5d27d7d23149dd07b0adc76b508605ecf487bad46b08fdda21f",
+    "tests/cases/run/multiple_rhs_evaluation.hs": "3855ed3b32238a5e098512bb6faa765b61fdce3a581e9e98b89b907b9e9653b9",
+    "tests/cases/sema/multiple_rhs_bytes_length.hs": "82ca59120d5d5433389d034b19ec315b7aa2f411deb088486d10a5d0553bf572",
+    "tests/cases/sema/multiple_rhs_discard_invalid.hs": "b83972d732972ad91cae3419482a1aef7c0c8f4063696ddf3abdac17749cd8be",
+    "tests/cases/sema/multiple_rhs_float_integer.hs": "26dc0eff74ac2ecf12b7e28e182c4a8b632c019f31fb9fd7ce165dce9dd7f497",
+    "tests/cases/sema/multiple_rhs_literal_range.hs": "7db61bf65bba1950af34c76ff1babe76fba677b4dd288dc75496e0d424454394",
+    "tests/cases/sema/multiple_rhs_too_few_sources.hs": "bcf58db20f0ffc957760b3bca94843df2004dd903c42e2bbac8450eec88f5e91",
+    "tests/cases/sema/multiple_rhs_too_many_sources.hs": "89613650b7b4aed1a46ef061c5d6b36bf459fb377968eb5b9c35d641561997e9",
+    "tests/cases/sema/multiple_rhs_user_template.hs": "22860158245486532bf7cd5c77b22021275eed50cb30423c0a92e39ffdb1380b",
+    "tests/sema/SemaMultipleAssignmentTests.cpp": "5a42ae6721736768b0cf7728de1e3824133a669f0ec0b0f30cb854809c3bcd2b",
+    "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json": "62d72d966cd8e3a34b58b373cf781c39a1729b6d2a8db0a3211ff9e2517050cb",
+    "tests/support/harness/manifests/multiple-rhs-assignments.json": "d17d8bb748fcda80fd3bd348dec85f5f2ea7e85d3f7df914dde6ef19e30fb233"
   }
 }

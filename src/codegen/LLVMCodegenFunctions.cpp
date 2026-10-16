@@ -38,6 +38,9 @@ bool blockUsesF128(const hir::Block& block) {
 }
 
 bool expressionUsesF128(const hir::Expr& expression) {
+  if (const auto* capture = dynamic_cast<const hir::CapturedViewRef*>(&expression)) {
+    return capture->result.templateName == "f128";
+  }
   if (const auto* variable = dynamic_cast<const hir::VariableRef*>(&expression)) {
     return variable->templateName == "f128";
   }
@@ -122,6 +125,12 @@ bool expressionUsesF128(const hir::Expr& expression) {
 }
 
 bool statementUsesF128(const hir::Stmt& statement) {
+  if (const auto* capture = dynamic_cast<const hir::CaptureView*>(&statement)) {
+    return capture->source && expressionUsesF128(*capture->source);
+  }
+  if (const auto* copy = dynamic_cast<const hir::StringCopyStore*>(&statement)) {
+    return copy->sourceView && expressionUsesF128(*copy->sourceView);
+  }
   if (const auto* local = dynamic_cast<const hir::LocalMemory*>(&statement)) {
     return local->templateName == "f128";
   }
@@ -381,6 +390,7 @@ void LlvmEmitter::emitGlobalInit(const hir::Block *block) {
   builder_.SetInsertPoint(entry);
 
   locals_.clear();
+  capturedViews_.clear();
   loopTargets_.clear();
   catchTargets_.clear();
   labelBlocks_.clear();
@@ -448,6 +458,7 @@ void LlvmEmitter::emit(const hir::Function &function) {
   }
 
   locals_.clear();
+  capturedViews_.clear();
   loopTargets_.clear();
   catchTargets_.clear();
   labelBlocks_.clear();

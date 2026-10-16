@@ -53,8 +53,9 @@ ctest --test-dir build -R '^hsc_multi_return_assignment' --output-on-failure
 cmake -DBUILD_DIR=build -P cmake/RunQuietTests.cmake
 ```
 
-This stage does not fix evaluation ordering for multiple separate RHS
-expressions, single-source discard, or `&=` rebinding. It inherits ordinary
+The separate [multiple-RHS stage](multiple-rhs-assignments.md) covers evaluation
+ordering for separate expressions and single-source discard. This multiple-return
+stage does not implement `&=` rebinding. It inherits ordinary
 assignment's current target/operator limits, including same-width nonliteral
 explicit `%f=` and unsupported floating explicit stores through dynamic pointer
 forms. It does not establish every assignment matrix entry, dynamic-return

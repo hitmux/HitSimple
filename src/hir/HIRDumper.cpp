@@ -173,6 +173,13 @@ private:
   }
 
   void dump(const Stmt &statement) {
+    if (const auto *capture = dynamic_cast<const CaptureView *>(&statement)) {
+      line("CaptureView name=" + capture->captureName);
+      ++indent_;
+      dump(*capture->source);
+      --indent_;
+      return;
+    }
     if (const auto *list = dynamic_cast<const StatementList *>(&statement)) {
       for (const auto &item : list->statements) {
         dump(*item);
@@ -244,6 +251,11 @@ private:
            (store->sourceOffset == 0
                 ? ""
                 : " sourceOffset=" + std::to_string(store->sourceOffset)));
+      if (store->sourceView) {
+        ++indent_;
+        dump(*store->sourceView);
+        --indent_;
+      }
       return;
     }
 
@@ -485,6 +497,10 @@ private:
   }
 
   void dump(const Expr &expression) {
+    if (const auto *capture = dynamic_cast<const CapturedViewRef *>(&expression)) {
+      line("CapturedViewRef name=" + capture->captureName + resultSemantics(*capture));
+      return;
+    }
     if (const auto *integer =
             dynamic_cast<const IntegerLiteral *>(&expression)) {
       line("IntegerLiteral value=" + integer->value +

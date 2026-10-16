@@ -354,6 +354,7 @@ private:
   llvm::DICompileUnit* debugCompileUnit_ = nullptr;
   llvm::DIFile* debugFile_ = nullptr;
   llvm::DIScope* debugScope_ = nullptr;
+  std::unordered_map<std::string, ViewValue> capturedViews_;
   std::unordered_map<std::string, Local> locals_;
   std::unordered_map<std::string, Local> globals_;
   std::vector<LoopTargets> loopTargets_;

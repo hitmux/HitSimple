@@ -1,0 +1,441 @@
+{
+  "version": 2,
+  "suite": "multiple-rhs-assignment-diagnostics",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "reject_float_integer_optimized",
+      "source": "../../../cases/sema/multiple_rhs_float_integer.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right operand of '=' is not an integer expression.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right operand of '=' is not an integer expression.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right operand of '=' is not an integer expression.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_user_template_optimized",
+      "source": "../../../cases/sema/multiple_rhs_user_template.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*default user template assignment requires matching templates.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*default user template assignment requires matching templates.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*default user template assignment requires matching templates.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_bytes_length_optimized",
+      "source": "../../../cases/sema/multiple_rhs_bytes_length.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*bytes assignment requires an equal-length source View.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*bytes assignment requires an equal-length source View.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*bytes assignment requires an equal-length source View.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_too_many_sources_optimized",
+      "source": "../../../cases/sema/multiple_rhs_too_many_sources.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_too_few_sources_optimized",
+      "source": "../../../cases/sema/multiple_rhs_too_few_sources.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_literal_range_optimized",
+      "source": "../../../cases/sema/multiple_rhs_literal_range.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*integer literal '256' does not fit in target 'tiny'.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*integer literal '256' does not fit in target 'tiny'.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*integer literal '256' does not fit in target 'tiny'.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_discard_invalid_optimized",
+      "source": "../../../cases/sema/multiple_rhs_discard_invalid.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*use of undeclared variable 'missing_source'.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*use of undeclared variable 'missing_source'.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*use of undeclared variable 'missing_source'.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_float_integer_reference",
+      "source": "../../../cases/sema/multiple_rhs_float_integer.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right operand of '=' is not an integer expression.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right operand of '=' is not an integer expression.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*right operand of '=' is not an integer expression.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_user_template_reference",
+      "source": "../../../cases/sema/multiple_rhs_user_template.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*default user template assignment requires matching templates.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*default user template assignment requires matching templates.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*default user template assignment requires matching templates.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_bytes_length_reference",
+      "source": "../../../cases/sema/multiple_rhs_bytes_length.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*bytes assignment requires an equal-length source View.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*bytes assignment requires an equal-length source View.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*bytes assignment requires an equal-length source View.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_too_many_sources_reference",
+      "source": "../../../cases/sema/multiple_rhs_too_many_sources.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_too_few_sources_reference",
+      "source": "../../../cases/sema/multiple_rhs_too_few_sources.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*assignment target count does not match value count.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_literal_range_reference",
+      "source": "../../../cases/sema/multiple_rhs_literal_range.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*integer literal '256' does not fit in target 'tiny'.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*integer literal '256' does not fit in target 'tiny'.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*integer literal '256' does not fit in target 'tiny'.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_discard_invalid_reference",
+      "source": "../../../cases/sema/multiple_rhs_discard_invalid.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*use of undeclared variable 'missing_source'.*"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*use of undeclared variable 'missing_source'.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*use of undeclared variable 'missing_source'.*"
+          }
+        }
+      }
+    }
+  ]
+}

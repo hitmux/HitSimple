@@ -92,6 +92,8 @@ private:
                                      const hir::Expr& value);
   void validateStaticAddressAccess(const hir::Expr& expression,
                                    std::string_view operation);
+  void validateStaticAddressAccess(
+      const std::optional<StaticAddressFact>& fact, std::string_view operation);
   std::optional<bool> staticCStringTerminated(
       const hir::Expr& expression) const;
   std::optional<StaticAddressRange> staticAddressRange(
@@ -100,6 +102,11 @@ private:
       const hir::Expr& expression) const;
   std::optional<StaticAddressRange> staticMemoryOperandRange(
       const hir::Expr& expression) const;
+
+  // Captures never escape their assignment. Direct named lvalues continue to
+  // read live binding facts; computed rvalues use facts recorded at capture.
+  std::unordered_map<std::string, const hir::VariableRef *> capturedAliases_;
+  std::unordered_map<std::string, std::optional<StaticAddressRange>> capturedRanges_;
 
   StaticSafetyOptions options_;
   std::unordered_map<std::string, std::optional<std::int64_t>>

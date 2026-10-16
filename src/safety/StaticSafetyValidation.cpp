@@ -145,6 +145,46 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Block &block) {
 
 bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
   SourceRangeScope sourceRange(*this, statement.range);
+  if (const auto *capture = dynamic_cast<const hir::CaptureView *>(&statement)) {
+    const auto &source = *capture->source;
+    validateSafety(source);
+    const hir::Expr *located = &source;
+    while (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(located)) {
+      located = view->operand.get();
+    }
+    capturedAliases_[capture->captureName] = source.result.isAddressable
+        ? dynamic_cast<const hir::VariableRef *>(located) : nullptr;
+    capturedRanges_[capture->captureName] = source.result.isAddressable
+        ? staticViewRange(source) : std::nullopt;
+    // Freeze the location's lifetime identity separately from an addr View's
+    // mutable bytes. A later RHS can release its object or change its pointer.
+    auto &location = staticAddressFacts_[capture->captureName + ".location"];
+    location = std::nullopt;
+    if (source.result.isAddressable) {
+      if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(located)) {
+        location = staticAddressFact(*deref->address);
+      } else if (capturedAliases_[capture->captureName] != nullptr) {
+        location = StaticAddressFact{StaticAddressOrigin::NonDynamicObject, 0,
+                                     false, capturedRanges_[capture->captureName]};
+      }
+    }
+    // A non-named lvalue may depend on an address expression whose value later
+    // changes. Do not recompute that expression or freeze its mutable bytes.
+    staticIntegerValues_[capture->captureName] = source.result.isAddressable
+        ? std::nullopt : staticSignedInteger(source);
+    staticUnsignedIntegerValues_[capture->captureName] = source.result.isAddressable
+        ? std::nullopt : staticUnsignedInteger(source);
+    if (source.result.isAddressable) {
+      staticAddressFacts_[capture->captureName] = std::nullopt;
+    } else {
+      // Allocation/reallocation identity belongs to source evaluation, before
+      // any destination reads it through a captured reference.
+      recordStaticAddressAssignment(capture->captureName, source);
+    }
+    staticCStringTerminations_[capture->captureName] = source.result.isAddressable
+        ? std::nullopt : staticCStringTerminated(source);
+    return true;
+  }
   if (const auto *list = dynamic_cast<const hir::StatementList *>(&statement)) {
     for (const auto &child : list->statements) {
       if (!validateSafety(*child)) {
@@ -208,6 +248,9 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
   }
   if (const auto *store =
           dynamic_cast<const hir::StringCopyStore *>(&statement)) {
+    if (store->sourceView) {
+      validateSafety(*store->sourceView);
+    }
     const auto source = staticCStringTerminations_.find(store->sourceBindingName);
     const auto cstrTermination = source == staticCStringTerminations_.end()
                                      ? std::optional<bool>{}
@@ -514,6 +557,13 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
 
 void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
   SourceRangeScope sourceRange(*this, expression.range);
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto location = staticAddressFacts_.find(capture->captureName + ".location");
+    if (location != staticAddressFacts_.end()) {
+      validateStaticAddressAccess(location->second, "captured View read");
+    }
+    return;
+  }
   if (const auto *deref = dynamic_cast<const hir::DerefExpr *>(&expression)) {
     const auto address = staticSignedInteger(*deref->address);
     if (address && *address == 0) {
