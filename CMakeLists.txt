@@ -620,6 +620,7 @@ if(BUILD_TESTING)
   add_executable(hsc_unit_tests
     tests/test_main.cpp
     tests/diagnostic/SourceLocationTests.cpp
+    tests/codegen/LLVMCstrAssignmentTests.cpp
     tests/codegen/LLVMCodegenTests.cpp
     tests/codegen/NativeTargetTests.cpp
     tests/codegen/ObjectEmitterTests.cpp
@@ -636,6 +637,7 @@ if(BUILD_TESTING)
     tests/sema/SemaCoreTests.cpp
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
+    tests/sema/SemaCstrAssignmentTests.cpp
     tests/sema/SemaMultipleAssignmentTests.cpp
     tests/sema/SemaMultiReturnTests.cpp
     tests/sema/SemaNamedReturnTests.cpp
@@ -1307,6 +1309,29 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_validated_view_lengths PROPERTIES
     LABELS "testing;harness;stdlib;views")
+  add_test(
+    NAME hsc_cstr_assignment_contracts
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite cstr-assignment-contracts
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_cstr_assignment_contracts PROPERTIES
+    LABELS "testing;harness;assignment;cstr")
+  add_test(
+    NAME hsc_cstr_assignment_diagnostics
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite cstr-assignment-diagnostics
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_cstr_assignment_diagnostics PROPERTIES
+    LABELS "testing;harness;assignment;cstr;diagnostic")
   add_test(
     NAME hsc_multi_return_assignments
     COMMAND ${Python3_EXECUTABLE}

@@ -534,7 +534,12 @@ std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody(
   const bool hasNamedReturn = std::any_of(
       returnItems.begin(), returnItems.end(),
       [](const ast::ReturnItem &item) { return !item.name.empty(); });
-  if (hasNamedReturn) {
+  // Ordinary anonymous cstr results obey the same destination contract as
+  // named results, including length adjustment and source-template acceptance.
+  const bool hasCStringReturn = std::any_of(
+      returnItems.begin(), returnItems.end(),
+      [](const ast::ReturnItem &item) { return item.templateName == "cstr"; });
+  if (hasNamedReturn || (hasCStringReturn && !currentFunction_->isCAbi)) {
     for (std::size_t index = 0; index < returnItems.size(); ++index) {
       const auto &item = returnItems[index];
       const auto length = currentFunction_->returnByteLengths[index];
@@ -547,7 +552,7 @@ std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody(
           continue;
         }
       } else {
-        // Mixed signatures need private slots too: explicit return assignment
+        // Anonymous items need private slots too: explicit return assignment
         // proceeds in item order, and a later expression may observe an earlier
         // named slot. These compiler-only names never enter lexical lookup.
         currentReturnHasAnonymous_ = true;

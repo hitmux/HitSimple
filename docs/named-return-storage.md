@@ -44,9 +44,9 @@ bare return normally.
   behavior and a provable read must be diagnosed under §5.3. The allocation test
   inspects this function's IR only; it never executes or assigns a value to those
   unwritten bytes. No conformance claim is made for initialization diagnostics.
-- Anonymous-only explicit returns retain the prior lowering and its separately
-  documented assignment limitations. Their correction is not established by this
-  named-storage patch.
+- Anonymous-only signatures without cstr retain the prior lowering and its
+  separately documented assignment limitations. Signatures containing cstr now
+  share return storage through the bounded [cstr assignment correction](cstr-assignment-contracts.md).
 - General multi-return destination assignment and name rebinding remain separate
   work. The runtime pair tests use already-supported same-width destinations.
 - Existing method/user-op return-count limits, omitted-signature legacy inference,

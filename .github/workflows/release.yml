@@ -158,7 +158,7 @@ jobs:
             SourceLocation_ Diagnostic_ CCompat_ Lexer_ Parser_ \
             Preprocessor_ Sema_ ResourcePaths_ Process_ Toolchain_
           cmake -DBUILD_DIR=build-release \
-            '-DTEST_REGEX=^(hsc_ctype_bool_representation|hsc_bool_value_reads|hsc_explicit_numeric_returns|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*|hsc_feof_bool_value_.*)$' \
+            '-DTEST_REGEX=^(hsc_ctype_bool_representation|hsc_bool_value_reads|hsc_explicit_numeric_returns|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_cstr_assignment_contracts|hsc_cstr_assignment_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*|hsc_feof_bool_value_.*)$' \
             -P cmake/RunQuietTests.cmake
           ./build-release/hsc --checked examples/hello.hs -o hello-checked
           ./hello-checked | grep -Fx 42
@@ -929,7 +929,7 @@ jobs:
         shell: pwsh
         run: |
           $env:HITSIMPLE_CLANG = (Resolve-Path tools/llvm-mingw-20240619-ucrt-x86_64/bin/clang++.exe).Path
-          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm|hsc_runtime_file_handles|hsc_harness_file_handles|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*)$' -P cmake/RunQuietTests.cmake
+          cmake -DBUILD_DIR=build-windows '-DTEST_REGEX=^(hsc_help|hsc_version|hsc_target_info|hsc_dump_tokens|hsc_preprocess_only|hsc_emit_llvm|hsc_static_checked_emit_llvm|hsc_runtime_file_handles|hsc_harness_file_handles|hsc_floating_ternary_views|hsc_raw_memory_floating_views|hsc_assignment_result_views|hsc_named_return_storage|hsc_validated_view_lengths|hsc_multi_return_assignments|hsc_multi_return_assignment_diagnostics|hsc_ctype_view_inputs|hsc_multiple_rhs_assignments|hsc_multiple_rhs_assignment_diagnostics|hsc_cstr_assignment_contracts|hsc_cstr_assignment_diagnostics|hsc_none_return_views|hsc_standard_evidence_.*)$' -P cmake/RunQuietTests.cmake
 
       - name: Assemble full and slim packages
         shell: pwsh
