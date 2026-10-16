@@ -252,6 +252,7 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
        expression.result.category == hir::ViewCategory::UserTemplate ||
        expression.result.category == hir::ViewCategory::RawBytes);
   if (rawTernary ||
+      dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr ||
       dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::ByteSwapExpr *>(&expression) != nullptr ||
@@ -291,6 +292,10 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
                    : builder_.CreateSExt(loaded, integerType, "view.sext");
       }
       return builder_.CreateTrunc(loaded, integerType, "view.trunc");
+    }
+    if (isUnsignedExpression(expression)) {
+      addDiagnostic("runtime-sized integer value requires an explicit fixed-length interpretation");
+      return nullptr;
     }
     if (hasRuntimeSafetyChecks()) {
       (void)emitCheckedRuntimeCall(
@@ -947,10 +952,6 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     return phi;
   }
 
-  if (const auto *unsignedExpr =
-          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
-    return emitIntegerValue(*unsignedExpr->operand, byteLength, true);
-  }
 
   if (const auto *cast =
           dynamic_cast<const hir::IntegerCastExpr *>(&expression)) {
@@ -1210,11 +1211,10 @@ ViewValue LlvmEmitter::emitMemoryOperandView(
     if (dynamic_cast<const hir::AddressOfExpr *>(&candidate) != nullptr) {
       return true;
     }
-    if (const auto *unsignedValue =
-            dynamic_cast<const hir::UnsignedExpr *>(&candidate)) {
-      return self(self, *unsignedValue->operand);
-    }
     if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&candidate)) {
+      if (binary->operationKind == hir::StandardOperationKind::AddressOffset) {
+        return true;
+      }
       return (binary->operation == hir::BinaryOperator::Add ||
               binary->operation == hir::BinaryOperator::Subtract) &&
              self(self, *binary->left);
@@ -1317,6 +1317,28 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
     return ViewValue{storage, builder_.getInt64(byteLength), byteLength,
                      std::size_t{1}};
   };
+
+  if (const auto *unsignedExpr =
+          dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
+    const auto source = emitViewValue(*unsignedExpr->operand);
+    if (source.data == nullptr || source.length == nullptr) {
+      return {};
+    }
+    // Snapshot bytes before any later operand can mutate or rebind the source.
+    // No numeric interpretation, width adjustment, or byte reordering occurs.
+    auto *storage = source.staticLength
+        ? createFunctionEntryAlloca(
+              llvm::ArrayType::get(builder_.getInt8Ty(), *source.staticLength),
+              "view.unsigned")
+        : builder_.CreateAlloca(builder_.getInt8Ty(), source.length,
+                                "view.unsigned");
+    storage->setAlignment(llvm::Align(1));
+    registerTemporaryObject(storage, source.length);
+    checkViewLoad(source);
+    builder_.CreateMemCpy(storage, llvm::Align(1), source.data,
+                          alignmentAt(source.alignment), source.length);
+    return ViewValue{storage, source.length, source.staticLength, std::size_t{1}};
+  }
 
   if (const auto *view = dynamic_cast<const hir::TemplateViewExpr *>(&expression)) {
     auto value = emitViewValue(*view->operand);

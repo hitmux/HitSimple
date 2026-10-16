@@ -1407,6 +1407,15 @@ Analyzer::analyze(const ast::BinaryExpr &expression) {
     }
   }
 
+  if ((hir::isIntegerNumeric(left->result) &&
+       left->result.lengthKind == hir::ViewLengthKind::Dynamic) ||
+      (hir::isIntegerNumeric(right->result) &&
+       right->result.lengthKind == hir::ViewLengthKind::Dynamic)) {
+    addDiagnostic("runtime-sized integer arithmetic is not implemented; "
+                  "use an explicit fixed-length interpretation");
+    return nullptr;
+  }
+
   hir::StandardOperationKind candidate = hir::StandardOperationKind::Legacy;
   hir::ViewSemantics result = booleanResult();
   std::size_t byteLength = 1;
@@ -1649,6 +1658,11 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::UnaryExpr &expression) {
     return nullptr;
   }
 
+  if (operand->result.lengthKind == hir::ViewLengthKind::Dynamic) {
+    addDiagnostic("runtime-sized integer unary arithmetic is not implemented; "
+                  "use an explicit fixed-length interpretation");
+    return nullptr;
+  }
   const auto byteLength = operand->result.staticByteLength;
   const bool negatedUnsignedLiteral =
       expression.op == "-" &&
@@ -1740,22 +1754,25 @@ Analyzer::analyze(const ast::UnsignedExpr &expression) {
   // around a comparison or logical expression.  Core comparisons already
   // produce the canonical bool View, so the marker has no further semantic
   // effect and must not turn that bool into an integer View.
-  if (cCompatibilityMode_ &&
+  if (cCompatibilityMode_ && expression.byteLength != 0 &&
       operand->result.category == hir::ViewCategory::Boolean) {
     return operand;
   }
-  if (!hir::isIntegerNumeric(operand->result) &&
-      operand->result.category != hir::ViewCategory::Address) {
-    addDiagnostic("operand of unsigned interpretation is not an integer "
-                  "expression");
-    return nullptr;
+  // Compatibility markers encode a C width adjustment, whereas core postfix
+  // ? is a representation-preserving View snapshot (Standard 8.9).
+  if (expression.byteLength != 0 &&
+      (operand->result.lengthKind != hir::ViewLengthKind::Static ||
+       operand->result.staticByteLength != expression.byteLength)) {
+    return std::make_unique<hir::IntegerCastExpr>(
+        std::move(operand), false, unsignedIntegerResult(expression.byteLength));
   }
-  const auto byteLength =
-      expression.byteLength != 0
-          ? expression.byteLength
-          : integerExpressionByteLength(*operand).value_or(4);
-  return std::make_unique<hir::UnsignedExpr>(std::move(operand),
-                                             unsignedIntegerResult(byteLength));
+  auto result = operand->result;
+  result.category = hir::ViewCategory::UntemplatedInteger;
+  result.integerInterpretation = hir::IntegerInterpretation::Unsigned;
+  result.templateName.clear();
+  result.isAddressable = false;
+  result.isMutableLValue = false;
+  return std::make_unique<hir::UnsignedExpr>(std::move(operand), result);
 }
 
 std::unique_ptr<hir::Expr>

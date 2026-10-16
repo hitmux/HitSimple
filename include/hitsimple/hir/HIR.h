@@ -408,6 +408,8 @@ struct TernaryExpr final : Expr {
   std::size_t byteLength = 0;
 };
 
+// A same-extent byte snapshot, with template none and unsigned interpretation.
+// Unlike TemplateViewExpr, this always produces an independent rvalue.
 struct UnsignedExpr final : Expr {
   UnsignedExpr(std::unique_ptr<Expr> operand, ViewSemantics result);
 

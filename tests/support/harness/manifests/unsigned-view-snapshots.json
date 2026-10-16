@@ -1,0 +1,289 @@
+{
+  "version": 2,
+  "suite": "unsigned-view-snapshots",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 20
+  },
+  "tests": [
+    {
+      "name": "optimized",
+      "source": "../../../cases/run/unsigned_view_snapshots.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "unsigned-views 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "unsigned-views 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "unsigned-views 0\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference",
+      "source": "../../../cases/run/unsigned_view_snapshots.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "unsigned-views 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "unsigned-views 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "unsigned-views 0\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "formation_only",
+      "source": "../../../cases/run/unsigned_snapshot_forming.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "extent",
+      "source": "../../../cases/run/unsigned_snapshot_extent.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "(?s).*invalid checked load.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "lifetime",
+      "source": "../../../cases/run/unsigned_snapshot_lifetime.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "(?s).*invalid checked load.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_fixed",
+      "source": "../../../cases/run/unsigned_snapshot_dynamic_fixed.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "(?s).*dynamic View length does not match fixed context.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_zero_bytes",
+      "source": "../../../cases/run/unsigned_snapshot_dynamic_zero_bytes.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Invalid source read or interpretation is undefined outside checked mode."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary bytes/cstr View requires a positive length.*"
+          }
+        }
+      }
+    }
+  ]
+}

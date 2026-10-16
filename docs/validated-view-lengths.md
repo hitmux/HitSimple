@@ -60,14 +60,16 @@ The `validated-view-lengths` harness configures 36 host variants at O0/O2:
 `view-lengths 0`, including source-order initialization and exact side-effect
 counts. Invalid unchecked dynamic interpretation is compiled but deliberately
 not executed. The nonempty runtime-helper test calls the guard directly;
-checked zero-sized temporary registration currently fails earlier in the
-language path, so that test is not evidence of end-to-end zero-View support.
+that test alone is not evidence of end-to-end zero-View support. The later
+[unsigned-snapshot stage](unsigned-view-snapshots.md) repairs empty temporary
+registration and adds end-to-end empty View coverage.
 
 Remaining independent boundaries are explicit:
 
 - Fully runtime-sized slice construction is not implemented; these tests use
   supported fixed slices and dynamic `resize_bytes`/`byte_swap` Views.
-- Checked zero-length temporary registration is still a LIB-001 gap.
+- Empty temporary registration is covered by the later unsigned-snapshot stage;
+  other zero-length library-input contracts still need their own audit.
 - Other AST-inference consumers, such as template printing and some math APIs,
   need a separate full-domain audit. This is not a Chapter 14 conformance claim.
 - Floating assignment materialization is supplied by the preceding assignment-

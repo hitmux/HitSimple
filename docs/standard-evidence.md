@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 Standard APIs; 8 optional extension APIs; 26 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 Standard APIs; 8 optional extension APIs; 28 inspected witnesses.
 
 ## Validate and run
 
@@ -57,7 +57,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L422) (`if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression))`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1322) (`auto value = emitViewValue(*view->operand);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1344) (`auto value = emitViewValue(*view->operand);`)
 
 Evidence:
 - `structural`: [Sema_LowersExpressionAsTemporaryTemplateView](../tests/sema/SemaDiagnosticTests.cpp#L850)
@@ -98,7 +98,7 @@ Standard: [§10.7](../Standard.md#107-method-calls), [§10.8](../Standard.md#108
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L700) (`bool viewIsCopy = true;`)
+- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L702) (`bool viewIsCopy = true;`)
 - [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L445) (`bool Analyzer::lowerImplMethodBodies(`)
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L529) (`if (parameter.viewIsCopy) {`)
 
@@ -120,7 +120,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L642) (`const bool shortCircuits =`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L515) (`llvm::BasicBlock::Create(context_, "logic.rhs", function);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L520) (`llvm::BasicBlock::Create(context_, "logic.rhs", function);`)
 
 Evidence:
 - `diagnostic`: [StaticSafetyAnalyzer_HonorsLogicalShortCircuitEffects](../tests/safety/StaticSafetyAnalyzerTests.cpp#L141)
@@ -141,7 +141,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1110) (`viewTemplates.emplace_back(info.name, std::move(hirMembers),`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1447) (`bindingAlignment(*storage, variable->offset).value(),`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1469) (`bindingAlignment(*storage, variable->offset).value(),`)
 
 Evidence:
 - `structural`: [Sema_LowersSizeofUserTemplate](../tests/sema/SemaAggregateTests.cpp#L99)
@@ -186,8 +186,8 @@ Standard: [§2.4](../Standard.md#24-execution-modes), [§11.6](../Standard.md#11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L572) (`static FILE *hs_require_file(FILE *file) {`)
-- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L687) (`int32_t hs_fclose(FILE *file) {`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L580) (`static FILE *hs_require_file(FILE *file) {`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L695) (`int32_t hs_fclose(FILE *file) {`)
 - [src/codegen/LLVMCodegen.cpp](../src/codegen/LLVMCodegen.cpp#L205) (`bool LlvmEmitter::hasRuntimeSafetyChecks() const {`)
 
 Evidence:
@@ -211,7 +211,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2146) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2168) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L2) (`func __hs_stdlib_ctype_is_digit(ch as i32) -> bool {`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L32) (`func __hs_stdlib_ctype_to_lower(ch as i32) -> u8 {`)
 
@@ -232,7 +232,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2166) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2188) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
 
 Evidence:
 - `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1210)
@@ -251,7 +251,7 @@ Standard: [§6.7](../Standard.md#67-expression-level-as), [§12.2](../Standard.m
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1479) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1488) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L916) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
 - [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L628) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
 
@@ -275,7 +275,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L676) (`const auto source = lowered->result;`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2286) (`// Sema adds an IntegerCastExpr only for a return width change.`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2302) (`// Sema adds an IntegerCastExpr only for a return width change.`)
 
 Evidence:
 - `structural`: [Sema_ReturnConversionPlansUseExplicitNumericResultViews](../tests/sema/SemaCoreTests.cpp#L333)
@@ -296,7 +296,7 @@ Standard: [§4.8](../Standard.md#48--parsing-rules), [§8.10](../Standard.md#810
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1371) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1393) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
 
 Evidence:
 - `IR`: [LLVMCodegen_FloatingTernariesCopySelectedViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3333)
@@ -395,7 +395,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1106) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1362) (`// Copy now: a later argument or nested operation may overwrite the target.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1384) (`// Copy now: a later argument or nested operation may overwrite the target.`)
 
 Evidence:
 - `structural`: [Sema_AssignmentExpressionsProduceRvalueViews](../tests/sema/SemaExpressionTests.cpp#L1847)
@@ -463,10 +463,10 @@ Implementation:
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1741) (`Analyzer::initializerResultContract(const ast::Expr &expression)`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L645) (`// Keep evaluation in HIR even when the extent is statically known.`)
 - [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L361) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1767) (`return emitViewValue(*call.arguments.front()).length;`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1789) (`return emitViewValue(*call.arguments.front()).length;`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L89) (`constantUnsignedInteger(const hir::Expr &expression)`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2088) (`"length requires one View operand and an eight-byte u64 result"`)
-- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L416) (`void hs_check_view_nonempty(uint64_t actual)`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2104) (`"length requires one View operand and an eight-byte u64 result"`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L424) (`void hs_check_view_nonempty(uint64_t actual)`)
 
 Evidence:
 - `structural`: [Sema_InfersDeclarationsFromValidatedViewLengths](../tests/sema/SemaViewLengthTests.cpp#L12)
@@ -546,7 +546,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions).
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2258) (`// Core-HS character providers use an internal i32 ABI, but the public`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2280) (`// Core-HS character providers use an internal i32 ABI, but the public`)
 
 Evidence:
 - `IR`: [LLVMCodegen_CharacterClassifiersObserveOneRawByte](../tests/codegen/LLVMCodegenTests.cpp#L3600)
@@ -567,13 +567,13 @@ Standard: [§6.1](../Standard.md#61-view-model), [§7.1](../Standard.md#71-assig
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L602) (`struct CaptureView final : Stmt {`)
+- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L604) (`struct CaptureView final : Stmt {`)
 - [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L129) (`std::vector<std::unique_ptr<hir::Expr>> capturedSources;`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L685) (`CapturedViewRef::CapturedViewRef(`)
 - [src/codegen/LLVMCodegenStatements.cpp](../src/codegen/LLVMCodegenStatements.cpp#L132) (`capturedViews_.insert_or_assign(capture->captureName, view);`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1297) (`const auto found = capturedViews_.find(capture->captureName);`)
-- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L990) (`void StaticSafetyAnalyzer::recordStaticViewCapture(`)
-- [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L749) (`const std::optional<StaticAddressFact> &fact, std::string_view operation) {`)
+- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L996) (`void StaticSafetyAnalyzer::recordStaticViewCapture(`)
+- [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L751) (`const std::optional<StaticAddressFact> &fact, std::string_view operation) {`)
 
 Evidence:
 - `structural`: [Sema_MultipleAssignmentCapturesViewsBeforeStores](../tests/sema/SemaMultipleAssignmentTests.cpp#L29)
@@ -675,7 +675,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L724) (`std::make_unique<hir::BindingRebind>`)
-- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L728) (`struct BindingRebind final : Stmt`)
+- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L730) (`struct BindingRebind final : Stmt`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L784) (`std::unordered_set<std::string> reboundBindings(`)
 - [src/codegen/LLVMCodegenRuntime.cpp](../src/codegen/LLVMCodegenRuntime.cpp#L17) (`void LlvmEmitter::initializeBinding(`)
 - [src/codegen/LLVMCodegenStatements.cpp](../src/codegen/LLVMCodegenStatements.cpp#L325) (`void LlvmEmitter::emit(const hir::BindingRebind &rebind)`)
@@ -683,11 +683,11 @@ Implementation:
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L186) (`if (const auto *rebind = dynamic_cast<const hir::BindingRebind *>(&statement))`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L162) (`StaticSafetyAnalyzer::staticBindingAddressFact(`)
 - [src/safety/StaticSafetyStateFlow.cpp](../src/safety/StaticSafetyStateFlow.cpp#L71) (`// Missing here means the unchanged definition address, whereas nullopt`)
-- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L487) (`uint64_t hs_check_cstr_view(const char *value, uint64_t visible)`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L495) (`uint64_t hs_check_cstr_view(const char *value, uint64_t visible)`)
 - [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L369) (`struct ViewOffsetBounds`)
 - [src/codegen/LLVMCodegenRuntime.cpp](../src/codegen/LLVMCodegenRuntime.cpp#L80) (`void LlvmEmitter::checkViewCapacity(`)
 - [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L873) (`store->sourceView = std::move(loweredValue);`)
-- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L1070) (`StaticSafetyAnalyzer::prepareStaticCallArguments(`)
+- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L1076) (`StaticSafetyAnalyzer::prepareStaticCallArguments(`)
 
 Evidence:
 - `structural`: [Sema_LowersNonPointerSizedNameRebinding](../tests/sema/SemaExpressionTests.cpp#L1465)
@@ -790,7 +790,7 @@ Evidence:
 
 Context: [docs/true-name-rebinding.md](../docs/true-name-rebinding.md).
 
-Limit: Bounded HIR, LLVM, safety and native witnesses, not full conformance. Integer-interpreted RHS matrix follows §§7.2/7.3/11.6/11.10; general postfix ? View source formation is a separate known gap. Static alias/loop/interprocedural proofs and other platforms remain limited. Section18.2 evidence is only required diagnostic18.
+Limit: Bounded HIR, LLVM, safety and native witnesses, not full conformance. Integer-interpreted RHS matrix follows §§7.2/7.3/11.6/11.10; general postfix ? View source formation is covered by its separate unsigned-view-snapshot witness. Static alias/loop/interprocedural proofs and other platforms remain limited. Section18.2 evidence is only required diagnostic18.
 
 ### literal-ternary-view-copy
 
@@ -800,7 +800,7 @@ Standard: [§3.5.3](../Standard.md#353-character-and-string-literals), [§4.8](.
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1371) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1393) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L248) (`const bool rawTernary = viewTernary != nullptr &&`)
 
 Evidence:
@@ -829,7 +829,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaOperators.cpp](../src/sema/SemaOperators.cpp#L252) (`bool integerFits(const ast::IntegerLiteral &integer, std::size_t byteLength)`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L318) (`const llvm::APInt source(sourceBits, *value, false);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L323) (`const llvm::APInt source(sourceBits, *value, false);`)
 
 Evidence:
 - `structural`: [Sema_AcceptsStandardIntegerLiteralsInWideDestinations](../tests/sema/SemaExpressionTests.cpp#L1974)
@@ -845,6 +845,70 @@ Evidence:
 Context: [docs/wide-integer-literal-destinations.md](../docs/wide-integer-literal-destinations.md).
 
 Limit: Fixed 9/16/32-byte assignment and named-return contexts only; does not expand the token range or establish dynamic widths, every arithmetic/conversion path, or narrow-literal truncation behavior.
+
+### unsigned-view-snapshot
+
+Postfix ? evaluates its operand once and copies its complete byte representation into a same-extent none rvalue carrying unsigned interpretation, including supported dynamic and empty Views.
+
+Standard: [§6.9](../Standard.md#69-template-propagation-rules), [§6.10](../Standard.md#610-temporary-view-lifetime), [§8.9](../Standard.md#89-unsigned-interpretation-suffix-).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1728) (`Analyzer::analyze(const ast::UnsignedExpr &expression)`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1327) (`// Snapshot bytes before any later operand can mutate or rebind the source.`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2018) (`UnsignedExpr must preserve operand length as an unsigned none rvalue`)
+- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L747) (`unsignedExpr->result.staticByteLength, "unsigned snapshot"`)
+- [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L296) (`// Empty rvalue Views are valid. They expose no readable bytes and therefore`)
+
+Evidence:
+- `structural`: [Sema_UnsignedInterpretationAcceptsAllViewCategories](../tests/sema/SemaUnsignedViewTests.cpp#L12)
+  All listed operand categories retain their exact static extent and produce non-addressable unsigned none rvalues; HIR verifies.
+- `structural`: [Sema_UnsignedInterpretationRetainsDynamicAndEmptyViewExtents](../tests/sema/SemaUnsignedViewTests.cpp#L46)
+  Dynamic resize/byte-swap and known empty resize operands retain dynamic-buffer metadata through postfix interpretation; HIR verifies.
+- `diagnostic`: [Sema_UnsignedDynamicArithmeticReportsUnsupportedWidth](../tests/sema/SemaUnsignedViewTests.cpp#L64)
+  Unary, binary, and explicitly sized arithmetic on a dynamic unsigned source produces an explicit unsupported-runtime-width diagnostic.
+- `diagnostic`: [Hir_UnsignedViewRejectsChangedExtentOrLvalueResult](../tests/hir/HIRTests.cpp#L475)
+  Malformed suffix HIR with changed extent, addressability, signed interpretation, or retained template is rejected.
+- `diagnostic`: [Hir_UnsignedViewRejectsMissingOperand](../tests/hir/HIRTests.cpp#L498)
+  Missing operand HIR produces a diagnostic instead of dereferencing null.
+- `IR`: [LLVMCodegen_UnsignedSnapshotsCopyBytesWithoutNumericConversion](../tests/codegen/LLVMCodegenTests.cpp#L4044)
+  All safety modes produce verified LLVM with exactly one source call, two independent suffix allocas and two memcpy snapshots, and no floating-to-integer conversion.
+- `diagnostic`: [StaticSafetyAnalyzer_UnsignedSnapshotReadsCompleteReboundExtent](../tests/safety/StaticSafetyAnalyzerTests.cpp#L916)
+  Formation-only length succeeds while a suffix snapshot of an oversized rebound bytes/cstr View diagnoses full-extent access.
+- `diagnostic`: [StaticSafetyAnalyzer_UnsignedSnapshotChecksLifetimeAndIgnoresCStringTermination](../tests/safety/StaticSafetyAnalyzerTests.cpp#L927)
+  Expired backing storage is rejected; a valid full raw snapshot of unterminated cstr storage is accepted.
+- `diagnostic`: [StaticSafetyAnalyzer_UnsignedPointerSnapshotHasViewCapacity](../tests/safety/StaticSafetyAnalyzerTests.cpp#L938)
+  A direct pointer? memory operand retains pointer-byte View capacity rather than borrowing the backing pointee region.
+- `runtime`: [hsc_unsigned_view_snapshots](../tests/support/harness/manifests/unsigned-view-snapshots.json); cases: `optimized`, `reference`, `formation_only`, `extent`, `lifetime`, `dynamic_fixed`, `dynamic_zero_bytes`
+  Exact unsigned-views 0 output and zero exit check raw byte preservation, all four floating widths, source evaluation, captured rvalue isolation and dynamic/empty extents. Checked invalid reads and interpretations fail with exit 120; mere View formation remains valid.
+  Host O0/O2, all safety modes; main positive case covers both providers. Invalid non-checked executions are deliberately omitted. Selected bit patterns do not prove every payload or target.
+
+Context: [docs/unsigned-view-snapshots.md](../docs/unsigned-view-snapshots.md).
+
+Limit: Bounded HIR/IR/safety/native cases, not general dynamic integer arithmetic or conversions, runtime-sized slices, every View-producing expression, or cross-target execution. Fixed raw ternaries and fixed resize byte semantics have separately documented prerequisites.
+
+### unsigned-snapshot-stage-integration
+
+Selected fixed raw/string ternaries compose with postfix unsigned snapshots, named return assignment, wide numeric destinations, rebinding and supported dynamic/empty consumers without discarding View tail bytes or reading unselected branches.
+
+Standard: [§4.8](../Standard.md#48--parsing-rules), [§7.3](../Standard.md#73-explicit-integer-assignment-d), [§8.9](../Standard.md#89-unsigned-interpretation-suffix-), [§6.10](../Standard.md#610-temporary-view-lifetime), [§11.7](../Standard.md#117-cstr-and-bytes).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1393) (`// A ternary selects a View copy, not a numeric conversion or assignment.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1327) (`// Snapshot bytes before any later operand can mutate or rebind the source.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L323) (`const llvm::APInt source(sourceBits, *value, false);`)
+
+Evidence:
+- `IR`: [LLVMCodegen_UnsignedTernarySnapshotsRemainBranchLocalAndFullWidth](../tests/codegen/LLVMCodegenTests.cpp#L4085)
+  All three safety modes verify one condition call, two exact-four-byte branch-local copies and one four-byte suffix copy in the ternary merge block.
+- `runtime`: [hsc_unsigned_snapshot_integration](../tests/support/harness/manifests/unsigned-snapshot-integration.json); cases: `optimized`, `reference`, `ternary_extent`, `ternary_lifetime`
+  Twelve provider/safety/O0/O2 positive variants require unsigned integration 0; four checked selected-branch short/expired reads require invalid checked load; eight other guard variants compile only. Positive cases inspect complete snapshot/return bytes and unselected-branch behavior.
+  24 configured host variants; actual execution results remain in the harness artifacts. No invalid unchecked/static-checked reads execute.
+
+Context: [docs/unsigned-view-snapshots.md](../docs/unsigned-view-snapshots.md).
+
+Limit: Bounded host examples at O0/O2, not all expressions, sizes, targets, lifetime failures or runtime-width arithmetic. Invalid unchecked/static-checked fixtures are compiled but never executed. Native release selection is structural evidence, not proof of target execution.
 
 ## Standard navigation inventory
 
@@ -883,7 +947,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 4.5 | [Expressions and Method Calls](../Standard.md#45-expressions-and-method-calls) | unmapped |  |
 | 4.6 | [Lvalue Restrictions](../Standard.md#46-lvalue-restrictions) | unmapped |  |
 | 4.7 | [Length Specifications](../Standard.md#47-length-specifications) | unmapped |  |
-| 4.8 | [`?` Parsing Rules](../Standard.md#48--parsing-rules) | inspected | [floating-ternary-view-copy](#floating-ternary-view-copy), [ternary-as-static-view-length](#ternary-as-static-view-length), [literal-ternary-view-copy](#literal-ternary-view-copy) |
+| 4.8 | [`?` Parsing Rules](../Standard.md#48--parsing-rules) | inspected | [floating-ternary-view-copy](#floating-ternary-view-copy), [ternary-as-static-view-length](#ternary-as-static-view-length), [literal-ternary-view-copy](#literal-ternary-view-copy), [unsigned-snapshot-stage-integration](#unsigned-snapshot-stage-integration) |
 | 5 | [Storage Objects, Addresses, and Lifetimes](../Standard.md#5-storage-objects-addresses-and-lifetimes) | unmapped |  |
 | 5.1 | [Storage Objects](../Standard.md#51-storage-objects) | unmapped |  |
 | 5.2 | [Names, Definition Addresses, and Binding Addresses](../Standard.md#52-names-definition-addresses-and-binding-addresses) | inspected | [true-name-rebinding](#true-name-rebinding) |
@@ -903,12 +967,12 @@ A mapped parent never implicitly maps its children or vice versa.
 | 6.6 | [Declaration-Level `as`](../Standard.md#66-declaration-level-as) | unmapped |  |
 | 6.7 | [Expression-Level `as`](../Standard.md#67-expression-level-as) | inspected | [as-reinterpret](#as-reinterpret), [bool-value-read-boundaries](#bool-value-read-boundaries), [ternary-as-static-view-length](#ternary-as-static-view-length), [validated-declaration-and-length-views](#validated-declaration-and-length-views), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 6.8 | [Persistent Templates Set by `set`](../Standard.md#68-persistent-templates-set-by-set) | unmapped |  |
-| 6.9 | [Template Propagation Rules](../Standard.md#69-template-propagation-rules) | unmapped |  |
-| 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | unmapped |  |
+| 6.9 | [Template Propagation Rules](../Standard.md#69-template-propagation-rules) | inspected | [unsigned-view-snapshot](#unsigned-view-snapshot) |
+| 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | inspected | [unsigned-view-snapshot](#unsigned-view-snapshot), [unsigned-snapshot-stage-integration](#unsigned-snapshot-stage-integration) |
 | 7 | [Assignment, Conversion, and Byte Representation](../Standard.md#7-assignment-conversion-and-byte-representation) | unmapped |  |
 | 7.1 | [Assignment Input Model](../Standard.md#71-assignment-input-model) | inspected | [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [multi-return-destination-contracts](#multi-return-destination-contracts), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [wide-integer-literal-destinations](#wide-integer-literal-destinations) |
-| 7.3 | [Explicit Integer Assignment `%d=`](../Standard.md#73-explicit-integer-assignment-d) | inspected | [wide-integer-literal-destinations](#wide-integer-literal-destinations) |
+| 7.3 | [Explicit Integer Assignment `%d=`](../Standard.md#73-explicit-integer-assignment-d) | inspected | [wide-integer-literal-destinations](#wide-integer-literal-destinations), [unsigned-snapshot-stage-integration](#unsigned-snapshot-stage-integration) |
 | 7.4 | [Explicit Floating-Point Assignment `%f=`](../Standard.md#74-explicit-floating-point-assignment-f) | unmapped |  |
 | 7.5 | [Explicit String Assignment `%s=`](../Standard.md#75-explicit-string-assignment-s) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
 | 7.6 | [Explicit Boolean Assignment `%b=`](../Standard.md#76-explicit-boolean-assignment-b) | unmapped |  |
@@ -925,7 +989,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 8.6 | [User-Template `op`](../Standard.md#86-user-template-op) | unmapped |  |
 | 8.7 | [Comparisons and `bool` Results](../Standard.md#87-comparisons-and-bool-results) | unmapped |  |
 | 8.8 | [Logical Operations and Short-Circuiting](../Standard.md#88-logical-operations-and-short-circuiting) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts) |
-| 8.9 | [Unsigned-Interpretation Suffix `?`](../Standard.md#89-unsigned-interpretation-suffix-) | unmapped |  |
+| 8.9 | [Unsigned-Interpretation Suffix `?`](../Standard.md#89-unsigned-interpretation-suffix-) | inspected | [unsigned-view-snapshot](#unsigned-view-snapshot), [unsigned-snapshot-stage-integration](#unsigned-snapshot-stage-integration) |
 | 8.10 | [Evaluation Order and Sequence Points](../Standard.md#810-evaluation-order-and-sequence-points) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts), [floating-ternary-view-copy](#floating-ternary-view-copy), [multiple-rhs-source-views](#multiple-rhs-source-views), [literal-ternary-view-copy](#literal-ternary-view-copy) |
 | 9 | [User-Defined Templates, Member Layout, and Template Instances](../Standard.md#9-user-defined-templates-member-layout-and-template-instances) | unmapped |  |
 | 9.1 | [Template Definitions](../Standard.md#91-template-definitions) | inspected | [packed-layout-alignment](#packed-layout-alignment) |
@@ -951,7 +1015,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 11.4 | [Floating-Point Templates](../Standard.md#114-floating-point-templates) | unmapped |  |
 | 11.5 | [`bool`](../Standard.md#115-bool) | inspected | [ctype-canonical-bool](#ctype-canonical-bool) |
 | 11.6 | [`addr` and `handle`](../Standard.md#116-addr-and-handle) | inspected | [checked-file-handle-alias](#checked-file-handle-alias) |
-| 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding), [literal-ternary-view-copy](#literal-ternary-view-copy) |
+| 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding), [literal-ternary-view-copy](#literal-ternary-view-copy), [unsigned-snapshot-stage-integration](#unsigned-snapshot-stage-integration) |
 | 11.8 | [Compiler Built-In Optimization](../Standard.md#118-compiler-built-in-optimization) | unmapped |  |
 | 11.9 | [Observable-Behavior Equivalence Requirement](../Standard.md#119-observable-behavior-equivalence-requirement) | inspected | [ctype-low-byte](#ctype-low-byte) |
 | 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [cstr-literal-zero-padding](#cstr-literal-zero-padding) |

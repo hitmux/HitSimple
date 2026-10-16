@@ -287,6 +287,8 @@ StaticSafetyAnalyzer::staticViewRange(const hir::Expr &expression) const {
   } else if (const auto *deref =
                  dynamic_cast<const hir::DerefExpr *>(&expression)) {
     range = staticAddressRange(*deref->address);
+  } else if (dynamic_cast<const hir::UnsignedExpr *>(&expression) != nullptr) {
+    return std::nullopt;
   } else {
     // Pointer-valued expressions describe the addressed region, rather than
     // the pointer's own fixed-width View. Do not impose a pointer-width bound.
@@ -317,10 +319,10 @@ bool StaticSafetyAnalyzer::isRawMemoryAddress(const hir::Expr &expression) const
     return call->templateName == "addr";
   }
   if (dynamic_cast<const hir::AddressOfExpr *>(&expression)) return true;
-  if (const auto *value = dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
-    return isRawMemoryAddress(*value->operand);
-  }
   if (const auto *binary = dynamic_cast<const hir::BinaryExpr *>(&expression)) {
+    if (binary->operationKind == hir::StandardOperationKind::AddressOffset) {
+      return true;
+    }
     return (binary->operation == hir::BinaryOperator::Add ||
             binary->operation == hir::BinaryOperator::Subtract) &&
            isRawMemoryAddress(*binary->left);
