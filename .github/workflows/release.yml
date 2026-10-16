@@ -180,7 +180,7 @@ jobs:
             echo 'checked memcpy bounds unexpectedly succeeded' >&2
             exit 1
           fi
-          grep -Fq 'hitsimple runtime error: invalid memcpy destination range' stderr
+          grep -Fq 'hitsimple runtime error: access exceeds visible View extent' stderr
           ./build-release/hsc --checked tests/cases/run/checked_memcpy_overlap.hs \
             -o checked-memcpy-overlap
           if printf '1\n' | ./checked-memcpy-overlap >stdout 2>stderr; then
@@ -830,7 +830,7 @@ jobs:
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_memcpy_bounds.hs -o checked-memcpy-bounds.exe
           $boundsOutput = "2" | & ./checked-memcpy-bounds.exe 2>&1
-          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: invalid memcpy destination range at .*checked_memcpy_bounds\.hs:8:26') {
+          if ($LASTEXITCODE -eq 0 -or "$boundsOutput" -notmatch 'hitsimple runtime error: access exceeds visible View extent at .*checked_memcpy_bounds\.hs:8:26') {
             throw "Windows checked memcpy bounds did not fail as required: $boundsOutput"
           }
           & build-windows/hsc.exe --clang $mingwClang --checked tests/cases/run/checked_double_free.hs -o checked-double-free.exe
