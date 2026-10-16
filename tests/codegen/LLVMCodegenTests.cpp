@@ -3629,3 +3629,127 @@ HS_TEST(LLVMCodegen_CharacterClassifiersObserveOneRawByte) {
     HS_EXPECT_EQ(byteLoads, 6U);
   }
 }
+
+HS_TEST(LLVMCodegen_MultipleAssignmentFormsSourcesBeforeWrites) {
+  auto result = emitSource(
+      "new g as i32 = 3\n"
+      "func observe() -> i32 { return g; }\n"
+      "func main() -> i32 { new out as i32;\n"
+      " g, out = 9, observe()\n _ = observe()\n return out\n}\n");
+  HS_EXPECT_TRUE(result.ok());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+  std::size_t calls = 0;
+  bool wroteGlobal = false;
+  for (const auto &block : *result.module->getFunction("main")) {
+    for (const auto &instruction : block) {
+      if (const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+          call != nullptr && call->getCalledFunction() != nullptr &&
+          call->getCalledFunction()->getName() == "observe") {
+        if (calls == 0) {
+          HS_EXPECT_TRUE(!wroteGlobal);
+        } else {
+          HS_EXPECT_TRUE(wroteGlobal);
+        }
+        ++calls;
+      }
+      if (const auto *store = llvm::dyn_cast<llvm::StoreInst>(&instruction);
+          store != nullptr && store->getPointerOperand()->stripPointerCasts() ==
+                                  result.module->getNamedGlobal("g")) {
+        HS_EXPECT_EQ(calls, 1U);
+        wroteGlobal = true;
+      }
+    }
+  }
+  HS_EXPECT_EQ(calls, 2U);
+  HS_EXPECT_TRUE(wroteGlobal);
+}
+
+HS_TEST(LLVMCodegen_MultipleAssignmentCapturedFloatingViews) {
+  for (const auto *type : {"f16", "f32", "f64", "f128"}) {
+    const std::string floating(type);
+    auto result = emitSource(
+        "func identity(value as " + floating + ") -> " + floating +
+        " { return value; }\n"
+        "func main() -> i32 { new a as " + floating +
+        " = 2.5; new b as " + floating + ";\n"
+        " a, b = identity(a), a\n return 0\n}\n");
+    HS_EXPECT_TRUE(result.ok());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    const auto ir = llvmIr(result);
+    HS_EXPECT_TRUE(ir.find("fptosi") == std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fptoui") == std::string::npos);
+  }
+}
+
+HS_TEST(LLVMCodegen_MultipleAssignmentKeepsStaticSafetyEffects) {
+  const auto options = optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  for (const auto *statements : {
+           "new zero as i32 = 0; _ = 8 / zero;",
+           "new zero as i32 = 0; new a as i32; a, _ = 1, 8 / zero;",
+           "new zero as i32 = 1; new a as i32; zero, a = 0, 1; a = 8 / zero;",
+           "new zero as i32 = 1; new alias as i32; zero, alias = 0, zero; alias = 8 / alias;"}) {
+    auto result = emitSource("func main() -> i32 { " + std::string(statements) +
+                                 " return 0; }", options);
+    HS_EXPECT_TRUE(!result.ok());
+    HS_EXPECT_TRUE(!result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.diagnostics[0].message.find("division by zero") !=
+                   std::string::npos);
+  }
+  // Assignment sees zero's new bytes through a captured lvalue. Freezing a
+  // constant at capture time would incorrectly diagnose the following divide.
+  auto lvalue = emitSource(
+      "func main() -> i32 { new zero as i32 = 0; new alias as i32;\n"
+      " zero, alias = 2, zero\n return 8 / alias\n}", options);
+  HS_EXPECT_TRUE(lvalue.ok());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*lvalue.module));
+  auto rvalue = emitSource(
+      "func main() -> i32 { new value as i32 = 2; new old as i32;\n"
+      " value, old = 0, value + 0\n return 8 / old\n}", options);
+  HS_EXPECT_TRUE(rvalue.ok());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*rvalue.module));
+}
+
+HS_TEST(LLVMCodegen_MultipleAssignmentKeepsCapturedAllocationFacts) {
+  const auto options = optionsFor(hitsimple::codegen::SafetyMode::StaticChecked);
+  for (const auto &[statements, diagnostic] :
+       std::vector<std::pair<std::string, std::string>>{
+           {"new p as addr; p, _ = alloc(4), 0; free(p); free(p);", "double free"},
+           {"new p as addr = alloc(4); new out as i32; "
+            "out, _ = [4]*p, (p = realloc(p, 0));", "use after free"},
+           {"new p as addr = alloc(4); new out as i32; "
+            "out, _ = [4]*p, realloc(p, 0);", "use after free"},
+           {"new p as addr; p, _ = calloc(2, 2), 0; free(p); return [1]*p;", "use after free"},
+           {"new p as addr; p, _ = alloc(4), 0; new value[8]; value = [8]*p;", "out of bounds"},
+           {"new p as addr; new q as addr; p = alloc(4); q, _ = p? + 1, 0; free(q);",
+            "dynamic-object base address"}}) {
+    auto result = emitSource("func main() -> i32 { " + statements +
+                                 " return 0; }", options);
+    HS_EXPECT_TRUE(!result.ok());
+    HS_EXPECT_TRUE(!result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.diagnostics[0].message.find(diagnostic) != std::string::npos);
+  }
+  auto valid = emitSource(
+      "func main() -> i32 { new p as addr; p, _ = alloc(4), 0;\n"
+      " p, _ = realloc(p, 8), 1\n free(p)\n return 0\n}", options);
+  HS_EXPECT_TRUE(valid.ok());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*valid.module));
+}
+
+HS_TEST(LLVMCodegen_MultipleAssignmentKeepsContextualFloatingTrees) {
+  for (const auto *assignment : {
+           "a, b = a %f+ 2.5, 1",
+           "a, b = 1.5 %f+ 2.5, 1",
+           "(a %f=), b = a %f+ a %f* 2.0, 1"}) {
+    auto result = emitSource(
+        "func main() -> i32 { new a as f32 = 1.0; new b as i32; " +
+        std::string(assignment) + "; return 0; }");
+    HS_EXPECT_TRUE(result.ok());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    const auto ir = llvmIr(result);
+    if (std::string(assignment).find("1.5 %f+") == std::string::npos) {
+      HS_EXPECT_TRUE(ir.find("fadd float") != std::string::npos);
+    }
+    HS_EXPECT_TRUE(ir.find("store float") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fadd double") == std::string::npos);
+  }
+}

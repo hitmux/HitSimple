@@ -6,6 +6,8 @@
 namespace hitsimple::safety::detail {
 
 void StaticSafetyAnalyzer::resetStaticSafetyState() {
+  capturedAliases_.clear();
+  capturedRanges_.clear();
   staticIntegerValues_.clear();
   staticUnsignedIntegerValues_.clear();
   staticAddressFacts_.clear();

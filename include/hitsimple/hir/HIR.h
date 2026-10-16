@@ -321,6 +321,15 @@ struct VariableRef final : Expr {
   std::optional<AddressFacts> addressFacts;
 };
 
+// A reference to an already evaluated source View. CaptureView owns formation;
+// this node preserves the exact category, length, and lvalue flags, without
+// re-evaluating a source expression or prematurely reading lvalue bytes.
+struct CapturedViewRef final : Expr {
+  CapturedViewRef(std::string captureName, ViewSemantics result);
+
+  std::string captureName;
+};
+
 struct AddressOfExpr final : Expr {
   AddressOfExpr(std::string name, std::string bindingName,
                 std::size_t targetByteLength, MemoryStorage storage,
@@ -576,6 +585,15 @@ struct AssignmentExpr final : Expr {
   std::size_t byteLength = 0;
 };
 
+// Multiple assignment forms every source View before the first target write.
+// Lvalue sources retain their located storage; rvalues retain evaluated bytes.
+struct CaptureView final : Stmt {
+  CaptureView(std::string captureName, std::unique_ptr<Expr> source);
+
+  std::string captureName;
+  std::unique_ptr<Expr> source;
+};
+
 struct StatementList final : Stmt {
   explicit StatementList(std::vector<std::unique_ptr<Stmt>> statements);
 
@@ -765,6 +783,11 @@ struct StringStore final : Stmt {
 };
 
 struct StringCopyStore final : Stmt {
+  StringCopyStore(std::string target, std::string bindingName,
+                  std::size_t targetByteLength, MemoryStorage targetStorage,
+                  std::size_t targetOffset, std::unique_ptr<Expr> sourceView);
+
+  std::unique_ptr<Expr> sourceView;
   StringCopyStore(std::string target, std::string bindingName,
                   std::size_t targetByteLength, MemoryStorage targetStorage,
                   std::size_t targetOffset,

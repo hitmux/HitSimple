@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 20 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 21 inspected witnesses.
 
 ## Validate and run
 
@@ -57,7 +57,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L422) (`if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression))`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1245) (`auto value = emitViewValue(*view->operand);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1261) (`auto value = emitViewValue(*view->operand);`)
 
 Evidence:
 - `structural`: [Sema_LowersExpressionAsTemporaryTemplateView](../tests/sema/SemaDiagnosticTests.cpp#L850)
@@ -79,7 +79,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L438) (`lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;`)
-- [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L513) (`if (parameter.viewIsCopy) {`)
+- [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L524) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
 - `structural`: [Sema_LowersUserTemplateAssignmentOperatorAsWriteThroughCall](../tests/sema/SemaExpressionTests.cpp#L839)
@@ -98,9 +98,9 @@ Standard: [§10.7](../Standard.md#107-method-calls), [§10.8](../Standard.md#108
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L670) (`bool viewIsCopy = true;`)
+- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L688) (`bool viewIsCopy = true;`)
 - [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L445) (`bool Analyzer::lowerImplMethodBodies(`)
-- [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L513) (`if (parameter.viewIsCopy) {`)
+- [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L524) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
 - `IR`: [LLVMCodegen_LowersImplTemplateMethodWithInternalViewAbi](../tests/codegen/LLVMCodegenTests.cpp#L237)
@@ -119,8 +119,8 @@ Standard: [§8.8](../Standard.md#88-logical-operations-and-short-circuiting), [�
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L538) (`const bool shortCircuits =`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L481) (`llvm::BasicBlock::Create(context_, "logic.rhs", function);`)
+- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L588) (`const bool shortCircuits =`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L482) (`llvm::BasicBlock::Create(context_, "logic.rhs", function);`)
 
 Evidence:
 - `diagnostic`: [StaticSafetyAnalyzer_HonorsLogicalShortCircuitEffects](../tests/safety/StaticSafetyAnalyzerTests.cpp#L134)
@@ -141,7 +141,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1110) (`viewTemplates.emplace_back(info.name, std::move(hirMembers),`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1370) (`alignmentAt(storage->alignment, variable->offset).value()};`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1386) (`alignmentAt(storage->alignment, variable->offset).value()};`)
 
 Evidence:
 - `structural`: [Sema_LowersSizeofUserTemplate](../tests/sema/SemaAggregateTests.cpp#L99)
@@ -211,7 +211,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2036) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2052) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L2) (`func __hs_stdlib_ctype_is_digit(ch as i32) -> bool {`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L32) (`func __hs_stdlib_ctype_to_lower(ch as i32) -> u8 {`)
 
@@ -232,7 +232,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2056) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2072) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
 
 Evidence:
 - `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1209)
@@ -275,7 +275,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L698) (`const auto source = lowered->result;`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2027) (`// Sema adds an IntegerCastExpr only for a return width change.`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2065) (`// Sema adds an IntegerCastExpr only for a return width change.`)
 
 Evidence:
 - `structural`: [Sema_ReturnConversionPlansUseExplicitNumericResultViews](../tests/sema/SemaCoreTests.cpp#L333)
@@ -296,7 +296,7 @@ Standard: [§4.8](../Standard.md#48--parsing-rules), [§8.10](../Standard.md#810
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1294) (`// A floating ternary selects a View copy, not an integer conversion or`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1310) (`// A floating ternary selects a View copy, not an integer conversion or`)
 
 Evidence:
 - `IR`: [LLVMCodegen_FloatingTernariesCopySelectedViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3331)
@@ -365,7 +365,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1167) (`// Chapter 14 meta-parameters borrow/read the original View.`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1172) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1173) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
 
 Evidence:
 - `structural`: [Sema_PreservesFloatingBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1763)
@@ -395,7 +395,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1106) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1285) (`// Copy now: a later argument or nested operation may overwrite the target.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1301) (`// Copy now: a later argument or nested operation may overwrite the target.`)
 
 Evidence:
 - `structural`: [Sema_AssignmentExpressionsProduceRvalueViews](../tests/sema/SemaExpressionTests.cpp#L1841)
@@ -462,10 +462,10 @@ Implementation:
 - [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L161) (`bool Analyzer::declareGlobal(const ast::GlobalNewDecl &declaration)`)
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1736) (`Analyzer::initializerResultContract(const ast::Expr &expression)`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L645) (`// Keep evaluation in HIR even when the extent is statically known.`)
-- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L295) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1686) (`return emitViewValue(*call.arguments.front()).length;`)
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L361) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1702) (`return emitViewValue(*call.arguments.front()).length;`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L88) (`constantUnsignedInteger(const hir::Expr &expression)`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1860) (`"length requires one View operand and an eight-byte u64 result"`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1884) (`"length requires one View operand and an eight-byte u64 result"`)
 - [runtime/hitsimple_runtime.c](../runtime/hitsimple_runtime.c#L416) (`void hs_check_view_nonempty(uint64_t actual)`)
 
 Evidence:
@@ -514,7 +514,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaMultiReturnAssignments.cpp](../src/sema/SemaMultiReturnAssignments.cpp#L5) (`std::optional<AssignmentLowering> Analyzer::lowerMultiReturnAssignment(`)
-- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L665) (`// Boolean tests and equal-length byte copies accept every source View,`)
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L731) (`// Boolean tests and equal-length byte copies accept every source View,`)
 
 Evidence:
 - `structural`: [Sema_MultiReturnUsesOrdinaryDestinationContracts](../tests/sema/SemaMultiReturnTests.cpp#L25)
@@ -536,7 +536,7 @@ Evidence:
 
 Context: [docs/multi-return-assignments.md](../docs/multi-return-assignments.md).
 
-Limit: Only the existing direct multiple-return call path and ordinary supported assignments. Does not fix multiple separate RHS ordering, single-source discard, rebinding, dynamic returns, or every ordinary destination/operator limitation.
+Limit: Only the existing direct multiple-return call path and ordinary supported assignments. Separate RHS ordering and single-source discard have their own witness. Does not implement rebinding, dynamic returns, or every ordinary destination/operator combination.
 
 ### ctype-raw-view-inputs
 
@@ -546,7 +546,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions).
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2113) (`// Core-HS character providers use an internal i32 ABI, but the public`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2129) (`// Core-HS character providers use an internal i32 ABI, but the public`)
 
 Evidence:
 - `IR`: [LLVMCodegen_CharacterClassifiersObserveOneRawByte](../tests/codegen/LLVMCodegenTests.cpp#L3598)
@@ -558,6 +558,56 @@ Evidence:
 Context: [docs/ctype-view-inputs.md](../docs/ctype-view-inputs.md).
 
 Limit: Does not establish opaque-handle acceptance, zero-length dynamic Views or the entire Chapter 14 domain. Floating patterns have zero high bytes; no arithmetic payload guarantee.
+
+### multiple-rhs-source-views
+
+Separate RHS expressions form their complete source View sequence before ordered target assignments. Captured lvalues retain located storage, rvalues retain evaluated bytes, discarded expressions execute, and the selected ordinary destination contracts remain enforced.
+
+Standard: [§6.1](../Standard.md#61-view-model), [§7.1](../Standard.md#71-assignment-input-model), [§7.10](../Standard.md#710-multiple-assignment), [§8.10](../Standard.md#810-evaluation-order-and-sequence-points).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L590) (`struct CaptureView final : Stmt {`)
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L129) (`std::vector<std::unique_ptr<hir::Expr>> capturedSources;`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L685) (`CapturedViewRef::CapturedViewRef(`)
+- [src/codegen/LLVMCodegenStatements.cpp](../src/codegen/LLVMCodegenStatements.cpp#L132) (`capturedViews_.insert_or_assign(capture->captureName, view);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1231) (`const auto found = capturedViews_.find(capture->captureName);`)
+- [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L159) (`// Freeze the location's lifetime identity separately from an addr View's`)
+- [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L531) (`const std::optional<StaticAddressFact> &fact, std::string_view operation) {`)
+
+Evidence:
+- `structural`: [Sema_MultipleAssignmentCapturesViewsBeforeStores](../tests/sema/SemaMultipleAssignmentTests.cpp#L29)
+  Three captures precede all destination stores; references match their captures and preserve call-rvalue versus named-lvalue flags and original widths/templates.
+- `structural`: [Sema_MultipleAssignmentRetainsDiscardEffectsAndDynamicViews](../tests/sema/SemaMultipleAssignmentTests.cpp#L63)
+  Single/all discard retains call captures; dynamic resize source length stays dynamic through the destination Boolean test.
+- `structural`: [Sema_MultipleAssignmentPreservesUserSourceAndDestinationContracts](../tests/sema/SemaMultipleAssignmentTests.cpp#L102)
+  User op= borrows mutable destinations and consumes captured Box lvalue Views in target order.
+- `diagnostic`: [Sema_MultipleAssignmentRejectsInvalidSourcesAndTargets](../tests/sema/SemaMultipleAssignmentTests.cpp#L125)
+  Rejects invalid discarded calls/references, float-to-integer defaults, unequal bytes, count mismatch, and non-writable targets.
+- `structural`: [Sema_MultipleAssignmentLiteralContextsRetainViewAcceptance](../tests/sema/SemaMultipleAssignmentTests.cpp#L143)
+  Bool and bytes preserve floating literal source width; f16/f128 and integer extremes keep contextual acceptance; short bytes destination rejects an f64 literal.
+- `structural`: [Hir_CapturedViewsRequireMatchingPriorFormation](../tests/hir/HIRTests.cpp#L407)
+  Verifier accepts a matching captured lvalue and rejects absent capture or changed lvalue flags.
+- `IR`: [LLVMCodegen_MultipleAssignmentFormsSourcesBeforeWrites](../tests/codegen/LLVMCodegenTests.cpp#L3633)
+  Verified LLVM places the first observe call before the global write and preserves the subsequent discarded observe call.
+- `IR`: [LLVMCodegen_MultipleAssignmentCapturedFloatingViews](../tests/codegen/LLVMCodegenTests.cpp#L3667)
+  Verified modules preserve captured f16/f32/f64/f128 call results and lvalues without fptosi/fptoui.
+- `diagnostic`: [LLVMCodegen_MultipleAssignmentKeepsStaticSafetyEffects](../tests/codegen/LLVMCodegenTests.cpp#L3684)
+  Static safety sees discarded division by zero, immediate captured constants, and live aliased named-lvalue facts without false-positive old-value reads.
+- `diagnostic`: [LLVMCodegen_MultipleAssignmentKeepsCapturedAllocationFacts](../tests/codegen/LLVMCodegenTests.cpp#L3712)
+  Captured allocation/calloc retains identity and extent; double free, freed captured lvalue reads, out-of-range dereference, and interior free are rejected; valid realloc remains accepted.
+- `IR`: [LLVMCodegen_MultipleAssignmentKeepsContextualFloatingTrees](../tests/codegen/LLVMCodegenTests.cpp#L3738)
+  Default and explicit f32 assignment contexts preserve literal and nested widthless floating operator trees in verified modules.
+- `runtime`: [hsc_multiple_rhs_assignments](../tests/support/harness/manifests/multiple-rhs-assignments.json); cases: `evaluation_optimized`, `destination_contracts_optimized`, `evaluation_reference`, `destination_contracts_reference`
+  Exact zero-failure outputs and successful exit observe source barriers, discard effects, lvalue aliasing versus rvalue copies, address/index capture and target order, user op=, compound destinations, floating contexts, conversions, dynamic resize lengths, and cstr copies.
+  Host runtime matrix: both providers, three safety modes, O0/O2. Release selections configure other platforms without claiming their local execution.
+- `runtime`: [hsc_multiple_rhs_assignment_diagnostics](../tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json); cases: `reject_float_integer_optimized`, `reject_user_template_optimized`, `reject_bytes_length_optimized`, `reject_too_many_sources_optimized`, `reject_too_few_sources_optimized`, `reject_literal_range_optimized`, `reject_discard_invalid_optimized`, `reject_float_integer_reference`, `reject_user_template_reference`, `reject_bytes_length_reference`, `reject_too_many_sources_reference`, `reject_too_few_sources_reference`, `reject_literal_range_reference`, `reject_discard_invalid_reference`
+  Compile-negative cases reject float-to-integer default assignment, mismatched user templates, unequal bytes, source counts, out-of-range literal, and an invalid discarded reference.
+  Compile-negative host matrix only: both providers, three safety modes, O0/O2.
+
+Context: [docs/multiple-rhs-assignments.md](../docs/multiple-rhs-assignments.md).
+
+Limit: Bounded ordinary assignment forms only. No true address rebinding, complex assignment-expression targets, universal RHS peer order, exhaustive lifetime/conflict diagnostics, dynamic cstr copies, or mixed multiple-return call expansion.
 
 ## Standard navigation inventory
 
@@ -608,7 +658,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 5.8 | [Indexing and Slicing](../Standard.md#58-indexing-and-slicing) | unmapped |  |
 | 5.9 | [Out-of-Bounds Access, Dangling Addresses, and Release Errors](../Standard.md#59-out-of-bounds-access-dangling-addresses-and-release-errors) | inspected | [safety-mode-instrumentation](#safety-mode-instrumentation) |
 | 6 | [Expression Results, Lvalue Views, and Interpretation Templates](../Standard.md#6-expression-results-lvalue-views-and-interpretation-templates) | unmapped |  |
-| 6.1 | [View Model](../Standard.md#61-view-model) | unmapped |  |
+| 6.1 | [View Model](../Standard.md#61-view-model) | inspected | [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 6.2 | [Lvalue Views](../Standard.md#62-lvalue-views) | unmapped |  |
 | 6.3 | [Rvalue Views](../Standard.md#63-rvalue-views) | unmapped |  |
 | 6.4 | [View Length](../Standard.md#64-view-length) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
@@ -619,7 +669,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 6.9 | [Template Propagation Rules](../Standard.md#69-template-propagation-rules) | unmapped |  |
 | 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | unmapped |  |
 | 7 | [Assignment, Conversion, and Byte Representation](../Standard.md#7-assignment-conversion-and-byte-representation) | unmapped |  |
-| 7.1 | [Assignment Input Model](../Standard.md#71-assignment-input-model) | unmapped |  |
+| 7.1 | [Assignment Input Model](../Standard.md#71-assignment-input-model) | inspected | [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [multi-return-destination-contracts](#multi-return-destination-contracts) |
 | 7.3 | [Explicit Integer Assignment `%d=`](../Standard.md#73-explicit-integer-assignment-d) | unmapped |  |
 | 7.4 | [Explicit Floating-Point Assignment `%f=`](../Standard.md#74-explicit-floating-point-assignment-f) | unmapped |  |
@@ -628,7 +678,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 7.7 | [Address Rebinding `&=`](../Standard.md#77-address-rebinding-) | unmapped |  |
 | 7.8 | [`resize_bytes(expr, length)`](../Standard.md#78-resize_bytesexpr-length) | unmapped |  |
 | 7.9 | [Numeric Conversion and Byte Reinterpretation](../Standard.md#79-numeric-conversion-and-byte-reinterpretation) | inspected | [as-reinterpret](#as-reinterpret), [explicit-numeric-return-source](#explicit-numeric-return-source) |
-| 7.10 | [Multiple Assignment](../Standard.md#710-multiple-assignment) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts) |
+| 7.10 | [Multiple Assignment](../Standard.md#710-multiple-assignment) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts), [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 8 | [Operators, Comparisons, and Evaluation Order](../Standard.md#8-operators-comparisons-and-evaluation-order) | unmapped |  |
 | 8.1 | [Operator Input Model](../Standard.md#81-operator-input-model) | unmapped |  |
 | 8.2 | [Ordinary Operator Resolution](../Standard.md#82-ordinary-operator-resolution) | inspected | [assignment-result-view-copy](#assignment-result-view-copy) |
@@ -639,7 +689,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 8.7 | [Comparisons and `bool` Results](../Standard.md#87-comparisons-and-bool-results) | unmapped |  |
 | 8.8 | [Logical Operations and Short-Circuiting](../Standard.md#88-logical-operations-and-short-circuiting) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts) |
 | 8.9 | [Unsigned-Interpretation Suffix `?`](../Standard.md#89-unsigned-interpretation-suffix-) | unmapped |  |
-| 8.10 | [Evaluation Order and Sequence Points](../Standard.md#810-evaluation-order-and-sequence-points) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts), [floating-ternary-view-copy](#floating-ternary-view-copy) |
+| 8.10 | [Evaluation Order and Sequence Points](../Standard.md#810-evaluation-order-and-sequence-points) | inspected | [logical-short-circuit-facts](#logical-short-circuit-facts), [floating-ternary-view-copy](#floating-ternary-view-copy), [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 9 | [User-Defined Templates, Member Layout, and Template Instances](../Standard.md#9-user-defined-templates-member-layout-and-template-instances) | unmapped |  |
 | 9.1 | [Template Definitions](../Standard.md#91-template-definitions) | inspected | [packed-layout-alignment](#packed-layout-alignment) |
 | 9.2 | [`sizeof(Template)`](../Standard.md#92-sizeoftemplate) | inspected | [packed-layout-alignment](#packed-layout-alignment) |

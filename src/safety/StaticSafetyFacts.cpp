@@ -165,6 +165,10 @@ StaticSafetyAnalyzer::staticAddressRange(const hir::Expr &expression) const {
 
 std::optional<StaticAddressRange>
 StaticSafetyAnalyzer::staticViewRange(const hir::Expr &expression) const {
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto range = capturedRanges_.find(capture->captureName);
+    return range == capturedRanges_.end() ? std::nullopt : range->second;
+  }
   if (const auto *variable = dynamic_cast<const hir::VariableRef *>(&expression)) {
     const auto offset = static_cast<std::int64_t>(variable->offset);
     return StaticAddressRange{variable->bindingName, offset, offset,
@@ -201,6 +205,14 @@ StaticSafetyAnalyzer::staticMemoryOperandRange(const hir::Expr &expression) cons
 
 std::optional<std::int64_t>
 StaticSafetyAnalyzer::staticSignedInteger(const hir::Expr &expression) const {
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto alias = capturedAliases_.find(capture->captureName);
+    if (alias != capturedAliases_.end() && alias->second != nullptr) {
+      return staticSignedInteger(*alias->second);
+    }
+    const auto found = staticIntegerValues_.find(capture->captureName);
+    return found == staticIntegerValues_.end() ? std::nullopt : found->second;
+  }
   if (const auto value = constantSignedInteger(expression)) {
     return value;
   }
@@ -252,6 +264,14 @@ StaticSafetyAnalyzer::staticSignedInteger(const hir::Expr &expression) const {
 
 std::optional<std::uint64_t>
 StaticSafetyAnalyzer::staticUnsignedInteger(const hir::Expr &expression) const {
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto alias = capturedAliases_.find(capture->captureName);
+    if (alias != capturedAliases_.end() && alias->second != nullptr) {
+      return staticUnsignedInteger(*alias->second);
+    }
+    const auto found = staticUnsignedIntegerValues_.find(capture->captureName);
+    return found == staticUnsignedIntegerValues_.end() ? std::nullopt : found->second;
+  }
   if (const auto value = constantUnsignedInteger(expression)) {
     return value;
   }
@@ -312,6 +332,14 @@ StaticSafetyAnalyzer::staticBooleanValue(const hir::Expr &expression) const {
 
 std::optional<StaticAddressFact>
 StaticSafetyAnalyzer::staticAddressFact(const hir::Expr &expression) const {
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto alias = capturedAliases_.find(capture->captureName);
+    if (alias != capturedAliases_.end() && alias->second != nullptr) {
+      return staticAddressFact(*alias->second);
+    }
+    const auto found = staticAddressFacts_.find(capture->captureName);
+    return found == staticAddressFacts_.end() ? std::nullopt : found->second;
+  }
   if (const auto *unsignedExpr =
           dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
     return staticAddressFact(*unsignedExpr->operand);
@@ -496,7 +524,11 @@ void StaticSafetyAnalyzer::recordStaticAddressAssignment(std::string_view bindin
 
 void StaticSafetyAnalyzer::validateStaticAddressAccess(const hir::Expr &expression,
                                               std::string_view operation) {
-  const auto fact = staticAddressFact(expression);
+  validateStaticAddressAccess(staticAddressFact(expression), operation);
+}
+
+void StaticSafetyAnalyzer::validateStaticAddressAccess(
+    const std::optional<StaticAddressFact> &fact, std::string_view operation) {
   if (!fact) {
     return;
   }
@@ -518,6 +550,14 @@ void StaticSafetyAnalyzer::validateStaticAddressAccess(const hir::Expr &expressi
 
 std::optional<bool>
 StaticSafetyAnalyzer::staticCStringTerminated(const hir::Expr &expression) const {
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto alias = capturedAliases_.find(capture->captureName);
+    if (alias != capturedAliases_.end() && alias->second != nullptr) {
+      return staticCStringTerminated(*alias->second);
+    }
+    const auto found = staticCStringTerminations_.find(capture->captureName);
+    return found == staticCStringTerminations_.end() ? std::nullopt : found->second;
+  }
   if (dynamic_cast<const hir::StringLiteral *>(&expression) != nullptr) {
     return true;
   }

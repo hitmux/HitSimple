@@ -237,7 +237,8 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
     return builder_.CreateZExt(normalized, integerType, "not.zext");
   }
 
-  if (dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
+  if (dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr ||
+      dynamic_cast<const hir::DynamicByteViewExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::ByteSwapExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::AssignmentExpr *>(&expression) != nullptr ||
@@ -1226,6 +1227,21 @@ ViewValue LlvmEmitter::emitUserTemplateOpCall(
 
 ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
   DebugLocationScope debugLocation(*this, expression.range);
+  if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
+    const auto found = capturedViews_.find(capture->captureName);
+    if (found == capturedViews_.end()) {
+      addDiagnostic("source View used before capture");
+      return {};
+    }
+    const auto view = found->second;
+    // Later source evaluations may invalidate a captured lvalue's storage.
+    // Check the actual read as well as address formation, without re-evaluating
+    // the expression that located it.
+    if (expression.result.isAddressable && hasRuntimeSafetyChecks()) {
+      (void)emitCheckedRuntimeCall(declareCheckLoad(), {view.data, view.length});
+    }
+    return view;
+  }
   auto makeStorage = [&](llvm::Type *type, llvm::Value *value,
                          std::size_t byteLength,
                          std::string_view name) -> ViewValue {
@@ -2134,7 +2150,8 @@ llvm::Value *LlvmEmitter::emitFloatValue(const hir::Expr &expression,
     return nullptr;
   }
 
-  if (dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
+  if (dynamic_cast<const hir::CapturedViewRef *>(&expression) != nullptr ||
+      dynamic_cast<const hir::TemplateViewExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::AssignmentExpr *>(&expression) != nullptr ||
       dynamic_cast<const hir::TernaryExpr *>(&expression) != nullptr) {
     const auto view = emitViewValue(expression);

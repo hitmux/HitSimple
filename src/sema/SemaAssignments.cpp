@@ -126,11 +126,76 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
   }
 
   AssignmentLowering lowered;
+  std::vector<std::unique_ptr<hir::Expr>> capturedSources;
+  if (assign.values.size() > 1U) {
+    for (std::size_t index = 0; index < assign.values.size(); ++index) {
+      const auto &value = *assign.values[index];
+      const auto &target = assign.targets[index];
+      std::unique_ptr<hir::Expr> source;
+      // Contextual literals have no effects, but their source representation
+      // still follows the selected assignment width (7.4 and Appendix 21).
+      const auto targetLength = inferByteLength(*target.target);
+      const auto targetTemplate = operatorTemplateName(*target.target).value_or("");
+      const bool contextualFloat = floatAssignmentByteLength(target.op).has_value() ||
+          (target.op == "=" && (targetTemplate.empty() ||
+                               isFloatTemplate(targetTemplate) ||
+                               isSignedTemplate(targetTemplate) ||
+                               isUnsignedTemplate(targetTemplate) ||
+                               targetTemplate == "addr"));
+      const auto *binary = dynamic_cast<const ast::BinaryExpr *>(&value);
+      const bool contextualFloatSource =
+          dynamic_cast<const ast::FloatLiteral *>(&value) != nullptr ||
+          (binary != nullptr && floatByteLengthForOperator(binary->op) &&
+           (binary->op.ends_with('+') || binary->op.ends_with('-') ||
+            binary->op.ends_with('*') || binary->op.ends_with('/')));
+      if (contextualFloatSource && targetLength &&
+          isLoweredFloatByteLength(*targetLength) && contextualFloat) {
+        source = analyzeFloatOperand(value, *targetLength);
+      } else if (isUnsignedTemplate(targetTemplate) && targetLength == 8 &&
+                 dynamic_cast<const ast::IntegerLiteral *>(&value)) {
+        source = std::make_unique<hir::IntegerLiteral>(
+            static_cast<const ast::IntegerLiteral &>(value).value,
+            fixedResult(targetTemplate, 8));
+      } else if (isSignedTemplate(targetTemplate) && targetLength == 8 &&
+                 isI64MinLiteral(value)) {
+        source = lowerI64MinLiteral();
+      } else {
+        source = analyze(value);
+      }
+      if (!source) {
+        return std::nullopt;
+      }
+      if (target.op == "=" && targetTemplate == "addr") {
+        source = preservePointerDerivedAddress(std::move(source));
+      }
+      const auto captureName = makeBindingName(".assignment-source");
+      capturedSources.push_back(std::make_unique<hir::CapturedViewRef>(
+          captureName, source->result));
+      lowered.stores.push_back(std::make_unique<hir::CaptureView>(
+          captureName, std::move(source)));
+    }
+  }
   const Symbol *lastTarget = nullptr;
   for (std::size_t index = 0; index < assign.targets.size(); ++index) {
     const auto &target = assign.targets[index];
     const auto &value = *assign.values[index];
     std::unique_ptr<hir::Expr> loweredValue;
+    if (!capturedSources.empty()) {
+      loweredValue = std::move(capturedSources[index]);
+    }
+    if (const auto *identifier =
+            dynamic_cast<const ast::IdentifierExpr *>(target.target.get());
+        identifier != nullptr && identifier->name == "_") {
+      if (capturedSources.empty()) {
+        auto source = analyze(value);
+        if (!source) {
+          return std::nullopt;
+        }
+        lowered.stores.push_back(std::make_unique<hir::CaptureView>(
+            makeBindingName(".discard-source"), std::move(source)));
+      }
+      continue;
+    }
     bool deferFloatLowering = floatAssignmentByteLength(target.op).has_value();
     if (target.op == "=") {
       if (const auto *identifier =
@@ -149,7 +214,7 @@ Analyzer::lowerAssignmentExpression(const ast::AssignmentExpr &assign) {
         }
       }
     }
-    if (target.op != "&=" && !deferFloatLowering) {
+    if (!loweredValue && target.op != "&=" && !deferFloatLowering) {
       loweredValue = analyze(value);
       if (!loweredValue) {
         return std::nullopt;
@@ -214,7 +279,8 @@ Analyzer::lowerFixedViewAssignment(
             fixedResult(target.templateName, target.byteLength));
       }
     } else if (loweredValue &&
-               dynamic_cast<const ast::FloatLiteral *>(&value) == nullptr) {
+               (dynamic_cast<const ast::FloatLiteral *>(&value) == nullptr ||
+                dynamic_cast<const hir::CapturedViewRef *>(loweredValue.get()) != nullptr)) {
       if (!isFloatExpression(*loweredValue)) {
         addDiagnostic("float operand is not a float expression");
         return std::nullopt;
@@ -677,7 +743,7 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
                     "' must be pointer-sized");
       return nullptr;
     }
-    auto address = analyze(value);
+    auto address = loweredValue ? std::move(loweredValue) : analyze(value);
     if (!address) {
       return nullptr;
     }
@@ -780,6 +846,12 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
       if (!loweredValue) {
         return nullptr;
       }
+    }
+    if (dynamic_cast<const hir::CapturedViewRef *>(loweredValue.get()) &&
+        loweredValue->result.lengthKind == hir::ViewLengthKind::Static) {
+      return std::make_unique<hir::StringCopyStore>(
+          targetRef.name, targetRef.bindingName, targetRef.byteLength,
+          targetRef.storage, targetRef.offset, std::move(loweredValue));
     }
     if (const auto *source =
             dynamic_cast<const hir::VariableRef *>(loweredValue.get())) {

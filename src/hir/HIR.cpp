@@ -682,6 +682,21 @@ ViewCopyStore::ViewCopyStore(std::string target, std::string bindingName,
       targetByteLength(targetByteLength), storage(storage), offset(offset),
       value(std::move(value)), conversionPlan(std::move(conversionPlan)) {}
 
+CapturedViewRef::CapturedViewRef(std::string captureName, ViewSemantics result)
+    : Expr(std::move(result)), captureName(std::move(captureName)) {}
+
+CaptureView::CaptureView(std::string captureName, std::unique_ptr<Expr> source)
+    : captureName(std::move(captureName)), source(std::move(source)) {}
+
+StringCopyStore::StringCopyStore(
+    std::string target, std::string bindingName, std::size_t targetByteLength,
+    MemoryStorage targetStorage, std::size_t targetOffset,
+    std::unique_ptr<Expr> sourceView)
+    : sourceView(std::move(sourceView)), target(std::move(target)),
+      bindingName(std::move(bindingName)), targetByteLength(targetByteLength),
+      targetStorage(targetStorage), targetOffset(targetOffset),
+      sourceByteLength(this->sourceView->result.staticByteLength) {}
+
 StatementList::StatementList(std::vector<std::unique_ptr<Stmt>> statements)
     : statements(std::move(statements)) {}
 
@@ -1533,12 +1548,21 @@ verifyHIR(const TranslationUnit &unit) {
     }
   };
 
+  std::unordered_map<std::string, ViewSemantics> capturedViews;
   std::function<void(const Expr &)> verifyExpr;
   std::function<void(const Stmt &)> verifyStmt;
   std::function<void(const Block &)> verifyBlock;
 
   verifyExpr = [&](const Expr &expression) {
     checkSemantics(expression);
+    if (const auto *value = dynamic_cast<const CapturedViewRef *>(&expression)) {
+      const auto capture = capturedViews.find(value->captureName);
+      if (capture == capturedViews.end() ||
+          !sameSemantics(capture->second, value->result)) {
+        addDiagnostic(*value, "CapturedViewRef has no matching preceding capture");
+      }
+      return;
+    }
     if (const auto *value = dynamic_cast<const IntegerLiteral *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
       return;
@@ -1959,6 +1983,20 @@ verifyHIR(const TranslationUnit &unit) {
     }
   };
   verifyStmt = [&](const Stmt &statement) {
+    if (const auto *value = dynamic_cast<const CaptureView *>(&statement)) {
+      if (value->source) {
+        verifyExpr(*value->source);
+        if (!capturedViews.emplace(value->captureName, value->source->result).second) {
+          addDiagnostic(*value->source, "duplicate source View capture");
+        }
+      }
+      return;
+    }
+    if (const auto *value = dynamic_cast<const StringCopyStore *>(&statement);
+        value != nullptr && value->sourceView) {
+      verifyExpr(*value->sourceView);
+      return;
+    }
     if (const auto *value = dynamic_cast<const StatementList *>(&statement)) {
       for (const auto &item : value->statements) {
         verifyStmt(*item);
@@ -2090,6 +2128,7 @@ verifyHIR(const TranslationUnit &unit) {
   }
   for (const auto &function : unit.functions) {
     if (function) {
+      capturedViews.clear();
       verifyBlock(*function->body);
     }
   }

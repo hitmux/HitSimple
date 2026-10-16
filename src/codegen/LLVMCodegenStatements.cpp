@@ -126,6 +126,14 @@ void LlvmEmitter::emit(const hir::Stmt &statement) {
     return;
   }
 
+  if (const auto *capture = dynamic_cast<const hir::CaptureView *>(&statement)) {
+    const auto view = emitViewValue(*capture->source);
+    if (view.data != nullptr && view.length != nullptr) {
+      capturedViews_.insert_or_assign(capture->captureName, view);
+    }
+    return;
+  }
+
   if (const auto *local = dynamic_cast<const hir::LocalMemory *>(&statement)) {
     emit(*local);
     return;
@@ -467,11 +475,21 @@ void LlvmEmitter::emit(const hir::StringCopyStore &store) {
     addDiagnostic("unknown local '" + store.target + "'");
     return;
   }
-  if (source == nullptr) {
+  if (source == nullptr && !store.sourceView) {
     addDiagnostic("unknown local '" + store.source + "'");
     return;
   }
 
+  llvm::Value *sourceData = nullptr;
+  if (store.sourceView) {
+    sourceData = emitViewValue(*store.sourceView).data;
+  } else {
+    sourceData = bytePointer(source->storageType, source->storage,
+                             store.sourceOffset, "str.source");
+  }
+  if (sourceData == nullptr) {
+    return;
+  }
   auto *activeStorage = builder_.CreateAlloca(builder_.getInt1Ty(), nullptr,
                                               "str.copy.active");
   activeStorage->setAlignment(llvm::Align(1));
@@ -483,8 +501,8 @@ void LlvmEmitter::emit(const hir::StringCopyStore &store) {
                                        "str.copying");
     active->setAlignment(llvm::Align(1));
     if (index + 1 < store.targetByteLength && index < store.sourceByteLength) {
-      auto *sourcePointer = bytePointer(source->storageType, source->storage,
-                                        store.sourceOffset + index, "str.src");
+      auto *sourcePointer = builder_.CreateInBoundsGEP(
+          builder_.getInt8Ty(), sourceData, builder_.getInt64(index), "str.src");
       auto *sourceByte =
           builder_.CreateLoad(builder_.getInt8Ty(), sourcePointer, "str.byte");
       sourceByte->setAlignment(llvm::Align(1));

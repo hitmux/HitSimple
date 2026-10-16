@@ -2,27 +2,29 @@
   "version": 1,
   "purpose": "navigation and bounded evidence, not independent requirements or conformance",
   "inputs_sha256": {
-    "CMakeLists.txt": "f4e21bd7a8294fa4a60a7341189ddece0e1a84b6ba7761c9d099b4bc0039e746",
+    "CMakeLists.txt": "778eeae302a64f14b35a4fa81247783203b9d47e59733227d58e1e73d5a53dc4",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
     "docs/ctype-view-inputs.md": "79a37dd3a7c0ebb528deeacf7c394b6dd0658dd6e9e2c7fa71f7acf9b1ee0eef",
-    "docs/evidence/standard-witnesses.json": "8fe50f65fccbc0a58e728c77e0ea182a8de1d5118e8f23046bad2a1261ab4716",
-    "docs/multi-return-assignments.md": "9889580d827cc3c5f36fc46dfb4e5db31a75fca6f98b573d7133c340e5265993",
+    "docs/evidence/standard-witnesses.json": "11cbbec7cfda89a3ba0cd2a9672d968d993c33aec66c6cd98a6978848be2d790",
+    "docs/multi-return-assignments.md": "1ea38b9dfb98cd18061a146e7f028f584206682822b652729ba35f520d01e675",
+    "docs/multiple-rhs-assignments.md": "527078e7707565a1d5bf7614a8f0e1e34a97565e642fd8cedb983f9ac5617d2c",
     "docs/named-return-storage.md": "b4e2299b08cdb684709b1b4ea1145782857833a7b9858e291a90b6b96695535b",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
     "docs/validated-view-lengths.md": "9692e746f8a12aef69f3a40707ddcd96b43e2ba9090a80280f64edec7934708a",
-    "include/hitsimple/hir/HIR.h": "0e2b5bf7988c76a04a7a71fd79af74d9b8cdb9ec87621f560224f9725dab7609",
+    "include/hitsimple/hir/HIR.h": "2c94efae58d606b895e7a6e493d8d58268df4cbc637c14d6ded4c4215a92d24a",
     "runtime/hitsimple_runtime.c": "6691e6bf8706ce8e579882290ae8d3d29990557071ab87ba1afcbdb3998ceaaf",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "a25813128ad49a977f2b561bafffc5fc011a76759c6abf50f5bc421fe9e2a05b",
-    "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
-    "src/hir/HIR.cpp": "33d3ceb74d3f100c12706194b0e16208feabd58934206c78a5e9478eec3ae78f",
-    "src/safety/StaticSafetyFacts.cpp": "98bf0455ec80ae3c0a5f443febfb548b1a197646f78f318426ddb05ef96ac1b1",
-    "src/safety/StaticSafetyValidation.cpp": "68f2ff07de53de98871ec61deaa25a49427e39f4a089b968bb9da22c8eda1630",
+    "src/codegen/LLVMCodegenExpressions.cpp": "2ed7ec73b65c44bfcca7cd556ed4f830f2de6c07f6a183e955f3d62f9fa03c80",
+    "src/codegen/LLVMCodegenFunctions.cpp": "8f83f61094e9c82f8c63a550fc90cf300fc120f8cbef64f5b19728e562c01d13",
+    "src/codegen/LLVMCodegenStatements.cpp": "933c9b0a5830c3be6980c30c9eaa3f60a40325052e6708a0ad34b537b3fd485c",
+    "src/hir/HIR.cpp": "16c8c81918d5733450fd0243df65bebba7446981a713406333ac00b3ab95c160",
+    "src/safety/StaticSafetyFacts.cpp": "00d6111b2ebea647bede098b5fe4b878184fe9f3705e274c0e7f524b5729c47c",
+    "src/safety/StaticSafetyValidation.cpp": "9da51c9b89d4fb12aca4f48fea7d0b22e58ea03aa575820fd27c61d6f87a1105",
     "src/sema/SemaAnalysis.cpp": "4eca00d7fc11e8c06d6d7c28d6c56e220745beffadd108655cd013f3e112e2cf",
     "src/sema/SemaAnalysisContext.cpp": "3229fa14e97ef7a93bba491a7d6cccfa003a77c752a94905083c2226b75dd6c7",
-    "src/sema/SemaAssignments.cpp": "50dd12d8a880ced09846ab90da8c1aafa23607d0d7e1acdc181be2e03748e443",
+    "src/sema/SemaAssignments.cpp": "a0d4f9022bfc0ecf65985b16744baeeb2cd0807c9299c400abb7a85d040917af",
     "src/sema/SemaExpressions.cpp": "894cef948d7c9c7311be657e2403adf0d888e4681ddccf6c3db7714f0be963dd",
     "src/sema/SemaMultiReturnAssignments.cpp": "95d38c24f5447bef1190a213f28cbaf0e3d70781569c09c72569bd40caa04e57",
     "src/sema/SemaStatements.cpp": "146a25a0c9b321ee9f2a577e2c306732cc0bbfa204bef8ecb31d5204505f05f2",
@@ -44,6 +46,8 @@
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
     "tests/cases/run/length_nonempty_guard.hs": "062b3c28f7df6c26ce329f7cb02590c7e5a33d843355034ea7fba91950130470",
     "tests/cases/run/multi_return_assignments.hs": "299978aef88c83bd2300d4e74e4f6bd20f64f7ed247a6e7d66da4d13673925c3",
+    "tests/cases/run/multiple_rhs_destination_contracts.hs": "ea4faa88d521d5d27d7d23149dd07b0adc76b508605ecf487bad46b08fdda21f",
+    "tests/cases/run/multiple_rhs_evaluation.hs": "3855ed3b32238a5e098512bb6faa765b61fdce3a581e9e98b89b907b9e9653b9",
     "tests/cases/run/named_return_storage.hs": "d9c3e0d30f0522886eccbf98e250285e602fe75e7178279539e0de5409356d72",
     "tests/cases/run/none_return_views.hs": "f8ce1d0ff3793839dc17940f643fa4a26af35c4e35de16d473ef39c21083c09e",
     "tests/cases/run/p3_packed_offsets.hs": "01e1ed232075e12f5d8563107b240297466718372dd9a34abb54cf7391365a51",
@@ -52,14 +56,21 @@
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
     "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
     "tests/cases/sema/multi_return_float_integer.hs": "83a842c5d574b137558ecd1a13bdf8b37f501081c9f892776fd3b8f58e4bb4f7",
-    "tests/codegen/LLVMCodegenTests.cpp": "333cf9030ff02c96885b6dd7478a7e2c3187ca8a28b3029ae67cfd6ff7186024",
+    "tests/cases/sema/multiple_rhs_bytes_length.hs": "82ca59120d5d5433389d034b19ec315b7aa2f411deb088486d10a5d0553bf572",
+    "tests/cases/sema/multiple_rhs_discard_invalid.hs": "b83972d732972ad91cae3419482a1aef7c0c8f4063696ddf3abdac17749cd8be",
+    "tests/cases/sema/multiple_rhs_float_integer.hs": "26dc0eff74ac2ecf12b7e28e182c4a8b632c019f31fb9fd7ce165dce9dd7f497",
+    "tests/cases/sema/multiple_rhs_literal_range.hs": "7db61bf65bba1950af34c76ff1babe76fba677b4dd288dc75496e0d424454394",
+    "tests/cases/sema/multiple_rhs_too_few_sources.hs": "bcf58db20f0ffc957760b3bca94843df2004dd903c42e2bbac8450eec88f5e91",
+    "tests/cases/sema/multiple_rhs_too_many_sources.hs": "89613650b7b4aed1a46ef061c5d6b36bf459fb377968eb5b9c35d641561997e9",
+    "tests/cases/sema/multiple_rhs_user_template.hs": "22860158245486532bf7cd5c77b22021275eed50cb30423c0a92e39ffdb1380b",
+    "tests/codegen/LLVMCodegenTests.cpp": "dc864a0a48a833e6559caa8f4d4ceae217d88db536776555df0c5e36439510de",
     "tests/codegen/NativeTargetTests.cpp": "e0aff3f282d0731d94d1cc5f91eeef2877ffb5515ef9bdb307832b4f7c673425",
     "tests/codegen/ObjectEmitterTests.cpp": "33690660c9e9fb150d6e40cce390f18e343c59fdd135dbec574619e16326c9a0",
     "tests/codegen/OptimizationPipelineTests.cpp": "717fbc5e1b9ae177e52c30bd1bfb97b0ba917055dcb708f200e172440590df7a",
     "tests/compat/CCompatTests.cpp": "28678aa605db23a3835d034811457ae4dacd09f1d3f7266f1df63b9bf6761932",
     "tests/diagnostic/SourceLocationTests.cpp": "04c397ead77e7942edf24299fc9f33bb754a14e391cd438f2d2c7d29dd313130",
     "tests/driver/DriverOptionsTests.cpp": "864ebc202be36e472b7497a8bf87e284a84018e0d4c24d27a16c2010d316a49b",
-    "tests/hir/HIRTests.cpp": "fef71fa9bbb8f2744fe385defd22988dd72c126c1330394b9ff83929b0e952de",
+    "tests/hir/HIRTests.cpp": "b613fae2f87674be0f653656d284283840ca0a947a498f2371a6acada013359f",
     "tests/lexer/LexerTests.cpp": "ae72d8f7fb853514d3b82f1ff5ffee75393b16d6e4226ac207220fb15249d55b",
     "tests/parser/ParserTests.cpp": "aa08f32794f99fa86742b15397c4b1739a21b48b9feb2adccdafa01127362bb1",
     "tests/preprocessor/PreprocessorTests.cpp": "5e7d28f7d82acf61dd965b41d0ab7ec995002dd841bc75cae3033303548abe53",
@@ -70,6 +81,7 @@
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
     "tests/sema/SemaExpressionTests.cpp": "c4d5a23158a549e682bf537c8fe1a43754aea466d22a67754bd54335b3a79ffd",
     "tests/sema/SemaMultiReturnTests.cpp": "d809c9756a0c83c7555360455d66e63a7b33f70f9d7cafbeb74eb5e17660287c",
+    "tests/sema/SemaMultipleAssignmentTests.cpp": "5a42ae6721736768b0cf7728de1e3824133a669f0ec0b0f30cb854809c3bcd2b",
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
     "tests/sema/SemaTryCatchTests.cpp": "9986e67c53dbf25f3ed2b205a4f0deca9ae1a26071d6550adccd1157f1ca0e20",
     "tests/sema/SemaViewLengthTests.cpp": "66191f391d21be38b941802013a98a526ba873e3b6e04950e0437b296b18d72a",
@@ -89,6 +101,8 @@
     "tests/support/harness/manifests/floating-ternary-views.json": "6f5a89d0fb2d2d79d9de7556ae82a4c33da430c7d7503fd50a03dd4448b3d665",
     "tests/support/harness/manifests/multi-return-assignment-diagnostics.json": "b02487a1bbfca71bd132063f7794f9b16315b64d114be01d881842f8a8cdc2fd",
     "tests/support/harness/manifests/multi-return-assignments.json": "6f2718b270070cef3799c05670bbc9848f092ba03896edf0bd1fbecffe9eefeb",
+    "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json": "62d72d966cd8e3a34b58b373cf781c39a1729b6d2a8db0a3211ff9e2517050cb",
+    "tests/support/harness/manifests/multiple-rhs-assignments.json": "d17d8bb748fcda80fd3bd348dec85f5f2ea7e85d3f7df914dde6ef19e30fb233",
     "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
     "tests/support/harness/manifests/none-return-views.json": "b1dc6a24150a49794cf045c127a21b21d9d5f246a2c216bcc9b7cc454bdf23a6",
     "tests/support/harness/manifests/p3-host-semantics.json": "c5bf829291ac52712260877ccfcb2a46dee32f97d4f40518a8b8f3dff203ccb2",
@@ -509,8 +523,10 @@
       "line": 489,
       "anchor": "61-view-model",
       "parent": "6",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "multiple-rhs-source-views"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "6.2",
@@ -615,8 +631,10 @@
       "line": 597,
       "anchor": "71-assignment-input-model",
       "parent": "7",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "multiple-rhs-source-views"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "7.2",
@@ -703,7 +721,8 @@
       "anchor": "710-multiple-assignment",
       "parent": "7",
       "witnesses": [
-        "multi-return-destination-contracts"
+        "multi-return-destination-contracts",
+        "multiple-rhs-source-views"
       ],
       "mapping_status": "inspected"
     },
@@ -809,7 +828,8 @@
       "parent": "8",
       "witnesses": [
         "logical-short-circuit-facts",
-        "floating-ternary-view-copy"
+        "floating-ternary-view-copy",
+        "multiple-rhs-source-views"
       ],
       "mapping_status": "inspected"
     },
@@ -2920,6 +2940,11 @@
     },
     {
       "id": "ctype-raw-view-inputs",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "multiple-rhs-source-views",
       "mapping_status": "inspected",
       "execution_status": "not_recorded"
     }

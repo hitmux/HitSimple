@@ -403,3 +403,30 @@ HS_TEST(Hir_VerifierRejectsLvalueAssignmentResult) {
                      "AssignmentExpr result must be an rvalue View") !=
                  std::string::npos);
 }
+
+HS_TEST(Hir_CapturedViewsRequireMatchingPriorFormation) {
+  using namespace hitsimple::hir;
+  const auto semantics = viewSemanticsForTemplate("i32", 4, true, true);
+  const auto makeUnit = [&](bool includeCapture, bool changeFlags) {
+    auto result = semantics;
+    if (changeFlags) {
+      result.isAddressable = false;
+      result.isMutableLValue = false;
+    }
+    auto unit = unitWithReturn(std::make_unique<CapturedViewRef>("source", result));
+    if (includeCapture) {
+      auto &statements = unit->functions[0]->body->statements;
+      statements.insert(statements.begin(), std::make_unique<CaptureView>(
+          "source", std::make_unique<VariableRef>("value", semantics)));
+    }
+    return unit;
+  };
+  HS_EXPECT_TRUE(verifyHIR(*makeUnit(true, false)).empty());
+  for (const auto &[includeCapture, changeFlags] :
+       std::vector<std::pair<bool, bool>>{{false, false}, {true, true}}) {
+    const auto diagnostics = verifyHIR(*makeUnit(includeCapture, changeFlags));
+    HS_EXPECT_EQ(diagnostics.size(), 1U);
+    HS_EXPECT_TRUE(diagnostics[0].message.find("matching preceding capture") !=
+                   std::string::npos);
+  }
+}
