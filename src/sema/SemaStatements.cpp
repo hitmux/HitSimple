@@ -510,34 +510,6 @@ Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {
           std::move(value),
           hir::ConversionPlan{hir::ConversionKind::ByteCopy, source,
                               fixedResult("bytes", slot.byteLength)});
-    } else if (slot.templateName == "cstr" &&
-               !dynamic_cast<const ast::StringLiteral *>(statement.values[index].get())) {
-      auto value = analyze(*statement.values[index]);
-      if (!value) {
-        return nullptr;
-      }
-      if (value->result.templateName != "cstr" ||
-          value->result.lengthKind != hir::ViewLengthKind::Static) {
-        addDiagnostic("cstr return assignment requires a fixed cstr source View");
-        return nullptr;
-      }
-      // StringCopyStore takes named storage. Materialize a source View once so
-      // calls, ternaries and reinterpretations retain the same bounded string
-      // copy/truncation rules as a local cstr source, rather than raw byte copy.
-      const auto source = value->result;
-      const auto sourceName = makeBindingName("$return.string");
-      statements.push_back(std::make_unique<hir::LocalMemory>(
-          sourceName, sourceName, source.staticByteLength,
-          hir::MemoryStorage::Local, "cstr"));
-      statements.push_back(std::make_unique<hir::ViewCopyStore>(
-          sourceName, sourceName, source.staticByteLength,
-          hir::MemoryStorage::Local, 0, std::move(value),
-          hir::ConversionPlan{hir::ConversionKind::Identity, source,
-                              fixedResult("cstr", source.staticByteLength)}));
-      store = std::make_unique<hir::StringCopyStore>(
-          slot.name, slot.bindingName, slot.byteLength, slot.storage, 0,
-          sourceName, sourceName, source.staticByteLength,
-          hir::MemoryStorage::Local, 0);
     } else {
       store = lowerAssignmentTarget(
           targetExpression, "=", isUnsignedTemplate(slot.templateName),
@@ -546,7 +518,13 @@ Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {
     if (!store) {
       return nullptr;
     }
-    statements.push_back(std::move(store));
+    if (auto *sequence = dynamic_cast<hir::StatementList *>(store.get())) {
+      for (auto &child : sequence->statements) {
+        statements.push_back(std::move(child));
+      }
+    } else {
+      statements.push_back(std::move(store));
+    }
   }
   std::vector<std::unique_ptr<hir::Expr>> values;
   for (const auto &slot : currentReturnStorage_) {

@@ -847,6 +847,12 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
         return nullptr;
       }
     }
+    // Default cstr assignment has a narrower acceptance matrix than explicit
+    // %s=. Validate the current View before any captured-source fast path.
+    if (op == "=" && loweredValue->result.templateName != "cstr") {
+      addDiagnostic("cstr default assignment requires a cstr source View");
+      return nullptr;
+    }
     if (dynamic_cast<const hir::CapturedViewRef *>(loweredValue.get()) &&
         loweredValue->result.lengthKind == hir::ViewLengthKind::Static) {
       return std::make_unique<hir::StringCopyStore>(
@@ -860,6 +866,32 @@ std::unique_ptr<hir::Stmt> Analyzer::lowerAssignmentTarget(
           targetRef.storage, targetRef.offset, source->name,
           source->bindingName, source->byteLength, source->storage,
           source->offset);
+    }
+    if (op == "=") {
+      if (loweredValue->result.lengthKind != hir::ViewLengthKind::Static ||
+          loweredValue->result.staticByteLength == 0) {
+        addDiagnostic("cstr default assignment requires a fixed positive source View length");
+        return nullptr;
+      }
+      // Non-captured sources need named storage. Materialize a cstr View
+      // exactly once before its bounded copy, preserving calls, selected branches
+      // and temporary interpretation without expanding explicit %s= acceptance.
+      const auto source = loweredValue->result;
+      const auto sourceName = makeBindingName("$assignment.string");
+      std::vector<std::unique_ptr<hir::Stmt>> statements;
+      statements.push_back(std::make_unique<hir::LocalMemory>(
+          sourceName, sourceName, source.staticByteLength,
+          hir::MemoryStorage::Local, "cstr"));
+      statements.push_back(std::make_unique<hir::ViewCopyStore>(
+          sourceName, sourceName, source.staticByteLength,
+          hir::MemoryStorage::Local, 0, std::move(loweredValue),
+          hir::ConversionPlan{hir::ConversionKind::Identity, source,
+                              fixedResult("cstr", source.staticByteLength)}));
+      statements.push_back(std::make_unique<hir::StringCopyStore>(
+          targetRef.name, targetRef.bindingName, targetRef.byteLength,
+          targetRef.storage, targetRef.offset, sourceName, sourceName,
+          source.staticByteLength, hir::MemoryStorage::Local, 0));
+      return std::make_unique<hir::StatementList>(std::move(statements));
     }
     addDiagnostic("right operand of '" + std::string(op) +
                   "' is not a string source");

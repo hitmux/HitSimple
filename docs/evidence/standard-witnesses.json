@@ -763,7 +763,7 @@
         "12.2"
       ],
       "claim": "Named returns create uninitialized entry-local storage; explicit returns assign in item order, while bare returns copy the saved slots without bool renormalization or lexical-shadow rebinding.",
-      "limitation": "Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.",
+      "limitation": "Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only non-cstr return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.",
       "implementation": [
         {
           "path": "src/sema/SemaAnalysis.cpp",
@@ -1276,10 +1276,100 @@
           "anchor": "# Multiple-assignment source Views"
         }
       ]
+    },
+    {
+      "id": "cstr-default-assignment-contracts",
+      "sections": [
+        "7.2",
+        "7.5",
+        "11.10",
+        "12.2",
+        "18.2"
+      ],
+      "claim": "Default cstr destinations accept string literals and current cstr Views and reject non-cstr source categories across selected ordinary, declaration, named/anonymous return and multiple-return paths. Fixed cstr rvalues are evaluated once before bounded string copying, while explicit %s= retains raw named-source acceptance.",
+      "limitation": "Fixed source extents and existing addressable destination forms only. Does not establish dynamic cstr assignment, arbitrary explicit %s= rvalues, overlapping copies, source-termination safety, full RHS/destination combination coverage, rebinding or anonymous non-cstr/C-ABI return contracts.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaAssignments.cpp",
+          "anchor": "cstr default assignment requires a cstr source View"
+        },
+        {
+          "path": "src/sema/SemaAnalysis.cpp",
+          "anchor": "if (hasNamedReturn || (hasCStringReturn && !currentFunction_->isCAbi)) {"
+        },
+        {
+          "path": "src/sema/SemaStatements.cpp",
+          "anchor": "Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaCstrAssignmentTests.cpp",
+          "test": "Sema_CstrDefaultRejectsNonStringSourceMatrix",
+          "assertions": "Rejects nine source categories across eleven destination contexts including global/static initialization plus non-string literals and a cleared cstr interpretation; multiple separate RHS coverage guards against bypass during capture integration."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaCstrAssignmentTests.cpp",
+          "test": "Sema_CstrDefaultAcceptsViewsAndMaterializesRvaluesOnce",
+          "assertions": "Verified HIR has four cstr materializations and seven bounded string copies, with source templates and visible lengths retained."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaCstrAssignmentTests.cpp",
+          "test": "Sema_CstrExplicitStringAssignmentKeepsRawSources",
+          "assertions": "Explicit %s= still accepts integer, floating, none, bytes and user-template named sources."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaCstrAssignmentTests.cpp",
+          "test": "Sema_CstrAnonymousReturnStorageKeepsCAbiBoundary",
+          "assertions": "Ordinary anonymous cstr result uses private storage; explicit C-ABI cstr return retains its old direct Return path; anonymous bare return is rejected."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCstrAssignmentTests.cpp",
+          "test": "LLVMCodegen_CstrAssignmentMaterializesOneCallPerSource",
+          "assertions": "All three safety modes verify; named/anonymous/main/pair bodies each call text once; main has one pair call and two extracts; string stores are byte-aligned with no FPToSI or FPToUI."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/cstr-assignment-contracts.json",
+          "ctest": "hsc_cstr_assignment_contracts",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Zero-failure oracle covers global/static initialization, truncation, padding, one-byte capacity, embedded-NUL source Views, source effects, snapshots, member sentinels, interpretation Views, named/anonymous/mixed returns, method/operator cstr results, repeated targets and explicit raw string assignment. Mixed anonymous siblings exercise Any-View bool, bytes, float/integer width changes, user assignment effects and source isolation.",
+          "limitation": "Both providers, three safety modes and O0/O2 are configured; configuration is not execution evidence. No malformed-source termination or overlap oracle."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/cstr-assignment-diagnostics.json",
+          "ctest": "hsc_cstr_assignment_diagnostics",
+          "cases": [
+            "cstr_default_float_optimized",
+            "cstr_default_float_reference",
+            "cstr_multi_return_float_optimized",
+            "cstr_multi_return_float_reference",
+            "cstr_multi_rhs_float_optimized",
+            "cstr_multi_rhs_float_reference"
+          ],
+          "assertions": "Compiler invocations reject f64 default cstr assignment in direct, multiple-return and multiple-separate-RHS forms.",
+          "limitation": "Compile-only diagnostic fixtures; not program runtime evidence. Both providers, three modes and O0/O2 are configured."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/cstr-assignment-contracts.md",
+          "anchor": "# Default cstr assignment contracts"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "778eeae302a64f14b35a4fa81247783203b9d47e59733227d58e1e73d5a53dc4",
+    "CMakeLists.txt": "a45425a8abd308d1e66453663b99ce2728ad1bc5d02109fd7fb0385cefecf909",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -1291,10 +1381,10 @@
     "src/codegen/LLVMCodegenFunctions.cpp": "8f83f61094e9c82f8c63a550fc90cf300fc120f8cbef64f5b19728e562c01d13",
     "src/hir/HIR.cpp": "16c8c81918d5733450fd0243df65bebba7446981a713406333ac00b3ab95c160",
     "src/safety/StaticSafetyValidation.cpp": "9da51c9b89d4fb12aca4f48fea7d0b22e58ea03aa575820fd27c61d6f87a1105",
-    "src/sema/SemaAnalysis.cpp": "4eca00d7fc11e8c06d6d7c28d6c56e220745beffadd108655cd013f3e112e2cf",
+    "src/sema/SemaAnalysis.cpp": "1786741dba8082c9e4e8031a8c293672d0b5a3c62610ec4b38004e2924c296f6",
     "src/sema/SemaAnalysisContext.cpp": "3229fa14e97ef7a93bba491a7d6cccfa003a77c752a94905083c2226b75dd6c7",
     "src/sema/SemaExpressions.cpp": "894cef948d7c9c7311be657e2403adf0d888e4681ddccf6c3db7714f0be963dd",
-    "src/sema/SemaStatements.cpp": "146a25a0c9b321ee9f2a577e2c306732cc0bbfa204bef8ecb31d5204505f05f2",
+    "src/sema/SemaStatements.cpp": "e1a3ee9ce31ebae3aee28617f6288247af5b3c74716188f7e491ea831dde307f",
     "stdlib/ctype.hs": "0933ff576d7f8403217bf493670acec0e6b682bcf3de195774bc42e4fe50a17f",
     "tests/cases/run/assignment_result_views.hs": "5def66249cb9c085717a94ea9bfd1e2178ebe515000b065c3e7be45788b5a47f",
     "tests/cases/run/bool_value_reads.hs": "dcae6c87fb873ae06117682422c0684d83d4dd0b2453ac7a78762580771ce5d0",
@@ -1332,13 +1422,13 @@
     "tests/support/harness/manifests/raw-memory-floating-views.json": "33a4d26808dbb3e0ec527d372e04517787a3c9581ccb8472c944dc9dc1e1fcd9",
     "tests/support/harness/manifests/safety-mode.json": "c92e07e7ce7b6916026d399e2417e375e85eada2eb87875372034cd751b79047",
     "tests/support/harness/run_tests.py": "d82febccc7b8b698369bd6d88dec9a7d7782eb20bffbbf205f8127d78dab0b36",
-    "docs/named-return-storage.md": "b4e2299b08cdb684709b1b4ea1145782857833a7b9858e291a90b6b96695535b",
+    "docs/named-return-storage.md": "9478c32dbbd8dbb03c8bafe7856492443805e6e2b866c998001649bb4a74f6af",
     "tests/cases/run/named_return_storage.hs": "d9c3e0d30f0522886eccbf98e250285e602fe75e7178279539e0de5409356d72",
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
     "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
     "docs/validated-view-lengths.md": "9692e746f8a12aef69f3a40707ddcd96b43e2ba9090a80280f64edec7934708a",
     "src/safety/StaticSafetyFacts.cpp": "00d6111b2ebea647bede098b5fe4b878184fe9f3705e274c0e7f524b5729c47c",
-    "src/sema/SemaAssignments.cpp": "a0d4f9022bfc0ecf65985b16744baeeb2cd0807c9299c400abb7a85d040917af",
+    "src/sema/SemaAssignments.cpp": "1bc3dcec0159c556b8a8643a92251fbe1dd39604a25e5ccd614763c92f924325",
     "tests/cases/run/length_dynamic_mismatch.hs": "294a0265a0379d93747f15faacecfe98825ba09b17e4b256670dabc01e274e00",
     "tests/cases/run/length_empty_interpretation.hs": "e24e5f31914484b04987ba126534f36d865f38052838e1045ca7e5cd40863ed8",
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
@@ -1369,6 +1459,15 @@
     "tests/cases/sema/multiple_rhs_user_template.hs": "22860158245486532bf7cd5c77b22021275eed50cb30423c0a92e39ffdb1380b",
     "tests/sema/SemaMultipleAssignmentTests.cpp": "5a42ae6721736768b0cf7728de1e3824133a669f0ec0b0f30cb854809c3bcd2b",
     "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json": "62d72d966cd8e3a34b58b373cf781c39a1729b6d2a8db0a3211ff9e2517050cb",
-    "tests/support/harness/manifests/multiple-rhs-assignments.json": "d17d8bb748fcda80fd3bd348dec85f5f2ea7e85d3f7df914dde6ef19e30fb233"
+    "tests/support/harness/manifests/multiple-rhs-assignments.json": "d17d8bb748fcda80fd3bd348dec85f5f2ea7e85d3f7df914dde6ef19e30fb233",
+    "docs/cstr-assignment-contracts.md": "808a062500f22cde0cb5ca456c538348618df0c43b58120e112bf46bbc97e836",
+    "tests/sema/SemaCstrAssignmentTests.cpp": "3677bc62ec220ec78182aae3735a7b7373301d63ad821b82069862af140a1947",
+    "tests/codegen/LLVMCstrAssignmentTests.cpp": "1f1e5a274100e429fa83ca473c76420258cb9a7e4168bc13e3f5d091d19af20f",
+    "tests/cases/run/cstr_assignment_contracts.hs": "2778dace3fff27cd8f8da570d492924d181faa69bb349b6a1f24187d4a93005f",
+    "tests/cases/sema/cstr_default_float.hs": "75fb4afcb90b8efac17435ac8d2de17569386af4b023ad0bf03cd9643316fe23",
+    "tests/cases/sema/cstr_multi_return_float.hs": "3bc5bd56a7f884de7fa6981ea5e238e138d37c29e1e4b492587c0dfbfad1170d",
+    "tests/cases/sema/cstr_multi_rhs_float.hs": "289b9b43d379b727a842d5ac06c8dd1095373ab1045300ec3ec69314d9bb749f",
+    "tests/support/harness/manifests/cstr-assignment-contracts.json": "ff26db0a5da0ff4d44ff1d577c0535d7ffffbaa0772701c0c7cf552b4aa92c7e",
+    "tests/support/harness/manifests/cstr-assignment-diagnostics.json": "feb8593f1b6c131c5614d8f2512964cbc210de5dc3377f42653dea7df604de6f"
   }
 }

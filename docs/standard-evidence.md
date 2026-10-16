@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 21 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 22 inspected witnesses.
 
 ## Validate and run
 
@@ -253,7 +253,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1479) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L916) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L650) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L628) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
 
 Evidence:
 - `structural`: [Sema_RecordsBooleanValueReadBoundaries](../tests/sema/SemaBoolTests.cpp#L51)
@@ -274,7 +274,7 @@ Standard: [§7.9](../Standard.md#79-numeric-conversion-and-byte-reinterpretation
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L698) (`const auto source = lowered->result;`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L676) (`const auto source = lowered->result;`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2065) (`// Sema adds an IntegerCastExpr only for a return width change.`)
 
 Evidence:
@@ -448,7 +448,7 @@ Evidence:
 
 Context: [docs/named-return-storage.md](../docs/named-return-storage.md).
 
-Limit: Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.
+Limit: Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only non-cstr return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.
 
 ### validated-declaration-and-length-views
 
@@ -609,6 +609,40 @@ Context: [docs/multiple-rhs-assignments.md](../docs/multiple-rhs-assignments.md)
 
 Limit: Bounded ordinary assignment forms only. No true address rebinding, complex assignment-expression targets, universal RHS peer order, exhaustive lifetime/conflict diagnostics, dynamic cstr copies, or mixed multiple-return call expansion.
 
+### cstr-default-assignment-contracts
+
+Default cstr destinations accept string literals and current cstr Views and reject non-cstr source categories across selected ordinary, declaration, named/anonymous return and multiple-return paths. Fixed cstr rvalues are evaluated once before bounded string copying, while explicit %s= retains raw named-source acceptance.
+
+Standard: [§7.2](../Standard.md#72-default-assignment-), [§7.5](../Standard.md#75-explicit-string-assignment-s), [§11.10](../Standard.md#1110-standard-template-default-assignment-matrix), [§12.2](../Standard.md#122-return-values), [§18.2](../Standard.md#182-required-diagnostic-conditions).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L853) (`cstr default assignment requires a cstr source View`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L542) (`if (hasNamedReturn || (hasCStringReturn && !currentFunction_->isCAbi)) {`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L462) (`Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {`)
+
+Evidence:
+- `diagnostic`: [Sema_CstrDefaultRejectsNonStringSourceMatrix](../tests/sema/SemaCstrAssignmentTests.cpp#L22)
+  Rejects nine source categories across eleven destination contexts including global/static initialization plus non-string literals and a cleared cstr interpretation; multiple separate RHS coverage guards against bypass during capture integration.
+- `structural`: [Sema_CstrDefaultAcceptsViewsAndMaterializesRvaluesOnce](../tests/sema/SemaCstrAssignmentTests.cpp#L61)
+  Verified HIR has four cstr materializations and seven bounded string copies, with source templates and visible lengths retained.
+- `structural`: [Sema_CstrExplicitStringAssignmentKeepsRawSources](../tests/sema/SemaCstrAssignmentTests.cpp#L103)
+  Explicit %s= still accepts integer, floating, none, bytes and user-template named sources.
+- `structural`: [Sema_CstrAnonymousReturnStorageKeepsCAbiBoundary](../tests/sema/SemaCstrAssignmentTests.cpp#L118)
+  Ordinary anonymous cstr result uses private storage; explicit C-ABI cstr return retains its old direct Return path; anonymous bare return is rejected.
+- `IR`: [LLVMCodegen_CstrAssignmentMaterializesOneCallPerSource](../tests/codegen/LLVMCstrAssignmentTests.cpp#L12)
+  All three safety modes verify; named/anonymous/main/pair bodies each call text once; main has one pair call and two extracts; string stores are byte-aligned with no FPToSI or FPToUI.
+- `runtime`: [hsc_cstr_assignment_contracts](../tests/support/harness/manifests/cstr-assignment-contracts.json); cases: `optimized`, `reference`
+  Zero-failure oracle covers global/static initialization, truncation, padding, one-byte capacity, embedded-NUL source Views, source effects, snapshots, member sentinels, interpretation Views, named/anonymous/mixed returns, method/operator cstr results, repeated targets and explicit raw string assignment. Mixed anonymous siblings exercise Any-View bool, bytes, float/integer width changes, user assignment effects and source isolation.
+  Both providers, three safety modes and O0/O2 are configured; configuration is not execution evidence. No malformed-source termination or overlap oracle.
+- `runtime`: [hsc_cstr_assignment_diagnostics](../tests/support/harness/manifests/cstr-assignment-diagnostics.json); cases: `cstr_default_float_optimized`, `cstr_default_float_reference`, `cstr_multi_return_float_optimized`, `cstr_multi_return_float_reference`, `cstr_multi_rhs_float_optimized`, `cstr_multi_rhs_float_reference`
+  Compiler invocations reject f64 default cstr assignment in direct, multiple-return and multiple-separate-RHS forms.
+  Compile-only diagnostic fixtures; not program runtime evidence. Both providers, three modes and O0/O2 are configured.
+
+Context: [docs/cstr-assignment-contracts.md](../docs/cstr-assignment-contracts.md).
+
+Limit: Fixed source extents and existing addressable destination forms only. Does not establish dynamic cstr assignment, arbitrary explicit %s= rvalues, overlapping copies, source-termination safety, full RHS/destination combination coverage, rebinding or anonymous non-cstr/C-ABI return contracts.
+
 ## Standard navigation inventory
 
 A mapped parent never implicitly maps its children or vice versa.
@@ -670,10 +704,10 @@ A mapped parent never implicitly maps its children or vice versa.
 | 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | unmapped |  |
 | 7 | [Assignment, Conversion, and Byte Representation](../Standard.md#7-assignment-conversion-and-byte-representation) | unmapped |  |
 | 7.1 | [Assignment Input Model](../Standard.md#71-assignment-input-model) | inspected | [multiple-rhs-source-views](#multiple-rhs-source-views) |
-| 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [multi-return-destination-contracts](#multi-return-destination-contracts) |
+| 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [multi-return-destination-contracts](#multi-return-destination-contracts), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
 | 7.3 | [Explicit Integer Assignment `%d=`](../Standard.md#73-explicit-integer-assignment-d) | unmapped |  |
 | 7.4 | [Explicit Floating-Point Assignment `%f=`](../Standard.md#74-explicit-floating-point-assignment-f) | unmapped |  |
-| 7.5 | [Explicit String Assignment `%s=`](../Standard.md#75-explicit-string-assignment-s) | unmapped |  |
+| 7.5 | [Explicit String Assignment `%s=`](../Standard.md#75-explicit-string-assignment-s) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
 | 7.6 | [Explicit Boolean Assignment `%b=`](../Standard.md#76-explicit-boolean-assignment-b) | unmapped |  |
 | 7.7 | [Address Rebinding `&=`](../Standard.md#77-address-rebinding-) | unmapped |  |
 | 7.8 | [`resize_bytes(expr, length)`](../Standard.md#78-resize_bytesexpr-length) | unmapped |  |
@@ -717,10 +751,10 @@ A mapped parent never implicitly maps its children or vice versa.
 | 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | unmapped |  |
 | 11.8 | [Compiler Built-In Optimization](../Standard.md#118-compiler-built-in-optimization) | unmapped |  |
 | 11.9 | [Observable-Behavior Equivalence Requirement](../Standard.md#119-observable-behavior-equivalence-requirement) | inspected | [ctype-low-byte](#ctype-low-byte) |
-| 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | unmapped |  |
+| 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
 | 12 | [Functions, Return Values, and Calling Conventions](../Standard.md#12-functions-return-values-and-calling-conventions) | unmapped |  |
 | 12.1 | [Function Definitions](../Standard.md#121-function-definitions) | unmapped |  |
-| 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage) |
+| 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
 | 12.3 | [Function Calls](../Standard.md#123-function-calls) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 12.4 | [`main`](../Standard.md#124-main) | unmapped |  |
 | 13 | [Control Flow and Error Handling](../Standard.md#13-control-flow-and-error-handling) | unmapped |  |
@@ -760,7 +794,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 17.4 | [Minimum ABI Documentation Items](../Standard.md#174-minimum-abi-documentation-items) | unmapped |  |
 | 18 | [Execution Modes, Diagnostics, and Safety-Check Requirements](../Standard.md#18-execution-modes-diagnostics-and-safety-check-requirements) | unmapped |  |
 | 18.1 | [General Requirements](../Standard.md#181-general-requirements) | unmapped |  |
-| 18.2 | [Required Diagnostic Conditions](../Standard.md#182-required-diagnostic-conditions) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts) |
+| 18.2 | [Required Diagnostic Conditions](../Standard.md#182-required-diagnostic-conditions) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
 | 18.3 | [Safety Diagnostics in Static-Checked Mode](../Standard.md#183-safety-diagnostics-in-static-checked-mode) | inspected | [safety-mode-instrumentation](#safety-mode-instrumentation) |
 | 18.4 | [Runtime Errors in Checked Mode](../Standard.md#184-runtime-errors-in-checked-mode) | inspected | [safety-mode-instrumentation](#safety-mode-instrumentation) |
 | 19 | [Implementation-Defined Behavior Checklist](../Standard.md#19-implementation-defined-behavior-checklist) | unmapped |  |
