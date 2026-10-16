@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -94,18 +95,25 @@ HS_TEST(TemporaryDirectory_ConcurrentSamePrefixIsUnique) {
   auto root = TemporaryDirectory::create("hitsimple-temp-test", error);
   HS_EXPECT_TRUE(root.has_value());
   const auto prefix = root->path() / "scratch";
-  std::vector<std::future<std::optional<TemporaryDirectory>>> futures;
+  // MSVC 14.29 futures assign their stored result; keep the owner itself
+  // nonassignable and return an assignment-capable owning wrapper.
+  std::vector<std::future<std::unique_ptr<TemporaryDirectory>>> futures;
   for (int index = 0; index < 16; ++index) {
-    futures.push_back(std::async(std::launch::async, [prefix] {
+    futures.push_back(std::async(std::launch::async, [prefix]()
+        -> std::unique_ptr<TemporaryDirectory> {
       std::error_code error;
-      return TemporaryDirectory::create(prefix, error);
+      auto directory = TemporaryDirectory::create(prefix, error);
+      if (!directory) {
+        return {};
+      }
+      return std::make_unique<TemporaryDirectory>(std::move(*directory));
     }));
   }
   std::vector<TemporaryDirectory> owners;
   std::set<std::filesystem::path> paths;
   for (auto& future : futures) {
     auto directory = future.get();
-    HS_EXPECT_TRUE(directory.has_value());
+    HS_EXPECT_TRUE(directory != nullptr);
     HS_EXPECT_TRUE(paths.insert(directory->path()).second);
     HS_EXPECT_TRUE(std::filesystem::is_directory(directory->path()));
     owners.push_back(std::move(*directory));
