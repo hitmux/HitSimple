@@ -2033,12 +2033,10 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
     return builder_.CreateSelect(chooseLeft, left, right, call.callee + ".ret");
   }
   if (isCharacterClassifier(builtin)) {
-    auto *value = emitIntegerValue(*call.arguments[0], 4, true);
-    if (!value) {
+    auto *byte = emitViewLowByte(*call.arguments[0]);
+    if (!byte) {
       return nullptr;
     }
-    auto *byte = builder_.CreateAnd(
-        value, llvm::ConstantInt::get(i32Ty, 0xff), "ctype.byte");
     const auto inRange = [this, i32Ty](llvm::Value *input, unsigned lower,
                                        unsigned upper, std::string_view name) {
       auto *atLeast = builder_.CreateICmpUGE(
@@ -2112,9 +2110,14 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   }
   for (std::size_t index = 0; index < call.arguments.size(); ++index) {
     auto *parameterType = callee->getFunctionType()->getParamType(index);
-    auto *value = emitValueForType(*call.arguments[index], parameterType,
-                                   call.callee + ".arg",
-                                   &call.argumentPlans[index]);
+    // Core-HS character providers use an internal i32 ABI, but the public
+    // meta-View contract observes exactly one raw byte, just like intrinsics.
+    auto *value = call.provider == stdlib::BuiltinProvider::CoreHs &&
+                          isCharacterClassifier(builtin)
+                      ? emitViewLowByte(*call.arguments[index])
+                      : emitValueForType(*call.arguments[index], parameterType,
+                                         call.callee + ".arg",
+                                         &call.argumentPlans[index]);
     if (!value) {
       return nullptr;
     }

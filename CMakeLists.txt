@@ -1316,6 +1316,18 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_multi_return_assignment_diagnostics PROPERTIES
     LABELS "testing;harness;assignment;returns;diagnostic")
   add_test(
+    NAME hsc_ctype_view_inputs
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite ctype-view-inputs
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_ctype_view_inputs PROPERTIES
+    LABELS "testing;harness;stdlib;float")
+  add_test(
     NAME hsc_none_return_views
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py

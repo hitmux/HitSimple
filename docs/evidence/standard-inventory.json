@@ -2,11 +2,12 @@
   "version": 1,
   "purpose": "navigation and bounded evidence, not independent requirements or conformance",
   "inputs_sha256": {
-    "CMakeLists.txt": "022091a44aba320a9e362898773e0bb34de3bfb9c75c33366205116d88313dcc",
+    "CMakeLists.txt": "7c1524552f5ac0af892821c1813fb88cfe4ca0147c5e964fc5450b05eba87f7f",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
-    "docs/evidence/standard-witnesses.json": "deae65612796f0a3666e1927f38cab5de461736f946efdff9ff4266641291856",
+    "docs/ctype-view-inputs.md": "79a37dd3a7c0ebb528deeacf7c394b6dd0658dd6e9e2c7fa71f7acf9b1ee0eef",
+    "docs/evidence/standard-witnesses.json": "54dc61fc634a812b452d05cb5d463474d3701521501a8b11c9e49d3c84d6388e",
     "docs/multi-return-assignments.md": "9889580d827cc3c5f36fc46dfb4e5db31a75fca6f98b573d7133c340e5265993",
     "docs/named-return-storage.md": "b4e2299b08cdb684709b1b4ea1145782857833a7b9858e291a90b6b96695535b",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
@@ -14,7 +15,7 @@
     "include/hitsimple/hir/HIR.h": "0e2b5bf7988c76a04a7a71fd79af74d9b8cdb9ec87621f560224f9725dab7609",
     "runtime/hitsimple_runtime.c": "6691e6bf8706ce8e579882290ae8d3d29990557071ab87ba1afcbdb3998ceaaf",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "2293b8452ec78042aeb19323f64e0d4390f6ca42bfe33279ac65c51ce1e56360",
+    "src/codegen/LLVMCodegenExpressions.cpp": "a25813128ad49a977f2b561bafffc5fc011a76759c6abf50f5bc421fe9e2a05b",
     "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
     "src/hir/HIR.cpp": "33d3ceb74d3f100c12706194b0e16208feabd58934206c78a5e9478eec3ae78f",
     "src/safety/StaticSafetyFacts.cpp": "98bf0455ec80ae3c0a5f443febfb548b1a197646f78f318426ddb05ef96ac1b1",
@@ -34,6 +35,7 @@
     "tests/cases/run/checked_file_handle_lifecycle.hs": "33717bbd13381166938058d2e69ffce86c09e4fca1bb6bfec5e863cfd5a41c94",
     "tests/cases/run/ctype_bool_representation.hs": "42816027774e56b7ed142d334d634b516c3d1245e093dd4e42d77672bbcbe336",
     "tests/cases/run/ctype_reference.hs": "6d9c84f8cead2062d0b3229300044b4aaf5e59a1f06d7b2f4a103e55102efbc8",
+    "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
     "tests/cases/run/explicit_numeric_returns.hs": "46d68f8bac525c30533a14be046348d31e90c235b945c182f82122e5fbfa71a0",
     "tests/cases/run/floating_ternary_views.hs": "845db9c3a79f1ba1f507b7a067454c15e638c67d56592fbc340c7f6e252ad16a",
     "tests/cases/run/impl_method_value_copy.hs": "a400f4cdd2ea1efd0a9d40a9873551b585b9344c80f6869d5657704aa2978c76",
@@ -50,7 +52,7 @@
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
     "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
     "tests/cases/sema/multi_return_float_integer.hs": "83a842c5d574b137558ecd1a13bdf8b37f501081c9f892776fd3b8f58e4bb4f7",
-    "tests/codegen/LLVMCodegenTests.cpp": "e8728c7a19486f604ff42728d0ed68489d6a7b334002e6951056c6925a734a1b",
+    "tests/codegen/LLVMCodegenTests.cpp": "333cf9030ff02c96885b6dd7478a7e2c3187ca8a28b3029ae67cfd6ff7186024",
     "tests/codegen/NativeTargetTests.cpp": "e0aff3f282d0731d94d1cc5f91eeef2877ffb5515ef9bdb307832b4f7c673425",
     "tests/codegen/ObjectEmitterTests.cpp": "33690660c9e9fb150d6e40cce390f18e343c59fdd135dbec574619e16326c9a0",
     "tests/codegen/OptimizationPipelineTests.cpp": "717fbc5e1b9ae177e52c30bd1bfb97b0ba917055dcb708f200e172440590df7a",
@@ -79,6 +81,7 @@
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
     "tests/support/harness/manifests/ctype-providers.json": "6f4266095eabbff00eea5fb808d964e7b36d00c07dd4d125d00156d322bc7eb0",
+    "tests/support/harness/manifests/ctype-view-inputs.json": "878b4cba4019e706799fe84971a81005386371fe2c65266cb95ce55104ce808a",
     "tests/support/harness/manifests/differential.json": "e3fc653c6fbcde7fff396af4b8feda1ab465145b546b32d6d150b348b2a3f9c9",
     "tests/support/harness/manifests/explicit-numeric-returns.json": "15f70fa4fa2c93434a9337cca03e147a34907ee169a691d7ff769ef531e747bc",
     "tests/support/harness/manifests/file-handles.json": "284a969e3c1ee28b67416f15f8b17de29cf44d5ec402ecfd975e5e9a49faec2f",
@@ -1275,7 +1278,8 @@
       "parent": "14",
       "witnesses": [
         "ctype-low-byte",
-        "ctype-canonical-bool"
+        "ctype-canonical-bool",
+        "ctype-raw-view-inputs"
       ],
       "mapping_status": "inspected"
     },
@@ -2910,6 +2914,11 @@
     },
     {
       "id": "multi-return-destination-contracts",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "ctype-raw-view-inputs",
       "mapping_status": "inspected",
       "execution_status": "not_recorded"
     }

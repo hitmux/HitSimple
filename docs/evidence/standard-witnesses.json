@@ -326,7 +326,7 @@
       "implementation": [
         {
           "path": "src/codegen/LLVMCodegenExpressions.cpp",
-          "anchor": "value, llvm::ConstantInt::get(i32Ty, 0xff), \"ctype.byte\");"
+          "anchor": "auto *byte = emitViewLowByte(*call.arguments[0]);"
         },
         {
           "path": "stdlib/ctype.hs",
@@ -1086,10 +1086,49 @@
           "anchor": "# Multiple-return destination assignments"
         }
       ]
+    },
+    {
+      "id": "ctype-raw-view-inputs",
+      "sections": [
+        "14.7"
+      ],
+      "claim": "All six character functions observe one raw byte for floating ABI/rvalue and raw byte Views in both providers; predicates retain canonical bool results.",
+      "limitation": "Does not establish opaque-handle acceptance, zero-length dynamic Views or the entire Chapter 14 domain. Floating patterns have zero high bytes; no arithmetic payload guarantee.",
+      "implementation": [
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "// Core-HS character providers use an internal i32 ABI, but the public"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_CharacterClassifiersObserveOneRawByte",
+          "assertions": "Verified four-width modules contain six aligned i8 observations and no floating-to-integer conversions."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/ctype-view-inputs.json",
+          "ctest": "hsc_ctype_view_inputs",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Exhaustive 256-byte oracle for f16/f32/f64/f128 and raw 1/3/32-byte Views, canonical predicates, ASCII conversion, once-only rvalues and positive dynamic inputs.",
+          "limitation": "Both providers, three safety modes and O0/O2 configured; configuration is not execution evidence."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/ctype-view-inputs.md",
+          "anchor": "# Raw View inputs to character functions"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "022091a44aba320a9e362898773e0bb34de3bfb9c75c33366205116d88313dcc",
+    "CMakeLists.txt": "7c1524552f5ac0af892821c1813fb88cfe4ca0147c5e964fc5450b05eba87f7f",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -1097,7 +1136,7 @@
     "include/hitsimple/hir/HIR.h": "0e2b5bf7988c76a04a7a71fd79af74d9b8cdb9ec87621f560224f9725dab7609",
     "runtime/hitsimple_runtime.c": "6691e6bf8706ce8e579882290ae8d3d29990557071ab87ba1afcbdb3998ceaaf",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "2293b8452ec78042aeb19323f64e0d4390f6ca42bfe33279ac65c51ce1e56360",
+    "src/codegen/LLVMCodegenExpressions.cpp": "a25813128ad49a977f2b561bafffc5fc011a76759c6abf50f5bc421fe9e2a05b",
     "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
     "src/hir/HIR.cpp": "33d3ceb74d3f100c12706194b0e16208feabd58934206c78a5e9478eec3ae78f",
     "src/safety/StaticSafetyValidation.cpp": "68f2ff07de53de98871ec61deaa25a49427e39f4a089b968bb9da22c8eda1630",
@@ -1121,7 +1160,7 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "e8728c7a19486f604ff42728d0ed68489d6a7b334002e6951056c6925a734a1b",
+    "tests/codegen/LLVMCodegenTests.cpp": "333cf9030ff02c96885b6dd7478a7e2c3187ca8a28b3029ae67cfd6ff7186024",
     "tests/hir/HIRTests.cpp": "fef71fa9bbb8f2744fe385defd22988dd72c126c1330394b9ff83929b0e952de",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "641a45a30f0ddb5a111ce65f5509425cd52f48a0903e488b33ad02077ab7053a",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
@@ -1162,6 +1201,9 @@
     "tests/support/harness/manifests/multi-return-assignments.json": "6f2718b270070cef3799c05670bbc9848f092ba03896edf0bd1fbecffe9eefeb",
     "tests/sema/SemaMultiReturnTests.cpp": "d809c9756a0c83c7555360455d66e63a7b33f70f9d7cafbeb74eb5e17660287c",
     "tests/cases/sema/multi_return_float_integer.hs": "83a842c5d574b137558ecd1a13bdf8b37f501081c9f892776fd3b8f58e4bb4f7",
-    "src/sema/SemaMultiReturnAssignments.cpp": "95d38c24f5447bef1190a213f28cbaf0e3d70781569c09c72569bd40caa04e57"
+    "src/sema/SemaMultiReturnAssignments.cpp": "95d38c24f5447bef1190a213f28cbaf0e3d70781569c09c72569bd40caa04e57",
+    "docs/ctype-view-inputs.md": "79a37dd3a7c0ebb528deeacf7c394b6dd0658dd6e9e2c7fa71f7acf9b1ee0eef",
+    "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
+    "tests/support/harness/manifests/ctype-view-inputs.json": "878b4cba4019e706799fe84971a81005386371fe2c65266cb95ce55104ce808a"
   }
 }
