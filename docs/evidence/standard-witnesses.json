@@ -1366,6 +1366,55 @@
           "anchor": "# Default cstr assignment contracts"
         }
       ]
+    },
+    {
+      "id": "cstr-literal-zero-padding",
+      "sections": [
+        "3.5.3",
+        "7.5",
+        "11.7",
+        "11.10",
+        "12.2"
+      ],
+      "claim": "Literal default cstr and explicit %s= writes stop at the first decoded NUL, zero-fill remaining capacity and force a final zero byte; raw literal bytes and full literal/inferred lengths stay unchanged.",
+      "limitation": "Fixed positive destinations and existing literal assignment paths only. Does not establish missing-terminator safety, overlap, arbitrary nonliteral %s= rvalues, rebinding, dynamic cstr lengths or unrelated return contracts.",
+      "implementation": [
+        {
+          "path": "src/codegen/LLVMCodegenStatements.cpp",
+          "anchor": "const auto terminator = decoded.find('\\0');"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaCstrAssignmentTests.cpp",
+          "test": "Sema_CstrLiteralPaddingPreservesRawLiteralAndInferredLength",
+          "assertions": "Checks full literal spelling, cstr source metadata and inferred destination lengths, with StringStore for cstr and ViewCopyStore for raw bytes."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCstrAssignmentTests.cpp",
+          "test": "LLVMCodegen_CstrLiteralStoresStopAtFirstNulAndPad",
+          "assertions": "Verifies exact constant byte-store vectors and alignment one across leading/middle/trailing NUL, hex/Unicode NUL escapes, empty/ordinary strings, five capacities, eight assignment/return forms and three safety modes."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/cstr-assignment-contracts.json",
+          "ctest": "hsc_cstr_assignment_contracts",
+          "cases": [
+            "literal_optimized",
+            "literal_reference"
+          ],
+          "assertions": "Exact-byte oracle checks default/explicit declarations and overwrites, raw-observed named/anonymous returns, once-only calls, full raw literals and lengths, alternate zero escapes, global/static writes, member sentinels and assignment snapshots.",
+          "limitation": "Both providers, three safety modes and O0/O2 configured on host; configuration is not execution evidence."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/cstr-literal-padding.md",
+          "anchor": "# C-string literal assignment padding"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
@@ -1447,7 +1496,7 @@
     "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
     "tests/support/harness/manifests/ctype-view-inputs.json": "878b4cba4019e706799fe84971a81005386371fe2c65266cb95ce55104ce808a",
     "docs/multiple-rhs-assignments.md": "527078e7707565a1d5bf7614a8f0e1e34a97565e642fd8cedb983f9ac5617d2c",
-    "src/codegen/LLVMCodegenStatements.cpp": "933c9b0a5830c3be6980c30c9eaa3f60a40325052e6708a0ad34b537b3fd485c",
+    "src/codegen/LLVMCodegenStatements.cpp": "8643bd298b574a79d6584405f192c00e93e0c524bdbc5b268f4701461e749f5d",
     "tests/cases/run/multiple_rhs_destination_contracts.hs": "ea4faa88d521d5d27d7d23149dd07b0adc76b508605ecf487bad46b08fdda21f",
     "tests/cases/run/multiple_rhs_evaluation.hs": "3855ed3b32238a5e098512bb6faa765b61fdce3a581e9e98b89b907b9e9653b9",
     "tests/cases/sema/multiple_rhs_bytes_length.hs": "82ca59120d5d5433389d034b19ec315b7aa2f411deb088486d10a5d0553bf572",
@@ -1460,14 +1509,16 @@
     "tests/sema/SemaMultipleAssignmentTests.cpp": "5a42ae6721736768b0cf7728de1e3824133a669f0ec0b0f30cb854809c3bcd2b",
     "tests/support/harness/manifests/multiple-rhs-assignment-diagnostics.json": "62d72d966cd8e3a34b58b373cf781c39a1729b6d2a8db0a3211ff9e2517050cb",
     "tests/support/harness/manifests/multiple-rhs-assignments.json": "d17d8bb748fcda80fd3bd348dec85f5f2ea7e85d3f7df914dde6ef19e30fb233",
-    "docs/cstr-assignment-contracts.md": "808a062500f22cde0cb5ca456c538348618df0c43b58120e112bf46bbc97e836",
-    "tests/sema/SemaCstrAssignmentTests.cpp": "3677bc62ec220ec78182aae3735a7b7373301d63ad821b82069862af140a1947",
-    "tests/codegen/LLVMCstrAssignmentTests.cpp": "1f1e5a274100e429fa83ca473c76420258cb9a7e4168bc13e3f5d091d19af20f",
+    "docs/cstr-assignment-contracts.md": "bcd515e73935b78f731e3e9044596097e31a545f30ad23d88a8683e1848682a4",
+    "tests/sema/SemaCstrAssignmentTests.cpp": "1679a414aa511198fdc213c6f2ef3ffbb5af95b38dff47333312617470a671ac",
+    "tests/codegen/LLVMCstrAssignmentTests.cpp": "29499a0ca1f0e20abd0040662be27b8352ccc1927d08b0ed915ec013805d1189",
     "tests/cases/run/cstr_assignment_contracts.hs": "2778dace3fff27cd8f8da570d492924d181faa69bb349b6a1f24187d4a93005f",
     "tests/cases/sema/cstr_default_float.hs": "75fb4afcb90b8efac17435ac8d2de17569386af4b023ad0bf03cd9643316fe23",
     "tests/cases/sema/cstr_multi_return_float.hs": "3bc5bd56a7f884de7fa6981ea5e238e138d37c29e1e4b492587c0dfbfad1170d",
     "tests/cases/sema/cstr_multi_rhs_float.hs": "289b9b43d379b727a842d5ac06c8dd1095373ab1045300ec3ec69314d9bb749f",
-    "tests/support/harness/manifests/cstr-assignment-contracts.json": "ff26db0a5da0ff4d44ff1d577c0535d7ffffbaa0772701c0c7cf552b4aa92c7e",
-    "tests/support/harness/manifests/cstr-assignment-diagnostics.json": "feb8593f1b6c131c5614d8f2512964cbc210de5dc3377f42653dea7df604de6f"
+    "tests/support/harness/manifests/cstr-assignment-contracts.json": "d2062ba424dd5c9d27e0c21195873acb8011328e790297f517fe2b4c6164ad89",
+    "tests/support/harness/manifests/cstr-assignment-diagnostics.json": "feb8593f1b6c131c5614d8f2512964cbc210de5dc3377f42653dea7df604de6f",
+    "tests/cases/run/cstr_literal_padding.hs": "d24329ec41dd39d562adbaeb1585a6049a0178d409d3498d39c2366c7bb0f22d",
+    "docs/cstr-literal-padding.md": "b13842c768d76a6f32362fa2afb2bb40c62460a606476ca284c3b0c211fc9450"
   }
 }

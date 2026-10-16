@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 22 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 23 inspected witnesses.
 
 ## Validate and run
 
@@ -630,7 +630,7 @@ Evidence:
   Explicit %s= still accepts integer, floating, none, bytes and user-template named sources.
 - `structural`: [Sema_CstrAnonymousReturnStorageKeepsCAbiBoundary](../tests/sema/SemaCstrAssignmentTests.cpp#L118)
   Ordinary anonymous cstr result uses private storage; explicit C-ABI cstr return retains its old direct Return path; anonymous bare return is rejected.
-- `IR`: [LLVMCodegen_CstrAssignmentMaterializesOneCallPerSource](../tests/codegen/LLVMCstrAssignmentTests.cpp#L12)
+- `IR`: [LLVMCodegen_CstrAssignmentMaterializesOneCallPerSource](../tests/codegen/LLVMCstrAssignmentTests.cpp#L14)
   All three safety modes verify; named/anonymous/main/pair bodies each call text once; main has one pair call and two extracts; string stores are byte-aligned with no FPToSI or FPToUI.
 - `runtime`: [hsc_cstr_assignment_contracts](../tests/support/harness/manifests/cstr-assignment-contracts.json); cases: `optimized`, `reference`
   Zero-failure oracle covers global/static initialization, truncation, padding, one-byte capacity, embedded-NUL source Views, source effects, snapshots, member sentinels, interpretation Views, named/anonymous/mixed returns, method/operator cstr results, repeated targets and explicit raw string assignment. Mixed anonymous siblings exercise Any-View bool, bytes, float/integer width changes, user assignment effects and source isolation.
@@ -642,6 +642,29 @@ Evidence:
 Context: [docs/cstr-assignment-contracts.md](../docs/cstr-assignment-contracts.md).
 
 Limit: Fixed source extents and existing addressable destination forms only. Does not establish dynamic cstr assignment, arbitrary explicit %s= rvalues, overlapping copies, source-termination safety, full RHS/destination combination coverage, rebinding or anonymous non-cstr/C-ABI return contracts.
+
+### cstr-literal-zero-padding
+
+Literal default cstr and explicit %s= writes stop at the first decoded NUL, zero-fill remaining capacity and force a final zero byte; raw literal bytes and full literal/inferred lengths stay unchanged.
+
+Standard: [§3.5.3](../Standard.md#353-character-and-string-literals), [§7.5](../Standard.md#75-explicit-string-assignment-s), [§11.7](../Standard.md#117-cstr-and-bytes), [§11.10](../Standard.md#1110-standard-template-default-assignment-matrix), [§12.2](../Standard.md#122-return-values).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/codegen/LLVMCodegenStatements.cpp](../src/codegen/LLVMCodegenStatements.cpp#L443) (`const auto terminator = decoded.find('\0');`)
+
+Evidence:
+- `structural`: [Sema_CstrLiteralPaddingPreservesRawLiteralAndInferredLength](../tests/sema/SemaCstrAssignmentTests.cpp#L140)
+  Checks full literal spelling, cstr source metadata and inferred destination lengths, with StringStore for cstr and ViewCopyStore for raw bytes.
+- `IR`: [LLVMCodegen_CstrLiteralStoresStopAtFirstNulAndPad](../tests/codegen/LLVMCstrAssignmentTests.cpp#L74)
+  Verifies exact constant byte-store vectors and alignment one across leading/middle/trailing NUL, hex/Unicode NUL escapes, empty/ordinary strings, five capacities, eight assignment/return forms and three safety modes.
+- `runtime`: [hsc_cstr_assignment_contracts](../tests/support/harness/manifests/cstr-assignment-contracts.json); cases: `literal_optimized`, `literal_reference`
+  Exact-byte oracle checks default/explicit declarations and overwrites, raw-observed named/anonymous returns, once-only calls, full raw literals and lengths, alternate zero escapes, global/static writes, member sentinels and assignment snapshots.
+  Both providers, three safety modes and O0/O2 configured on host; configuration is not execution evidence.
+
+Context: [docs/cstr-literal-padding.md](../docs/cstr-literal-padding.md).
+
+Limit: Fixed positive destinations and existing literal assignment paths only. Does not establish missing-terminator safety, overlap, arbitrary nonliteral %s= rvalues, rebinding, dynamic cstr lengths or unrelated return contracts.
 
 ## Standard navigation inventory
 
@@ -667,7 +690,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 3.5 | [Literals](../Standard.md#35-literals) | unmapped |  |
 | 3.5.1 | [Integer Literals](../Standard.md#351-integer-literals) | unmapped |  |
 | 3.5.2 | [Floating-Point Literals](../Standard.md#352-floating-point-literals) | unmapped |  |
-| 3.5.3 | [Character and String Literals](../Standard.md#353-character-and-string-literals) | unmapped |  |
+| 3.5.3 | [Character and String Literals](../Standard.md#353-character-and-string-literals) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
 | 3.5.4 | [Boolean Literals](../Standard.md#354-boolean-literals) | unmapped |  |
 | 3.6 | [Operators and Punctuation](../Standard.md#36-operators-and-punctuation) | unmapped |  |
 | 3.7 | [Operator Precedence](../Standard.md#37-operator-precedence) | unmapped |  |
@@ -707,7 +730,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [multi-return-destination-contracts](#multi-return-destination-contracts), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
 | 7.3 | [Explicit Integer Assignment `%d=`](../Standard.md#73-explicit-integer-assignment-d) | unmapped |  |
 | 7.4 | [Explicit Floating-Point Assignment `%f=`](../Standard.md#74-explicit-floating-point-assignment-f) | unmapped |  |
-| 7.5 | [Explicit String Assignment `%s=`](../Standard.md#75-explicit-string-assignment-s) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
+| 7.5 | [Explicit String Assignment `%s=`](../Standard.md#75-explicit-string-assignment-s) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
 | 7.6 | [Explicit Boolean Assignment `%b=`](../Standard.md#76-explicit-boolean-assignment-b) | unmapped |  |
 | 7.7 | [Address Rebinding `&=`](../Standard.md#77-address-rebinding-) | unmapped |  |
 | 7.8 | [`resize_bytes(expr, length)`](../Standard.md#78-resize_bytesexpr-length) | unmapped |  |
@@ -748,13 +771,13 @@ A mapped parent never implicitly maps its children or vice versa.
 | 11.4 | [Floating-Point Templates](../Standard.md#114-floating-point-templates) | unmapped |  |
 | 11.5 | [`bool`](../Standard.md#115-bool) | inspected | [ctype-canonical-bool](#ctype-canonical-bool) |
 | 11.6 | [`addr` and `handle`](../Standard.md#116-addr-and-handle) | inspected | [checked-file-handle-alias](#checked-file-handle-alias) |
-| 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | unmapped |  |
+| 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
 | 11.8 | [Compiler Built-In Optimization](../Standard.md#118-compiler-built-in-optimization) | unmapped |  |
 | 11.9 | [Observable-Behavior Equivalence Requirement](../Standard.md#119-observable-behavior-equivalence-requirement) | inspected | [ctype-low-byte](#ctype-low-byte) |
-| 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
+| 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | inspected | [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
 | 12 | [Functions, Return Values, and Calling Conventions](../Standard.md#12-functions-return-values-and-calling-conventions) | unmapped |  |
 | 12.1 | [Function Definitions](../Standard.md#121-function-definitions) | unmapped |  |
-| 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts) |
+| 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage), [cstr-default-assignment-contracts](#cstr-default-assignment-contracts), [cstr-literal-zero-padding](#cstr-literal-zero-padding) |
 | 12.3 | [Function Calls](../Standard.md#123-function-calls) | inspected | [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
 | 12.4 | [`main`](../Standard.md#124-main) | unmapped |  |
 | 13 | [Control Flow and Error Handling](../Standard.md#13-control-flow-and-error-handling) | unmapped |  |

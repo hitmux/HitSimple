@@ -18,7 +18,9 @@ snapshot is materialized once before the existing bounded StringCopyStore.
 The source's visible length and the destination's capacity stay separate.
 Calls execute once, only the selected conditional branch executes, and the
 assignment expression continues to report the destination's length/template.
-Existing direct storage sources and string-literal stores retain their lowering.
+Existing direct storage sources retain their lowering. Literal stores now apply
+the bounded [first-NUL padding rule](cstr-literal-padding.md) without changing
+the raw literal View or its length.
 
 Section 12.2 assigns return expressions to return Views in item order.
 Ordinary anonymous signatures containing a cstr result now use the existing private
