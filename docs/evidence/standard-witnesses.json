@@ -501,7 +501,7 @@
       "implementation": [
         {
           "path": "src/codegen/LLVMCodegenExpressions.cpp",
-          "anchor": "// A floating ternary selects a View copy, not an integer conversion or"
+          "anchor": "// A ternary selects a View copy, not a numeric conversion or assignment."
         }
       ],
       "evidence": [
@@ -1860,10 +1860,76 @@
           "anchor": "# Name binding addresses"
         }
       ]
+    },
+    {
+      "id": "literal-ternary-view-copy",
+      "sections": [
+        "3.5.3",
+        "4.8",
+        "6.3",
+        "6.7",
+        "8.10",
+        "11.7"
+      ],
+      "claim": "Fixed-length string and raw literal ternaries materialize the complete selected rvalue View with lazy branch evaluation; downstream cstr assignment separately performs first-NUL truncation and zero padding.",
+      "limitation": "Bounded literal/raw examples on the available host, not every View shape, lifetime, ABI target or operator. Dynamic-length branches remain rejected. Integer numeric ternary expression lowering is unchanged.",
+      "implementation": [
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "// A ternary selects a View copy, not a numeric conversion or assignment."
+        },
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "const bool rawTernary = viewTernary != nullptr &&"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_LiteralTernariesRetainCompleteRvalueViews",
+          "assertions": "String, empty and multi-byte raw character literal branches preserve template and full length, and the selected result is a non-addressable, non-mutable rvalue; HIR verifies."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_LiteralTernariesRetainStaticRejections",
+          "assertions": "Rejects unequal branch lengths/templates, invalid unselected branches, implicit cstr-to-integer assignment, address/write use of rvalues and wrong-width reinterpretation."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_LiteralTernariesCopyCompleteSelectedViews",
+          "assertions": "All three modes and widths 1/3/4/18: valid LLVM modules, two exact-width branch memcpy operations, no literal branch loads/casts and complete embedded-NUL constant data."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_LiteralTernariesPreserveBranchLocalEffectsAndConsumers",
+          "assertions": "All three modes: valid modules for raw/cstr return, by-value argument and length consumers; one predicate call outside branch blocks, raw-return branch calls placed once in selected control-flow blocks."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/literal-ternary-views.json",
+          "ctest": "hsc_literal_ternary_views",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "limitation": "Available host, two providers, three safety modes, O0/O2; selected literal shapes and capacities. Negative CLI matrix is a separate compile-only gate, not runtime coverage.",
+          "assertions": "Complete byte oracles cover raw preservation, downstream cstr padding, direct as/length, returns, parameter and assignment snapshots, Boolean reads, condition/branch sequencing, nested choices and 2048 temporary iterations; output and exit require zero failures."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/literal-ternary-views.md",
+          "anchor": "## Materialization boundary"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "b1b1916dfa0addeea8bf02831c808e50aae7776b4c5b7713de5d01a406c2ddb1",
+    "CMakeLists.txt": "3c3defb9833e4f95920c6c11308321cea6a01926c28268049b24276a7f309ab2",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -1871,7 +1937,7 @@
     "include/hitsimple/hir/HIR.h": "61c03b3382535f0fa6684e1da688ae9109aef95a8d0ad551072c4b42cdd3bd92",
     "runtime/hitsimple_runtime.c": "b0417623724daeee4866d54cd6ca61e968cd7027854f042de15813d02e330b97",
     "src/codegen/LLVMCodegen.cpp": "3c3662c310c6785fef941a74489eeea75cc8f60dc132fc6a1c092cfd85c9364c",
-    "src/codegen/LLVMCodegenExpressions.cpp": "c41b48cffa8b12d2dff22ba8c2350b69be9f4f32bb0b84ba7630e4e0baccf2f4",
+    "src/codegen/LLVMCodegenExpressions.cpp": "e707083f4b3b512a99b95564011b72120f3c0e3613fa758b542ec4a71f42c100",
     "src/codegen/LLVMCodegenFunctions.cpp": "3cfa3bbe563acb8b80296ef350d6920c6145d41375c5569da7d9983bce96f1e9",
     "src/hir/HIR.cpp": "32ca40572b855d79626ca9956d6ce2144a5f723d36d626a656993bdd69ba7c70",
     "src/safety/StaticSafetyValidation.cpp": "e9b3baf4f565aaf9c2dd39624181d9e3ae7fa5d93d3206f17b9d8d624909f2b4",
@@ -1895,14 +1961,14 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "5acbda497d46bc009b25f1acc83085f2fdc47b506a5192fca7cc877f100cbc38",
+    "tests/codegen/LLVMCodegenTests.cpp": "662eb5cdbe991641d521bae55ca376c660b9a76b73d9fc9a64d332bb8f2bbb1b",
     "tests/hir/HIRTests.cpp": "3be9dbe8158f9a698777df4babf871f3d40c401a2d919ff0d2d2077f35c54323",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "8d1ac168c72a695a92ad188a845deb3b6f37ce5d925c9ef68e0c117d0b9f35f7",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "2855157a08b5c3c0d3aaa7d653cedb28624bf350895431bf530e424b06857f66",
+    "tests/sema/SemaExpressionTests.cpp": "3d301543c46328c235c72851ad09f5eb410ca388b4cb67bdd9de8af990821802",
     "tests/support/harness/manifests/assignment-result-views.json": "a5b2d02945bd84c048c8c870f4c9911a0543f83ea47df7d70ae4a1a7093c1abc",
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
@@ -2011,6 +2077,9 @@
     "tests/cases/run/rebinding_integrated_contracts.hs": "eb4309c6f13e10de78de83bbb637ba120230df723517a41f60ab26c22192c925",
     "tests/cases/run/checked_rebinding_cstr_result_missing_nul.hs": "3edb21c10001a24ef4f3c89c6e65f724cdbf3012fc0660bda1b947cef65df800",
     "tests/cases/run/checked_rebinding_cstr_return_missing_nul.hs": "cd4bf41789284fd20e2c59060b0d8632df8a9e675880d399eed237944478a6d4",
-    "tests/cases/run/checked_rebinding_cstr_result_short_snapshot.hs": "10b7139e258074b88794939d45b35f912669bfd7a7d7f1505ae1a5180f3a2d98"
+    "tests/cases/run/checked_rebinding_cstr_result_short_snapshot.hs": "10b7139e258074b88794939d45b35f912669bfd7a7d7f1505ae1a5180f3a2d98",
+    "tests/cases/run/literal_ternary_views.hs": "66bd6a92cbc8e161ad0b91c0d2c98fb0448f7d4f66f8ad01cdc07377c845f5ec",
+    "tests/support/harness/manifests/literal-ternary-views.json": "004096d0e304adb357a4eeb404e2545ad4b418ca8e5cf056d41b1364ccc0283f",
+    "docs/literal-ternary-views.md": "67dc64062e37265d41456508f0f7cdaa7f7ee715dc00e768d308ecc4b142a96c"
   }
 }

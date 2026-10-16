@@ -26,7 +26,8 @@ change tests only byte-copy behavior. Boolean consumers still test all bits
 (§7.6), so negative zero is true. `as` and ordinary parameter copying retain
 their byte-preserving contracts (§§6.7, 12.1).
 
-The existing integer and nonfloating ternary lowering paths are unchanged.
+Numeric integer ternary lowering is unchanged. The selected-View copy path
+also supports [literal and raw ternaries](literal-ternary-views.md).
 No source-level template, branch matching, implicit conversion, or numeric
 conversion rule is broadened.
 
