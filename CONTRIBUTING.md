@@ -25,6 +25,30 @@ Useful focused checks are:
 ./build/hsc_unit_tests
 ```
 
+## Native Build Temporary Directories
+
+Native executable linking, mixed-language linking, static archive assembly,
+and Cargo metadata/build-output capture use independently owned temporary
+directories. Allocation uses LLVM's atomic unique-directory creation rather
+than a PID-only name: separate PID namespaces can share a temporary filesystem.
+Only a successfully allocated directory is registered for cleanup; an existing
+path must never be deleted to make room for a build.
+
+Focused checks for this contract are:
+
+```bash
+./build/hsc_unit_tests TemporaryDirectory_
+ctest --test-dir build -R '^hsc_temporary_directory_isolation$' --output-on-failure
+```
+
+The unit checks cover ownership, moves, failure, Unicode paths, and concurrent
+same-prefix allocation. The Linux CLI check runs eight parallel native, mixed,
+archive, and Cargo builds in a shared temporary directory, preserves sentinels
+at the old PID-only paths, executes the results, and checks cleanup. It requires
+the existing Clang, llvm-ar, and Cargo toolchains. This is a bounded scratch
+ownership regression, not a general temporary-file security audit; preprocessor
+scratch and timing JSON publication are separate implementations.
+
 ## Repository Layout
 
 | Path | Responsibility |

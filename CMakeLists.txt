@@ -361,6 +361,7 @@ add_library(hitsimple_frontend STATIC
   src/support/Path.cpp
   src/support/Process.cpp
   src/support/ResourcePaths.cpp
+  src/support/TemporaryDirectory.cpp
   src/support/Toolchain.cpp
 )
 add_dependencies(hitsimple_frontend hitsimple_stdlib_generated)
@@ -643,6 +644,7 @@ if(BUILD_TESTING)
     tests/support/ProcessTests.cpp
     tests/support/CompilationMetricsTests.cpp
     tests/support/ResourcePathsTests.cpp
+    tests/support/TemporaryDirectoryTests.cpp
     tests/stdlib/StandardLibraryTests.cpp
     tests/support/TestRunner.cpp
   )
@@ -1027,6 +1029,18 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_installed_file_handle_docs
     PROPERTIES LABELS "testing;file-handles;installation")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|aarch64|arm64|ARM64)$")
+    add_test(NAME hsc_temporary_directory_isolation
+      COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/support/test_temporary_directories.py
+        --hsc $<TARGET_FILE:hsc>
+        --clang ${CLANG_EXECUTABLE}
+        --llvm-ar ${LLVM_AR_EXECUTABLE})
+    set_tests_properties(hsc_temporary_directory_isolation PROPERTIES
+      LABELS "testing;driver;interop;temporary-directories"
+      TIMEOUT 180)
+  endif()
   add_test(NAME hsc_help COMMAND hsc --help)
   add_test(NAME hsc_version COMMAND hsc --version)
   add_test(NAME hsc_target_info COMMAND hsc --target-info)
