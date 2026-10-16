@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 18 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 19 inspected witnesses.
 
 ## Validate and run
 
@@ -462,7 +462,7 @@ Implementation:
 - [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L161) (`bool Analyzer::declareGlobal(const ast::GlobalNewDecl &declaration)`)
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1736) (`Analyzer::initializerResultContract(const ast::Expr &expression)`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L645) (`// Keep evaluation in HIR even when the extent is statically known.`)
-- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L352) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L295) (`? std::optional<std::size_t>{loweredValue->result.staticByteLength}`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1686) (`return emitViewValue(*call.arguments.front()).length;`)
 - [src/safety/StaticSafetyFacts.cpp](../src/safety/StaticSafetyFacts.cpp#L88) (`constantUnsignedInteger(const hir::Expr &expression)`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1860) (`"length requires one View operand and an eight-byte u64 result"`)
@@ -504,6 +504,39 @@ Evidence:
 Context: [docs/validated-view-lengths.md](../docs/validated-view-lengths.md).
 
 Limit: Selected static and dynamic resize/byte_swap cases, not all expression or library consumers. Runtime-sized slices, checked zero-length temporary registration, floating assignment materialization and cross-target execution are outside this witness.
+
+### multi-return-destination-contracts
+
+A direct multiple-return call is captured once before ordinary destination assignments; selected template/width/operator contracts, writable target forms, discard behavior, and user assignment effects are enforced without making captured sources lvalues.
+
+Standard: [§7.2](../Standard.md#72-default-assignment-), [§7.10](../Standard.md#710-multiple-assignment), [§18.2](../Standard.md#182-required-diagnostic-conditions).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaMultiReturnAssignments.cpp](../src/sema/SemaMultiReturnAssignments.cpp#L5) (`std::optional<AssignmentLowering> Analyzer::lowerMultiReturnAssignment(`)
+- [src/sema/SemaAssignments.cpp](../src/sema/SemaAssignments.cpp#L665) (`// Boolean tests and equal-length byte copies accept every source View,`)
+
+Evidence:
+- `structural`: [Sema_MultiReturnUsesOrdinaryDestinationContracts](../tests/sema/SemaMultiReturnTests.cpp#L25)
+  One capture precedes BoolStore and FloatStore; captures use private bindings and distinct indices; floating source operands retain f64/8-byte metadata and are non-addressable rvalues; HIR verifies.
+- `structural`: [Sema_MultiReturnUsesUserAssignmentAndWidths](../tests/sema/SemaMultiReturnTests.cpp#L73)
+  User assignment has writable destination and rvalue Box source; unsigned widening preserves u8 operand metadata; HIR verifies.
+- `diagnostic`: [Sema_MultiReturnRejectsInvalidDestinationContracts](../tests/sema/SemaMultiReturnTests.cpp#L116)
+  Rejects float to raw/integer defaults, unequal bytes target, count mismatch, rebinding, and different user templates.
+- `structural`: [Sema_MultiReturnAndOrdinaryAssignmentsAcceptOpaqueViews](../tests/sema/SemaMultiReturnTests.cpp#L147)
+  Ordinary and multiple-return handle sources can assign to bool and equal-length bytes Views, including explicit %b=; HIR verifies.
+- `IR`: [LLVMCodegen_MultiReturnDestinationContracts](../tests/codegen/LLVMCodegenTests.cpp#L3559)
+  All four floating widths produce verified modules with exactly one pair call and two extracts, without fptosi/fptoui; default f64-to-f32 destination emits fptrunc.
+- `runtime`: [hsc_multi_return_assignments](../tests/support/harness/manifests/multi-return-assignments.json); cases: `optimized`, `reference`
+  Exact multi-return 0 output and zero exit cover selected destination operations, source isolation, all/partial discard, target/address order, and handle observations.
+  Host runtime, both providers, all three safety modes, O0/O2; release selections are configuration rather than local platform execution evidence.
+- `runtime`: [hsc_multi_return_assignment_diagnostics](../tests/support/harness/manifests/multi-return-assignment-diagnostics.json); cases: `reject_float_integer_optimized`, `reject_float_integer_reference`
+  Compile fails with the integer-acceptance diagnostic for same-width f64 pair assigned to u64 targets. No executable run is applicable.
+  Compile-negative matrix only: host, both providers, all three safety modes, O0/O2.
+
+Context: [docs/multi-return-assignments.md](../docs/multi-return-assignments.md).
+
+Limit: Only the existing direct multiple-return call path and ordinary supported assignments. Does not fix multiple separate RHS ordering, single-source discard, rebinding, dynamic returns, or every ordinary destination/operator limitation.
 
 ## Standard navigation inventory
 
@@ -566,7 +599,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 6.10 | [Temporary-View Lifetime](../Standard.md#610-temporary-view-lifetime) | unmapped |  |
 | 7 | [Assignment, Conversion, and Byte Representation](../Standard.md#7-assignment-conversion-and-byte-representation) | unmapped |  |
 | 7.1 | [Assignment Input Model](../Standard.md#71-assignment-input-model) | unmapped |  |
-| 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy) |
+| 7.2 | [Default Assignment `=`](../Standard.md#72-default-assignment-) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [multi-return-destination-contracts](#multi-return-destination-contracts) |
 | 7.3 | [Explicit Integer Assignment `%d=`](../Standard.md#73-explicit-integer-assignment-d) | unmapped |  |
 | 7.4 | [Explicit Floating-Point Assignment `%f=`](../Standard.md#74-explicit-floating-point-assignment-f) | unmapped |  |
 | 7.5 | [Explicit String Assignment `%s=`](../Standard.md#75-explicit-string-assignment-s) | unmapped |  |
@@ -574,7 +607,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 7.7 | [Address Rebinding `&=`](../Standard.md#77-address-rebinding-) | unmapped |  |
 | 7.8 | [`resize_bytes(expr, length)`](../Standard.md#78-resize_bytesexpr-length) | unmapped |  |
 | 7.9 | [Numeric Conversion and Byte Reinterpretation](../Standard.md#79-numeric-conversion-and-byte-reinterpretation) | inspected | [as-reinterpret](#as-reinterpret), [explicit-numeric-return-source](#explicit-numeric-return-source) |
-| 7.10 | [Multiple Assignment](../Standard.md#710-multiple-assignment) | unmapped |  |
+| 7.10 | [Multiple Assignment](../Standard.md#710-multiple-assignment) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts) |
 | 8 | [Operators, Comparisons, and Evaluation Order](../Standard.md#8-operators-comparisons-and-evaluation-order) | unmapped |  |
 | 8.1 | [Operator Input Model](../Standard.md#81-operator-input-model) | unmapped |  |
 | 8.2 | [Ordinary Operator Resolution](../Standard.md#82-ordinary-operator-resolution) | inspected | [assignment-result-view-copy](#assignment-result-view-copy) |
@@ -656,7 +689,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 17.4 | [Minimum ABI Documentation Items](../Standard.md#174-minimum-abi-documentation-items) | unmapped |  |
 | 18 | [Execution Modes, Diagnostics, and Safety-Check Requirements](../Standard.md#18-execution-modes-diagnostics-and-safety-check-requirements) | unmapped |  |
 | 18.1 | [General Requirements](../Standard.md#181-general-requirements) | unmapped |  |
-| 18.2 | [Required Diagnostic Conditions](../Standard.md#182-required-diagnostic-conditions) | unmapped |  |
+| 18.2 | [Required Diagnostic Conditions](../Standard.md#182-required-diagnostic-conditions) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts) |
 | 18.3 | [Safety Diagnostics in Static-Checked Mode](../Standard.md#183-safety-diagnostics-in-static-checked-mode) | inspected | [safety-mode-instrumentation](#safety-mode-instrumentation) |
 | 18.4 | [Runtime Errors in Checked Mode](../Standard.md#184-runtime-errors-in-checked-mode) | inspected | [safety-mode-instrumentation](#safety-mode-instrumentation) |
 | 19 | [Implementation-Defined Behavior Checklist](../Standard.md#19-implementation-defined-behavior-checklist) | unmapped |  |

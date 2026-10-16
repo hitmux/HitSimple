@@ -3555,3 +3555,42 @@ HS_TEST(LLVMCodegen_LengthChecksDynamicVariableTemplateExtent) {
   HS_EXPECT_TRUE(result.diagnostics.empty());
   HS_EXPECT_TRUE(llvmIr(result).find("@hs_check_view_nonempty") != std::string::npos);
 }
+
+HS_TEST(LLVMCodegen_MultiReturnDestinationContracts) {
+  for (const auto *type : {"f16", "f32", "f64", "f128"}) {
+    const std::string floating(type);
+    auto result = emitSource(
+        "func pair(value as " + floating + ") -> (first as " + floating +
+        ", second as " + floating + ") { return value, value; }\n"
+        "func main() -> i32 {\n  new flag[8]\n  new number as " + floating +
+        "\n  (flag %b=), (number %f=) = pair(2.5)\n  return 0\n}\n");
+    HS_EXPECT_TRUE(result.ok());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    std::size_t calls = 0;
+    std::size_t components = 0;
+    for (const auto &block : *result.module->getFunction("main")) {
+      for (const auto &instruction : block) {
+        if (const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+            call != nullptr && call->getCalledFunction() != nullptr &&
+            call->getCalledFunction()->getName() == "pair") {
+          ++calls;
+        }
+        if (llvm::isa<llvm::ExtractValueInst>(&instruction)) {
+          ++components;
+        }
+      }
+    }
+    HS_EXPECT_EQ(calls, 1U);
+    HS_EXPECT_EQ(components, 2U);
+    HS_EXPECT_TRUE(llvmIr(result).find("fptosi") == std::string::npos);
+    HS_EXPECT_TRUE(llvmIr(result).find("fptoui") == std::string::npos);
+  }
+  auto widths = emitSource(
+      "func pair(value as f64) -> (first as f64, second as f64) {\n"
+      "  return value, value\n}\n"
+      "func main() -> i32 { new a as f32; new b as f64;\n"
+      "  a, b = pair(2.5)\n  return 0\n}\n");
+  HS_EXPECT_TRUE(widths.ok());
+  HS_EXPECT_TRUE(!llvm::verifyModule(*widths.module));
+  HS_EXPECT_TRUE(llvmIr(widths).find("fptrunc double") != std::string::npos);
+}

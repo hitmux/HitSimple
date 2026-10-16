@@ -1006,10 +1006,90 @@
           "anchor": "# Validated declaration and `length` Views"
         }
       ]
+    },
+    {
+      "id": "multi-return-destination-contracts",
+      "sections": [
+        "7.2",
+        "7.10",
+        "18.2"
+      ],
+      "claim": "A direct multiple-return call is captured once before ordinary destination assignments; selected template/width/operator contracts, writable target forms, discard behavior, and user assignment effects are enforced without making captured sources lvalues.",
+      "limitation": "Only the existing direct multiple-return call path and ordinary supported assignments. Does not fix multiple separate RHS ordering, single-source discard, rebinding, dynamic returns, or every ordinary destination/operator limitation.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaMultiReturnAssignments.cpp",
+          "anchor": "std::optional<AssignmentLowering> Analyzer::lowerMultiReturnAssignment("
+        },
+        {
+          "path": "src/sema/SemaAssignments.cpp",
+          "anchor": "// Boolean tests and equal-length byte copies accept every source View,"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultiReturnTests.cpp",
+          "test": "Sema_MultiReturnUsesOrdinaryDestinationContracts",
+          "assertions": "One capture precedes BoolStore and FloatStore; captures use private bindings and distinct indices; floating source operands retain f64/8-byte metadata and are non-addressable rvalues; HIR verifies."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultiReturnTests.cpp",
+          "test": "Sema_MultiReturnUsesUserAssignmentAndWidths",
+          "assertions": "User assignment has writable destination and rvalue Box source; unsigned widening preserves u8 operand metadata; HIR verifies."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaMultiReturnTests.cpp",
+          "test": "Sema_MultiReturnRejectsInvalidDestinationContracts",
+          "assertions": "Rejects float to raw/integer defaults, unequal bytes target, count mismatch, rebinding, and different user templates."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaMultiReturnTests.cpp",
+          "test": "Sema_MultiReturnAndOrdinaryAssignmentsAcceptOpaqueViews",
+          "assertions": "Ordinary and multiple-return handle sources can assign to bool and equal-length bytes Views, including explicit %b=; HIR verifies."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_MultiReturnDestinationContracts",
+          "assertions": "All four floating widths produce verified modules with exactly one pair call and two extracts, without fptosi/fptoui; default f64-to-f32 destination emits fptrunc."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/multi-return-assignments.json",
+          "ctest": "hsc_multi_return_assignments",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Exact multi-return 0 output and zero exit cover selected destination operations, source isolation, all/partial discard, target/address order, and handle observations.",
+          "limitation": "Host runtime, both providers, all three safety modes, O0/O2; release selections are configuration rather than local platform execution evidence."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/multi-return-assignment-diagnostics.json",
+          "ctest": "hsc_multi_return_assignment_diagnostics",
+          "cases": [
+            "reject_float_integer_optimized",
+            "reject_float_integer_reference"
+          ],
+          "assertions": "Compile fails with the integer-acceptance diagnostic for same-width f64 pair assigned to u64 targets. No executable run is applicable.",
+          "limitation": "Compile-negative matrix only: host, both providers, all three safety modes, O0/O2."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/multi-return-assignments.md",
+          "anchor": "# Multiple-return destination assignments"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "74d073e46ba7b74d4302a53bb8bde5e3d229c8019c61430d689fed4132600f72",
+    "CMakeLists.txt": "022091a44aba320a9e362898773e0bb34de3bfb9c75c33366205116d88313dcc",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -1041,7 +1121,7 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "9f4109c0555f0ae0606d2c655c6b0c7a9d3cdb73217450b5030133a971c02e47",
+    "tests/codegen/LLVMCodegenTests.cpp": "e8728c7a19486f604ff42728d0ed68489d6a7b334002e6951056c6925a734a1b",
     "tests/hir/HIRTests.cpp": "fef71fa9bbb8f2744fe385defd22988dd72c126c1330394b9ff83929b0e952de",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "641a45a30f0ddb5a111ce65f5509425cd52f48a0903e488b33ad02077ab7053a",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
@@ -1068,13 +1148,20 @@
     "tests/support/harness/manifests/named-return-storage.json": "43ad5ab4ca667057e8ca69ca72834a4fc6bd68b682b45b201350cb9f8dd13f6b",
     "docs/validated-view-lengths.md": "9692e746f8a12aef69f3a40707ddcd96b43e2ba9090a80280f64edec7934708a",
     "src/safety/StaticSafetyFacts.cpp": "98bf0455ec80ae3c0a5f443febfb548b1a197646f78f318426ddb05ef96ac1b1",
-    "src/sema/SemaAssignments.cpp": "ce818dbbfda7405de81d32b64db3b37afd7e3d79e3b3eb86f51ed224812b2de8",
+    "src/sema/SemaAssignments.cpp": "50dd12d8a880ced09846ab90da8c1aafa23607d0d7e1acdc181be2e03748e443",
     "tests/cases/run/length_dynamic_mismatch.hs": "294a0265a0379d93747f15faacecfe98825ba09b17e4b256670dabc01e274e00",
     "tests/cases/run/length_empty_interpretation.hs": "e24e5f31914484b04987ba126534f36d865f38052838e1045ca7e5cd40863ed8",
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
     "tests/cases/run/length_nonempty_guard.hs": "062b3c28f7df6c26ce329f7cb02590c7e5a33d843355034ea7fba91950130470",
     "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
     "tests/sema/SemaViewLengthTests.cpp": "66191f391d21be38b941802013a98a526ba873e3b6e04950e0437b296b18d72a",
-    "tests/support/harness/manifests/validated-view-lengths.json": "d1b4bbfd0fe38b5af2746fdac0d47e940b87052f3af27858b059e359cc603967"
+    "tests/support/harness/manifests/validated-view-lengths.json": "d1b4bbfd0fe38b5af2746fdac0d47e940b87052f3af27858b059e359cc603967",
+    "docs/multi-return-assignments.md": "9889580d827cc3c5f36fc46dfb4e5db31a75fca6f98b573d7133c340e5265993",
+    "tests/cases/run/multi_return_assignments.hs": "299978aef88c83bd2300d4e74e4f6bd20f64f7ed247a6e7d66da4d13673925c3",
+    "tests/support/harness/manifests/multi-return-assignment-diagnostics.json": "b02487a1bbfca71bd132063f7794f9b16315b64d114be01d881842f8a8cdc2fd",
+    "tests/support/harness/manifests/multi-return-assignments.json": "6f2718b270070cef3799c05670bbc9848f092ba03896edf0bd1fbecffe9eefeb",
+    "tests/sema/SemaMultiReturnTests.cpp": "d809c9756a0c83c7555360455d66e63a7b33f70f9d7cafbeb74eb5e17660287c",
+    "tests/cases/sema/multi_return_float_integer.hs": "83a842c5d574b137558ecd1a13bdf8b37f501081c9f892776fd3b8f58e4bb4f7",
+    "src/sema/SemaMultiReturnAssignments.cpp": "95d38c24f5447bef1190a213f28cbaf0e3d70781569c09c72569bd40caa04e57"
   }
 }

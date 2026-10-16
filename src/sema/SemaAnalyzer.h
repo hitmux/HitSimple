@@ -271,6 +271,9 @@ private:
   std::unique_ptr<hir::Stmt> analyze(const ast::AssignStmt &assign);
   std::optional<AssignmentLowering>
   lowerAssignmentExpression(const ast::AssignmentExpr &assign);
+  std::optional<AssignmentLowering> lowerMultiReturnAssignment(
+      const ast::AssignmentExpr &assign, const ast::CallExpr &call,
+      const FunctionSignature &signature);
   std::unique_ptr<hir::Stmt> lowerAssignmentTarget(
       const ast::AssignmentTarget &target, const ast::Expr &value,
       std::unique_ptr<hir::Expr> loweredValue);

@@ -345,6 +345,7 @@ add_library(hitsimple_frontend STATIC
   src/sema/SemaAnalysis.cpp
   src/sema/SemaAnalysisContext.cpp
   src/sema/SemaAssignments.cpp
+  src/sema/SemaMultiReturnAssignments.cpp
   src/sema/SemaCalls.cpp
   src/sema/SemaExpressions.cpp
   src/sema/SemaOperators.cpp
@@ -634,6 +635,7 @@ if(BUILD_TESTING)
     tests/sema/SemaCoreTests.cpp
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
+    tests/sema/SemaMultiReturnTests.cpp
     tests/sema/SemaNamedReturnTests.cpp
     tests/sema/SemaViewLengthTests.cpp
     tests/sema/SemaTryCatchTests.cpp
@@ -1290,6 +1292,29 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_validated_view_lengths PROPERTIES
     LABELS "testing;harness;stdlib;views")
+  add_test(
+    NAME hsc_multi_return_assignments
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite multi-return-assignments
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_multi_return_assignments PROPERTIES
+    LABELS "testing;harness;assignment;returns;float")
+  add_test(
+    NAME hsc_multi_return_assignment_diagnostics
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite multi-return-assignment-diagnostics
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_multi_return_assignment_diagnostics PROPERTIES
+    LABELS "testing;harness;assignment;returns;diagnostic")
   add_test(
     NAME hsc_none_return_views
     COMMAND ${Python3_EXECUTABLE}
