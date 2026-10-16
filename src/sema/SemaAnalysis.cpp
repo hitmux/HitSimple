@@ -1,5 +1,6 @@
 #include "SemaAnalyzer.h"
 
+#include <algorithm>
 #include <iterator>
 #include <utility>
 
@@ -261,7 +262,7 @@ Analyzer::analyze(const ast::FunctionDecl &function) {
                                                 symbol.byteLength));
   }
 
-  auto body = analyze(*function.body);
+  auto body = analyzeFunctionBody(*function.body, function.returns);
   for (const auto &pending : pendingGotos_) {
     const auto label = labels_.find(pending.label);
     if (label == labels_.end()) {
@@ -345,7 +346,7 @@ bool Analyzer::lowerImplOpBodies(
                                                   symbol.byteLength));
     }
 
-    auto body = analyze(*op->body);
+    auto body = analyzeFunctionBody(*op->body, op->returns);
     for (const auto &pending : pendingGotos_) {
       const auto label = labels_.find(pending.label);
       if (label == labels_.end()) {
@@ -429,7 +430,7 @@ bool Analyzer::lowerImplMethodBodies(
                                                   symbol.byteLength));
     }
 
-    auto body = analyze(*method->body);
+    auto body = analyzeFunctionBody(*method->body, method->returns);
     for (const auto &pending : pendingGotos_) {
       const auto label = labels_.find(pending.label);
       if (label == labels_.end()) {
@@ -458,6 +459,62 @@ bool Analyzer::lowerImplMethodBodies(
     functions.push_back(std::move(lowered));
   }
   return true;
+}
+
+std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody(
+    const ast::BlockStmt &block,
+    const std::vector<ast::ReturnItem> &returnItems) {
+  CurrentRangeGuard rangeGuard(*this, block);
+  currentReturnStorage_.clear();
+  currentReturnHasAnonymous_ = false;
+  std::vector<std::unique_ptr<hir::Stmt>> statements;
+  const bool hasNamedReturn = std::any_of(
+      returnItems.begin(), returnItems.end(),
+      [](const ast::ReturnItem &item) { return !item.name.empty(); });
+  if (hasNamedReturn) {
+    for (std::size_t index = 0; index < returnItems.size(); ++index) {
+      const auto &item = returnItems[index];
+      const auto length = currentFunction_->returnByteLengths[index];
+      Symbol symbol;
+      if (!item.name.empty()) {
+        if (!declare(item.name, length, hir::MemoryStorage::Local,
+                     item.templateName, symbol)) {
+          addDiagnostic("duplicate named return '" + item.name + "'",
+                        currentScopeDeclarationRange(item.name));
+          continue;
+        }
+      } else {
+        // Mixed signatures need private slots too: explicit return assignment
+        // proceeds in item order, and a later expression may observe an earlier
+        // named slot. These compiler-only names never enter lexical lookup.
+        currentReturnHasAnonymous_ = true;
+        const auto name = "$return." + std::to_string(index);
+        symbol = Symbol{name, makeBindingName(name), length,
+                        hir::MemoryStorage::Local, item.templateName,
+                        currentRange_};
+      }
+      currentReturnStorage_.push_back(symbol);
+      // Standard 12.2: return storage is uninitialized until explicitly written.
+      statements.push_back(std::make_unique<hir::LocalMemory>(
+          symbol.name, symbol.bindingName, symbol.byteLength, symbol.storage,
+          symbol.templateName));
+    }
+  }
+  // Parameters and named returns share the function-body lexical scope.
+  // Ordinary nested blocks continue to create their own scopes in analyze().
+  ++blockDepth_;
+  if (result_.diagnostics.empty()) {
+    for (const auto &statement : block.statements) {
+      auto lowered = analyze(*statement);
+      if (lowered) {
+        statements.push_back(std::move(lowered));
+      }
+    }
+  }
+  --blockDepth_;
+  currentReturnStorage_.clear();
+  currentReturnHasAnonymous_ = false;
+  return std::make_unique<hir::Block>(std::move(statements));
 }
 
 std::unique_ptr<hir::Block> Analyzer::analyze(const ast::BlockStmt &block) {

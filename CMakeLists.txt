@@ -634,6 +634,7 @@ if(BUILD_TESTING)
     tests/sema/SemaCoreTests.cpp
     tests/sema/SemaDiagnosticTests.cpp
     tests/sema/SemaExpressionTests.cpp
+    tests/sema/SemaNamedReturnTests.cpp
     tests/sema/SemaTryCatchTests.cpp
     tests/safety/StaticSafetyAnalyzerTests.cpp
     tests/support/ProcessTests.cpp
@@ -1229,6 +1230,18 @@ target_link_libraries(hsc_unit_tests
       --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
   )
   set_tests_properties(hsc_explicit_numeric_returns PROPERTIES
+    LABELS "testing;harness;stdlib;returns")
+  add_test(
+    NAME hsc_named_return_storage
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite named-return-storage
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_named_return_storage PROPERTIES
     LABELS "testing;harness;stdlib;returns")
   add_test(
     NAME hsc_floating_ternary_views

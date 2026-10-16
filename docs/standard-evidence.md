@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 16 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 17 inspected witnesses.
 
 ## Validate and run
 
@@ -78,7 +78,7 @@ Standard: [§10.4](../Standard.md#104-default-assignment-operation-op-).
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L374) (`lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L375) (`lowered->parameters[index].viewIsCopy = op->op != "=" || index != 0U;`)
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L513) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
@@ -99,7 +99,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [include/hitsimple/hir/HIR.h](../include/hitsimple/hir/HIR.h#L669) (`bool viewIsCopy = true;`)
-- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L381) (`bool Analyzer::lowerImplMethodBodies(`)
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L382) (`bool Analyzer::lowerImplMethodBodies(`)
 - [src/codegen/LLVMCodegenFunctions.cpp](../src/codegen/LLVMCodegenFunctions.cpp#L513) (`if (parameter.viewIsCopy) {`)
 
 Evidence:
@@ -253,7 +253,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1487) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L915) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L526) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L635) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
 
 Evidence:
 - `structural`: [Sema_RecordsBooleanValueReadBoundaries](../tests/sema/SemaBoolTests.cpp#L51)
@@ -274,7 +274,7 @@ Standard: [§7.9](../Standard.md#79-numeric-conversion-and-byte-reinterpretation
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L574) (`const auto source = lowered->result;`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L683) (`const auto source = lowered->result;`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1997) (`// Sema adds an IntegerCastExpr only for a return width change.`)
 
 Evidence:
@@ -412,6 +412,44 @@ Context: [docs/assignment-result-views.md](../docs/assignment-result-views.md).
 
 Limit: Direct-name results only; complex targets, multi-source ordering, multi-return target contracts and rebinding remain separate. Floating special values are copied, not used in payload-preserving arithmetic; f128 fixtures assume supported little-endian targets.
 
+### named-return-storage
+
+Named returns create uninitialized entry-local storage; explicit returns assign in item order, while bare returns copy the saved slots without bool renormalization or lexical-shadow rebinding.
+
+Standard: [§4.4](../Standard.md#44-return-signatures), [§5.3](../Standard.md#53-new-and-static), [§5.5](../Standard.md#55-scope-exit-release-rules), [§12.2](../Standard.md#122-return-values).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaAnalysis.cpp](../src/sema/SemaAnalysis.cpp#L464) (`std::unique_ptr<hir::Block> Analyzer::analyzeFunctionBody(`)
+- [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L447) (`Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {`)
+
+Evidence:
+- `structural`: [Sema_NamedReturnsCreateEntryStorageWithoutInitialization](../tests/sema/SemaNamedReturnTests.cpp#L14)
+  Checks two correctly sized/template-bearing LocalMemory nodes precede body writes, and bare Return reads the saved slot without conversion plans.
+- `structural`: [Sema_NamedReturnsAssignExplicitValuesInItemOrder](../tests/sema/SemaNamedReturnTests.cpp#L43)
+  Checks named and mixed signatures have ordered destination stores followed by Return.
+- `structural`: [Sema_NamedReturnBareReadKeepsBindingAndSignature](../tests/sema/SemaNamedReturnTests.cpp#L67)
+  A nested shadow and set to u8 do not change the original bool return slot binding, length or signature.
+- `structural`: [Sema_NamedReturnCopiesCStringRvalueThroughBoundedStorage](../tests/sema/SemaNamedReturnTests.cpp#L192)
+  Checks a cstr call is materialized once in an 8-byte source slot, then copied through StringCopyStore to a 4-byte named return slot.
+- `diagnostic`: [Sema_NamedReturnsRejectSameScopeCollisions](../tests/sema/SemaNamedReturnTests.cpp#L107)
+  Rejects duplicate named slots, parameter collisions and local/static redeclarations, including method/operator cases.
+- `diagnostic`: [Sema_NamedReturnsRejectAnonymousBareAndWrongCounts](../tests/sema/SemaNamedReturnTests.cpp#L122)
+  Rejects anonymous/mixed bare returns, wrong explicit counts and return-name leakage into a later function.
+- `diagnostic`: [Sema_NamedReturnRejectsInvalidDestinationSources](../tests/sema/SemaNamedReturnTests.cpp#L213)
+  Rejects an integer source for cstr, a mismatched bytes length and an unconverted float for none.
+- `IR`: [LLVMCodegen_NamedReturnsDoNotInventZeroInitialization](../tests/sema/SemaNamedReturnTests.cpp#L154)
+  Inspects an unexecuted function: one alloca and no StoreInst initializes the unwritten slot.
+- `IR`: [LLVMCodegen_NamedReturnsStillRequireExplicitReturn](../tests/sema/SemaNamedReturnTests.cpp#L176)
+  Named-result fallthrough still produces a missing-return diagnostic in all three safety modes.
+- `runtime`: [hsc_named_return_storage](../tests/support/harness/manifests/named-return-storage.json); cases: `optimized`, `reference`
+  Requires views 0, scope 0, methods 0 and exit 0, covering scalar/raw return storage, all 256 bool bytes, shadowing, recursion, ordered/mixed/multiple returns, methods/operators and user assignment side effects.
+  Host, both providers, three safety modes, O0/O2; all executed return slots are explicitly written. Configuration is not an execution result.
+
+Context: [docs/named-return-storage.md](../docs/named-return-storage.md).
+
+Limit: Initialization-state diagnostics are not implemented (INIT-001); the no-zero-store test inspects but never executes an unwritten slot. Anonymous-only return assignment, general multi-return destination assignment, rebinding and existing method/operator return-count limits remain separate.
+
 ## Standard navigation inventory
 
 A mapped parent never implicitly maps its children or vice versa.
@@ -445,7 +483,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 4.1.1 | [Statement Terminators](../Standard.md#411-statement-terminators) | unmapped |  |
 | 4.2 | [Declarations and Template Annotations](../Standard.md#42-declarations-and-template-annotations) | unmapped |  |
 | 4.3 | [User Templates and `impl`](../Standard.md#43-user-templates-and-impl) | unmapped |  |
-| 4.4 | [Return Signatures](../Standard.md#44-return-signatures) | inspected | [none-return-canonical-view](#none-return-canonical-view) |
+| 4.4 | [Return Signatures](../Standard.md#44-return-signatures) | inspected | [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage) |
 | 4.5 | [Expressions and Method Calls](../Standard.md#45-expressions-and-method-calls) | unmapped |  |
 | 4.6 | [Lvalue Restrictions](../Standard.md#46-lvalue-restrictions) | unmapped |  |
 | 4.7 | [Length Specifications](../Standard.md#47-length-specifications) | unmapped |  |
@@ -453,9 +491,9 @@ A mapped parent never implicitly maps its children or vice versa.
 | 5 | [Storage Objects, Addresses, and Lifetimes](../Standard.md#5-storage-objects-addresses-and-lifetimes) | unmapped |  |
 | 5.1 | [Storage Objects](../Standard.md#51-storage-objects) | unmapped |  |
 | 5.2 | [Names, Definition Addresses, and Binding Addresses](../Standard.md#52-names-definition-addresses-and-binding-addresses) | unmapped |  |
-| 5.3 | [`new` and `static`](../Standard.md#53-new-and-static) | unmapped |  |
+| 5.3 | [`new` and `static`](../Standard.md#53-new-and-static) | inspected | [named-return-storage](#named-return-storage) |
 | 5.4 | [Dynamic-Allocation Lifetime](../Standard.md#54-dynamic-allocation-lifetime) | unmapped |  |
-| 5.5 | [Scope-Exit Release Rules](../Standard.md#55-scope-exit-release-rules) | unmapped |  |
+| 5.5 | [Scope-Exit Release Rules](../Standard.md#55-scope-exit-release-rules) | inspected | [named-return-storage](#named-return-storage) |
 | 5.6 | [Address-Of](../Standard.md#56-address-of) | unmapped |  |
 | 5.7 | [Dereference](../Standard.md#57-dereference) | unmapped |  |
 | 5.8 | [Indexing and Slicing](../Standard.md#58-indexing-and-slicing) | unmapped |  |
@@ -523,7 +561,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 11.10 | [Standard-Template Default-Assignment Matrix](../Standard.md#1110-standard-template-default-assignment-matrix) | unmapped |  |
 | 12 | [Functions, Return Values, and Calling Conventions](../Standard.md#12-functions-return-values-and-calling-conventions) | unmapped |  |
 | 12.1 | [Function Definitions](../Standard.md#121-function-definitions) | unmapped |  |
-| 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view) |
+| 12.2 | [Return Values](../Standard.md#122-return-values) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [none-return-canonical-view](#none-return-canonical-view), [named-return-storage](#named-return-storage) |
 | 12.3 | [Function Calls](../Standard.md#123-function-calls) | unmapped |  |
 | 12.4 | [`main`](../Standard.md#124-main) | unmapped |  |
 | 13 | [Control Flow and Error Handling](../Standard.md#13-control-flow-and-error-handling) | unmapped |  |

@@ -160,11 +160,18 @@ HS_TEST(Sema_PreservesInferredAndExpressionlessReturnScope) {
                      second->values[0].get()) != nullptr);
 
   const auto named = analyzeSource(
-      "func named() -> output as bool { return; }\n"
+      "func named() -> output as bool { output = true; return; }\n"
       "func main() -> i32 { return 0; }\n");
-  HS_EXPECT_TRUE(named.unit == nullptr);
-  HS_EXPECT_TRUE(!named.diagnostics.empty());
-  HS_EXPECT_TRUE(named.diagnostics[0].message.find(
-                     "return value count does not match function signature") !=
-                 std::string::npos);
+  HS_EXPECT_TRUE(named.unit != nullptr);
+  HS_EXPECT_TRUE(named.diagnostics.empty());
+  const auto *bare = dynamic_cast<const hitsimple::hir::Return *>(
+      named.unit->functions[0]->body->statements.back().get());
+  HS_EXPECT_TRUE(bare != nullptr);
+  HS_EXPECT_EQ(bare->values.size(), 1U);
+  const auto *stored = dynamic_cast<const hitsimple::hir::VariableRef *>(
+      bare->values[0].get());
+  HS_EXPECT_TRUE(stored != nullptr);
+  HS_EXPECT_EQ(stored->name, std::string("output"));
+  HS_EXPECT_TRUE(bare->conversionPlans.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*named.unit).empty());
 }

@@ -443,7 +443,116 @@ Analyzer::analyzeIncrementStatement(const ast::UnaryExpr &expression) {
       std::make_unique<hir::IntegerLiteral>("1", signedIntegerResult(1)));
 }
 
+std::unique_ptr<hir::Stmt>
+Analyzer::lowerStoredReturn(const ast::ReturnStmt &statement) {
+  if (statement.values.empty() && currentReturnHasAnonymous_) {
+    addDiagnostic("expressionless return requires every return item to be named");
+    return nullptr;
+  }
+  if (!statement.values.empty() &&
+      statement.values.size() != currentReturnStorage_.size()) {
+    addDiagnostic("return value count does not match function signature");
+    return nullptr;
+  }
+  std::vector<std::unique_ptr<hir::Stmt>> statements;
+  for (std::size_t index = 0; index < statement.values.size(); ++index) {
+    const auto &slot = currentReturnStorage_[index];
+    const MemoryReference target{slot.name, slot.bindingName, slot.byteLength,
+                                 slot.storage, 0, slot.templateName};
+    ast::IdentifierExpr targetExpression(slot.name);
+    // Explicit return expressions assign in return-item order. Reuse ordinary
+    // destination assignment, including bool normalization and user op =.
+    std::unique_ptr<hir::Stmt> store;
+    if (slot.templateName == "bool") {
+      // Return bool assignment accepts Any View, including opaque handles.
+      // Preserve the existing return contract even where ordinary assignment's
+      // handle-specific matcher is narrower than the standard bool matrix.
+      auto value = analyze(*statement.values[index]);
+      if (!value) {
+        return nullptr;
+      }
+      if (!hir::isBooleanTestable(value->result)) {
+        addDiagnostic("bool return value cannot form a View");
+        return nullptr;
+      }
+      store = std::make_unique<hir::BoolStore>(
+          slot.name, slot.bindingName, slot.byteLength, slot.storage, 0,
+          std::make_unique<hir::BooleanTestExpr>(std::move(value),
+                                                 booleanResult()));
+    } else if (slot.templateName == "bytes") {
+      auto value = analyze(*statement.values[index]);
+      if (!value) {
+        return nullptr;
+      }
+      if (value->result.lengthKind == hir::ViewLengthKind::Static &&
+          value->result.staticByteLength != slot.byteLength) {
+        addDiagnostic("bytes return assignment requires an equal-length source View");
+        return nullptr;
+      }
+      const auto source = value->result;
+      store = std::make_unique<hir::ViewCopyStore>(
+          slot.name, slot.bindingName, slot.byteLength, slot.storage, 0,
+          std::move(value),
+          hir::ConversionPlan{hir::ConversionKind::ByteCopy, source,
+                              fixedResult("bytes", slot.byteLength)});
+    } else if (slot.templateName == "cstr" &&
+               !dynamic_cast<const ast::StringLiteral *>(statement.values[index].get())) {
+      auto value = analyze(*statement.values[index]);
+      if (!value) {
+        return nullptr;
+      }
+      if (value->result.templateName != "cstr" ||
+          value->result.lengthKind != hir::ViewLengthKind::Static) {
+        addDiagnostic("cstr return assignment requires a fixed cstr source View");
+        return nullptr;
+      }
+      // StringCopyStore takes named storage. Materialize a source View once so
+      // calls, ternaries and reinterpretations retain the same bounded string
+      // copy/truncation rules as a local cstr source, rather than raw byte copy.
+      const auto source = value->result;
+      const auto sourceName = makeBindingName("$return.string");
+      statements.push_back(std::make_unique<hir::LocalMemory>(
+          sourceName, sourceName, source.staticByteLength,
+          hir::MemoryStorage::Local, "cstr"));
+      statements.push_back(std::make_unique<hir::ViewCopyStore>(
+          sourceName, sourceName, source.staticByteLength,
+          hir::MemoryStorage::Local, 0, std::move(value),
+          hir::ConversionPlan{hir::ConversionKind::Identity, source,
+                              fixedResult("cstr", source.staticByteLength)}));
+      store = std::make_unique<hir::StringCopyStore>(
+          slot.name, slot.bindingName, slot.byteLength, slot.storage, 0,
+          sourceName, sourceName, source.staticByteLength,
+          hir::MemoryStorage::Local, 0);
+    } else {
+      store = lowerAssignmentTarget(
+          targetExpression, "=", isUnsignedTemplate(slot.templateName),
+          *statement.values[index], nullptr, &target, "return value", "return View");
+    }
+    if (!store) {
+      return nullptr;
+    }
+    statements.push_back(std::move(store));
+  }
+  std::vector<std::unique_ptr<hir::Expr>> values;
+  for (const auto &slot : currentReturnStorage_) {
+    // Bare return copies storage bytes, never assigning or normalizing again.
+    // Keep the signature template even if `set` changed lexical interpretation.
+    values.push_back(std::make_unique<hir::VariableRef>(
+        slot.name, slot.bindingName, slot.storage, 0,
+        fixedResult(slot.templateName, slot.byteLength, true, true)));
+  }
+  auto returned = std::make_unique<hir::Return>(std::move(values));
+  if (statements.empty()) {
+    return returned;
+  }
+  statements.push_back(std::move(returned));
+  return std::make_unique<hir::StatementList>(std::move(statements));
+}
+
 std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ReturnStmt &statement) {
+  if (!currentReturnStorage_.empty()) {
+    return lowerStoredReturn(statement);
+  }
   std::vector<std::unique_ptr<hir::Expr>> values;
   std::vector<std::size_t> byteLengths;
   std::vector<std::string> inferredTemplateNames;

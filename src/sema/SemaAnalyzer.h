@@ -255,6 +255,10 @@ private:
 
   std::unique_ptr<hir::Function> analyze(const ast::FunctionDecl &function);
   std::unique_ptr<hir::Block> analyze(const ast::BlockStmt &block);
+  std::unique_ptr<hir::Block> analyzeFunctionBody(
+      const ast::BlockStmt &block,
+      const std::vector<ast::ReturnItem> &returnItems);
+  std::unique_ptr<hir::Stmt> lowerStoredReturn(const ast::ReturnStmt &statement);
   std::unique_ptr<hir::Stmt> analyze(const ast::Stmt &statement);
   std::unique_ptr<hir::Stmt> analyze(const ast::NewDecl &decl);
   std::unique_ptr<hir::Stmt> analyze(const ast::VarDeclStmt &decl);
@@ -442,6 +446,10 @@ private:
   std::vector<hir::GlobalMemory> globals_;
   FunctionSignature *currentFunction_ = nullptr;
   std::vector<hir::Parameter> currentParameters_;
+  // Fixed return slots are independent of lexical lookup (nested names may
+  // shadow them). Anonymous slots exist only in mixed named signatures.
+  std::vector<Symbol> currentReturnStorage_;
+  bool currentReturnHasAnonymous_ = false;
   std::size_t loopDepth_ = 0;
   std::vector<CatchViewContract> catchContracts_;
   std::size_t blockDepth_ = 0;
