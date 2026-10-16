@@ -628,22 +628,92 @@
         }
       ],
       "docs": []
+    },
+    {
+      "id": "raw-memory-floating-views",
+      "sections": [
+        "14.0",
+        "14.1",
+        "14.5"
+      ],
+      "claim": "Raw-memory builtin argument plans preserve f16/f32/f64/f128 Views; memset reads one representation byte rather than numerically converting its fill View. Selected direct floating file-I/O Views round-trip through fwrite/fread.",
+      "limitation": "Selected fixed-width ABI/literal/call/ternary and dynamic-memory examples; does not establish every builtin, View shape, lifetime case, or arithmetic NaN behavior. Constructed f128 special-value patterns assume supported little-endian targets. Floating assignment-expression materialization and zero-length dynamic View registration remain outside this correction.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaExpressions.cpp",
+          "anchor": "// Chapter 14 meta-parameters borrow/read the original View."
+        },
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_PreservesFloatingBuiltinViewArgumentPlans",
+          "assertions": "All four widths have identity argument plans with unchanged floating templates and lengths, and HIR verifies."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_PreservesDynamicBuiltinViewArgumentPlans",
+          "assertions": "Dynamic resize_bytes operands retain valid HIR when passed directly to memcmp."
+        },
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_BuiltinViewPlansObserveExplicitConversionResults",
+          "assertions": "A memset fill explicitly converted to u8 has an identity plan for the one-byte u8 result, not its underlying wider integer operand."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_RejectsFloatingMemoryRvalueDestination",
+          "assertions": "memset/memcpy/memmove reject non-writable floating destinations."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_PreservesFloatingRawMemoryBuiltinViews",
+          "assertions": "Four widths produce verified modules with raw pointer calls, i8 fill loads, and no fptosi/fptoui."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/raw-memory-floating-views.json",
+          "ctest": "hsc_raw_memory_floating_views",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Exact raw-memory 0 output, successful compile and exit across the configured matrix.",
+          "limitation": "Host; both providers, three safety modes, O0/O2. Configuration is not an execution result."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/raw-memory-floating-views.md",
+          "anchor": "# Raw-memory floating Views"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "6041bd124124bb5a3857774b1e856f91289e0d02498e27d936be4fbfc10de7f5",
+    "CMakeLists.txt": "2dd5a59a5085851b6a4b9b7e570b3cc1bc04102ca8969df1c268ea3863b48f27",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
+    "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
     "include/hitsimple/hir/HIR.h": "e5d84aed0c5cf68a792eae2235a6ca7afe754c1ce01840388ef57058df30ba18",
     "runtime/hitsimple_runtime.c": "7749dfd02823798a5959a8d96f4ba0a69ca7aebc17c759007cfb80bd5e0d9106",
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
-    "src/codegen/LLVMCodegenExpressions.cpp": "51741018a486474894300a4e65243c1ed81ae1110715e08849df2780e25b4616",
+    "src/codegen/LLVMCodegenExpressions.cpp": "ef36ebd62ad07a4d22e8bfbebd8d14ea7e34f0105166d229a4efc70c4ed2d463",
     "src/codegen/LLVMCodegenFunctions.cpp": "9cdcec35f5a53df09e6012a8d0537a408c96de9400e3b6a09398fe8822e1e2cf",
-    "src/hir/HIR.cpp": "405d8465b32c8212d6dc62aeb05e924411a1887c598c8b15a5ce15da4a0e6b06",
+    "src/hir/HIR.cpp": "b3b1eb5092087276c571f7d9f219bd4c9dd280a332ddd0d557eccbfdd5132343",
     "src/safety/StaticSafetyValidation.cpp": "89dc6fa05f3cdd1d16353c4c681432e6b7586a9ae1600f011b8c8e77ac57d541",
     "src/sema/SemaAnalysis.cpp": "a6ecbe193978ded2bae9467419b89440ff50a2d5f176f0e3b058ca63c1697fba",
     "src/sema/SemaAnalysisContext.cpp": "a1a310a1214fefa2e424a1e654f992fd4c31f3ebdaa737adb68a3f118e560540",
-    "src/sema/SemaExpressions.cpp": "deaa229d735145b1396baed058625c7cd1bc4339b1265a8d32b0a193747aeff6",
+    "src/sema/SemaExpressions.cpp": "d46dab2076a028b21182e1000fafb3a0bd9027059f3ecd20622b4d9795f2f1f5",
     "src/sema/SemaStatements.cpp": "0ed8fc3f85d4e2184e70439c5b7af2d5f249cec7c47338d0b4b6eccb08b76dbd",
     "stdlib/ctype.hs": "0933ff576d7f8403217bf493670acec0e6b682bcf3de195774bc42e4fe50a17f",
     "tests/cases/run/bool_value_reads.hs": "dcae6c87fb873ae06117682422c0684d83d4dd0b2453ac7a78762580771ce5d0",
@@ -657,15 +727,16 @@
     "tests/cases/run/impl_method_value_copy.hs": "a400f4cdd2ea1efd0a9d40a9873551b585b9344c80f6869d5657704aa2978c76",
     "tests/cases/run/none_return_views.hs": "f8ce1d0ff3793839dc17940f643fa4a26af35c4e35de16d473ef39c21083c09e",
     "tests/cases/run/p3_packed_offsets.hs": "01e1ed232075e12f5d8563107b240297466718372dd9a34abb54cf7391365a51",
+    "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "969cad534b24623b4fd5357f6bd3a30658cf10ab17a7f403bb6527c901eeb96c",
+    "tests/codegen/LLVMCodegenTests.cpp": "40301dbd6f081ddf45abe033d9d0dcd4929fccd294cc04b297ca3cc067aa1037",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "a09a78ce1a21944df93d9cbe564deb573ff66daab0ee13aca95c78e16502e75f",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "77cd6c0c1a6d00f3cbce9730f3896630be1372ca87ad60c436d2b37262449f4b",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "7c3cbe76e84d7e7c13e5f690ba84f2a1d8dabce4037b3737da2912d6f00c2007",
+    "tests/sema/SemaExpressionTests.cpp": "43489fcfa73f4f2a45c3883d1d864c5a99deb47106699e8d6f4a4f2b9c8b1936",
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
     "tests/support/harness/manifests/ctype-providers.json": "6f4266095eabbff00eea5fb808d964e7b36d00c07dd4d125d00156d322bc7eb0",
@@ -675,6 +746,7 @@
     "tests/support/harness/manifests/floating-ternary-views.json": "6f5a89d0fb2d2d79d9de7556ae82a4c33da430c7d7503fd50a03dd4448b3d665",
     "tests/support/harness/manifests/none-return-views.json": "b1dc6a24150a49794cf045c127a21b21d9d5f246a2c216bcc9b7cc454bdf23a6",
     "tests/support/harness/manifests/p3-host-semantics.json": "c5bf829291ac52712260877ccfcb2a46dee32f97d4f40518a8b8f3dff203ccb2",
+    "tests/support/harness/manifests/raw-memory-floating-views.json": "33a4d26808dbb3e0ec527d372e04517787a3c9581ccb8472c944dc9dc1e1fcd9",
     "tests/support/harness/manifests/safety-mode.json": "c92e07e7ce7b6916026d399e2417e375e85eada2eb87875372034cd751b79047",
     "tests/support/harness/run_tests.py": "d82febccc7b8b698369bd6d88dec9a7d7782eb20bffbbf205f8127d78dab0b36"
   }

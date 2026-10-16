@@ -159,6 +159,15 @@ enum class BuiltinParameterMode : std::uint8_t {
   Varargs,
 };
 
+constexpr bool isViewParameter(BuiltinParameterMode mode) {
+  return mode == BuiltinParameterMode::View ||
+         mode == BuiltinParameterMode::LView ||
+         mode == BuiltinParameterMode::MemView ||
+         mode == BuiltinParameterMode::MemLView ||
+         mode == BuiltinParameterMode::CStrView ||
+         mode == BuiltinParameterMode::BytesView;
+}
+
 enum class BuiltinBootstrapType : std::uint8_t {
   Void,
   Pointer,

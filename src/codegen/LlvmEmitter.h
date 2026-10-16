@@ -195,6 +195,7 @@ private:
                                 std::string_view name);
   llvm::Value *emitBorrowedViewPointer(const hir::Expr &expression,
                                        std::string_view name);
+  llvm::Value *emitViewLowByte(const hir::Expr &expression);
   llvm::Value *emitMemoryOperandPointer(const hir::Expr &expression,
                                         std::string_view name);
   llvm::Value *emitFloatValue(const hir::Expr &expression,

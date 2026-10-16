@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 14 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 15 inspected witnesses.
 
 ## Validate and run
 
@@ -57,7 +57,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L411) (`if (const auto *asExpr = dynamic_cast<const ast::AsExpr *>(&expression))`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1243) (`return emitViewValue(*view->operand);`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1259) (`return emitViewValue(*view->operand);`)
 
 Evidence:
 - `structural`: [Sema_LowersExpressionAsTemporaryTemplateView](../tests/sema/SemaDiagnosticTests.cpp#L850)
@@ -141,7 +141,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaAnalysisContext.cpp](../src/sema/SemaAnalysisContext.cpp#L1098) (`viewTemplates.emplace_back(info.name, std::move(hirMembers),`)
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1324) (`alignmentAt(storage->alignment, variable->offset).value()};`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1340) (`alignmentAt(storage->alignment, variable->offset).value()};`)
 
 Evidence:
 - `structural`: [Sema_LowersSizeofUserTemplate](../tests/sema/SemaAggregateTests.cpp#L99)
@@ -211,7 +211,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1992) (`value, llvm::ConstantInt::get(i32Ty, 0xff), "ctype.byte");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2008) (`value, llvm::ConstantInt::get(i32Ty, 0xff), "ctype.byte");`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L2) (`func __hs_stdlib_ctype_is_digit(ch as i32) -> bool {`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L32) (`func __hs_stdlib_ctype_to_lower(ch as i32) -> u8 {`)
 
@@ -232,7 +232,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2009) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2025) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
 
 Evidence:
 - `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1209)
@@ -251,7 +251,7 @@ Standard: [§6.7](../Standard.md#67-expression-level-as), [§12.2](../Standard.m
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1473) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1483) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
 - [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L915) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
 - [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L526) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
 
@@ -275,7 +275,7 @@ Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
 - [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L574) (`const auto source = lowered->result;`)
-- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1985) (`// Sema adds an IntegerCastExpr only for a return width change.`)
+- [src/hir/HIR.cpp](../src/hir/HIR.cpp#L1993) (`// Sema adds an IntegerCastExpr only for a return width change.`)
 
 Evidence:
 - `structural`: [Sema_ReturnConversionPlansUseExplicitNumericResultViews](../tests/sema/SemaCoreTests.cpp#L333)
@@ -296,7 +296,7 @@ Standard: [§4.8](../Standard.md#48--parsing-rules), [§8.10](../Standard.md#810
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1248) (`// A floating ternary selects a View copy, not an integer conversion or`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1264) (`// A floating ternary selects a View copy, not an integer conversion or`)
 
 Evidence:
 - `IR`: [LLVMCodegen_FloatingTernariesCopySelectedViewBytes](../tests/codegen/LLVMCodegenTests.cpp#L3331)
@@ -355,6 +355,36 @@ Evidence:
   Host, all three safety modes, O0/O2, both providers; stdout accepts LF or CRLF.
 
 Limit: Structural widths are 1/2/4/8 bytes; native ordinary values use selected high-bit patterns and method/operator paths use eight bytes. Extern-call variants are HIR-only, not native FFI execution.
+
+### raw-memory-floating-views
+
+Raw-memory builtin argument plans preserve f16/f32/f64/f128 Views; memset reads one representation byte rather than numerically converting its fill View. Selected direct floating file-I/O Views round-trip through fwrite/fread.
+
+Standard: [§14.0](../Standard.md#140-signature-notation), [§14.1](../Standard.md#141-memory-management-and-byte-operations), [§14.5](../Standard.md#145-file-io).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1171) (`// Chapter 14 meta-parameters borrow/read the original View.`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1186) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
+
+Evidence:
+- `structural`: [Sema_PreservesFloatingBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1763)
+  All four widths have identity argument plans with unchanged floating templates and lengths, and HIR verifies.
+- `structural`: [Sema_PreservesDynamicBuiltinViewArgumentPlans](../tests/sema/SemaExpressionTests.cpp#L1791)
+  Dynamic resize_bytes operands retain valid HIR when passed directly to memcmp.
+- `structural`: [Sema_BuiltinViewPlansObserveExplicitConversionResults](../tests/sema/SemaExpressionTests.cpp#L1818)
+  A memset fill explicitly converted to u8 has an identity plan for the one-byte u8 result, not its underlying wider integer operand.
+- `diagnostic`: [Sema_RejectsFloatingMemoryRvalueDestination](../tests/sema/SemaExpressionTests.cpp#L1802)
+  memset/memcpy/memmove reject non-writable floating destinations.
+- `IR`: [LLVMCodegen_PreservesFloatingRawMemoryBuiltinViews](../tests/codegen/LLVMCodegenTests.cpp#L3474)
+  Four widths produce verified modules with raw pointer calls, i8 fill loads, and no fptosi/fptoui.
+- `runtime`: [hsc_raw_memory_floating_views](../tests/support/harness/manifests/raw-memory-floating-views.json); cases: `optimized`, `reference`
+  Exact raw-memory 0 output, successful compile and exit across the configured matrix.
+  Host; both providers, three safety modes, O0/O2. Configuration is not an execution result.
+
+Context: [docs/raw-memory-floating-views.md](../docs/raw-memory-floating-views.md).
+
+Limit: Selected fixed-width ABI/literal/call/ternary and dynamic-memory examples; does not establish every builtin, View shape, lifetime case, or arithmetic NaN behavior. Constructed f128 special-value patterns assume supported little-endian targets. Floating assignment-expression materialization and zero-length dynamic View registration remain outside this correction.
 
 ## Standard navigation inventory
 
@@ -477,12 +507,12 @@ A mapped parent never implicitly maps its children or vice versa.
 | 13.4 | [Increment and Decrement](../Standard.md#134-increment-and-decrement) | unmapped |  |
 | 13.5 | [Error Handling](../Standard.md#135-error-handling) | unmapped |  |
 | 14 | [Standard-Library Functions](../Standard.md#14-standard-library-functions) | unmapped |  |
-| 14.0 | [Signature Notation](../Standard.md#140-signature-notation) | unmapped |  |
-| 14.1 | [Memory Management and Byte Operations](../Standard.md#141-memory-management-and-byte-operations) | unmapped |  |
+| 14.0 | [Signature Notation](../Standard.md#140-signature-notation) | inspected | [raw-memory-floating-views](#raw-memory-floating-views) |
+| 14.1 | [Memory Management and Byte Operations](../Standard.md#141-memory-management-and-byte-operations) | inspected | [raw-memory-floating-views](#raw-memory-floating-views) |
 | 14.2 | [Conversion Functions](../Standard.md#142-conversion-functions) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source) |
 | 14.3 | [String and Buffer Functions](../Standard.md#143-string-and-buffer-functions) | unmapped |  |
 | 14.4 | [Standard Input and Output](../Standard.md#144-standard-input-and-output) | unmapped |  |
-| 14.5 | [File I/O](../Standard.md#145-file-io) | inspected | [checked-file-handle-alias](#checked-file-handle-alias) |
+| 14.5 | [File I/O](../Standard.md#145-file-io) | inspected | [checked-file-handle-alias](#checked-file-handle-alias), [raw-memory-floating-views](#raw-memory-floating-views) |
 | 14.6 | [Mathematical Functions](../Standard.md#146-mathematical-functions) | unmapped |  |
 | 14.7 | [Character-Classification Functions](../Standard.md#147-character-classification-functions) | inspected | [ctype-low-byte](#ctype-low-byte), [ctype-canonical-bool](#ctype-canonical-bool) |
 | 14.8 | [Random Numbers, Time, and Process Control](../Standard.md#148-random-numbers-time-and-process-control) | unmapped |  |

@@ -1494,13 +1494,16 @@ verifyHIR(const TranslationUnit &unit) {
                                        const Expr &expression,
                                        const ConversionPlan &plan,
                                        const ViewSemantics &source,
-                                       std::string_view owner) {
+                                       std::string_view owner,
+                                       bool permitsDynamicIdentity = false) {
     if (!sameValueSemantics(plan.source, source)) {
       addDiagnostic(expression, std::string(owner) +
                                     " conversion plan source does not match its operand");
     }
-    if (plan.destination.lengthKind != ViewLengthKind::Static ||
-        plan.destination.staticByteLength == 0) {
+    if ((plan.destination.lengthKind != ViewLengthKind::Static &&
+         !(permitsDynamicIdentity && plan.kind == ConversionKind::Identity)) ||
+        (plan.destination.lengthKind == ViewLengthKind::Static &&
+         plan.destination.staticByteLength == 0)) {
       addDiagnostic(expression, std::string(owner) +
                                     " conversion plan destination must be a fixed View");
     }
@@ -1838,13 +1841,18 @@ verifyHIR(const TranslationUnit &unit) {
         addDiagnostic(*value,
                       "CallExpr argument conversion plan count does not match arguments");
       } else {
+        const auto *builtin = stdlib::findBuiltin(value->builtin);
         for (std::size_t index = 0; index < value->arguments.size(); ++index) {
+          const bool isViewParameter =
+              builtin != nullptr && index < builtin->parameters.size() &&
+              stdlib::isViewParameter(builtin->parameters[index].mode);
           const auto *cast = dynamic_cast<const IntegerCastExpr *>(
               value->arguments[index].get());
           checkConversionPlan(*value, value->argumentPlans[index],
-                              cast ? cast->operand->result
-                                   : value->arguments[index]->result,
-                              "CallExpr argument");
+                              cast && !isViewParameter
+                                  ? cast->operand->result
+                                  : value->arguments[index]->result,
+                              "CallExpr argument", isViewParameter);
         }
         if (value->builtin == stdlib::BuiltinId::None) {
           const auto callee = functionContracts.find(value->callee);

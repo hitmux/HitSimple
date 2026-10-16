@@ -1,6 +1,6 @@
 # HitSimple
 
-HitSimple is an experimental programming language and a C++20 compiler. Its core model is "data resides in memory, and meaning comes from explicit interpretation": the same bytes can be interpreted as integers, floating-point values, strings, addresses, or structured layouts, while storage remains separate from interpretation templates.
+HitSimple is an experimental programming language with a compiler implemented in C++20. Its core model is "data resides in memory, and meaning comes from explicit interpretation": the same bytes can be interpreted as integers, floating-point values, strings, addresses, or structured layouts, while storage remains separate from interpretation templates.
 
 The compiler pipeline is operational end to end:
 

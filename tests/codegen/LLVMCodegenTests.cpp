@@ -3470,3 +3470,27 @@ HS_TEST(LLVMCodegen_TernaryAsRetainsBranchLocalViewCopies) {
     HS_EXPECT_EQ(rightCalls, 1U);
   }
 }
+
+HS_TEST(LLVMCodegen_PreservesFloatingRawMemoryBuiltinViews) {
+  for (const auto bytes : {2U, 4U, 8U, 16U}) {
+    const auto type = "f" + std::to_string(bytes * 8U);
+    auto result = emitSource(
+        "func probe(value as " + type + ") -> i32 {\n"
+        "    new target as " + type + "\n"
+        "    new copied as addr = memcpy(target, value, " + std::to_string(bytes) + ")\n"
+        "    memset(target, value, " + std::to_string(bytes) + ")\n"
+        "    new filled as addr = memset(target, value, " + std::to_string(bytes) + ")\n"
+        "    return memcmp(target, value, " + std::to_string(bytes) + ")\n}\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+    const auto ir = llvmIr(result);
+    HS_EXPECT_TRUE(ir.find("call ptr @memcpy") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("call ptr @memset") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("call i32 @memcmp") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("view.low.byte = load i8") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fptosi") == std::string::npos);
+    HS_EXPECT_TRUE(ir.find("fptoui") == std::string::npos);
+  }
+}
