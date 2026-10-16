@@ -1837,3 +1837,25 @@ HS_TEST(Sema_BuiltinViewPlansObserveExplicitConversionResults) {
   HS_EXPECT_EQ(plan.source.staticByteLength, 1U);
   HS_EXPECT_EQ(plan.destination.staticByteLength, 1U);
 }
+
+HS_TEST(Sema_AssignmentExpressionsProduceRvalueViews) {
+  using namespace hitsimple::hir;
+  for (const auto *type : {"i32", "f16", "f32", "f64", "f128"}) {
+    auto result = analyzeSource(
+        "func assign(left as " + std::string(type) + ", right as " + type +
+        ") -> " + type + " { return left = right; }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+    const auto *ret = dynamic_cast<const Return *>(
+        result.unit->functions[0]->body->statements.back().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    const auto *assignment = dynamic_cast<const AssignmentExpr *>(ret->values[0].get());
+    HS_EXPECT_TRUE(assignment != nullptr);
+    HS_EXPECT_EQ(assignment->Expr::result.templateName, std::string(type));
+    HS_EXPECT_TRUE(!assignment->Expr::result.isMutableLValue);
+    HS_EXPECT_TRUE(!assignment->Expr::result.isAddressable);
+    HS_EXPECT_TRUE(assignment->result->result.isMutableLValue);
+  }
+}

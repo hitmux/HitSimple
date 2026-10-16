@@ -1904,11 +1904,15 @@ verifyHIR(const TranslationUnit &unit) {
     }
     if (const auto *value = dynamic_cast<const AssignmentExpr *>(&expression)) {
       checkByteLength(*value, value->byteLength, "byteLength");
+      if (value->Expr::result.isAddressable ||
+          value->Expr::result.isMutableLValue) {
+        addDiagnostic(*value, "AssignmentExpr result must be an rvalue View");
+      }
       for (const auto &store : value->stores) {
         verifyStmt(*store);
       }
       if (value->result) {
-        if (!sameSemantics(value->result->result, value->Expr::result)) {
+        if (!sameValueSemantics(value->result->result, value->Expr::result)) {
           addDiagnostic(*value,
                         "AssignmentExpr result does not match assigned View");
         }

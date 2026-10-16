@@ -389,3 +389,17 @@ HS_TEST(Hir_DynamicIdentityPlansAreLimitedToBuiltinViewParameters) {
     }
   }
 }
+
+HS_TEST(Hir_VerifierRejectsLvalueAssignmentResult) {
+  using namespace hitsimple::hir;
+  const auto destination = viewSemanticsForTemplate("i32", 4, true, true);
+  auto assignment = std::make_unique<AssignmentExpr>(
+      std::vector<std::unique_ptr<Stmt>>{},
+      std::make_unique<VariableRef>("value", destination), destination);
+  const auto unit = unitWithReturn(std::move(assignment));
+  const auto diagnostics = verifyHIR(*unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics[0].message.find(
+                     "AssignmentExpr result must be an rvalue View") !=
+                 std::string::npos);
+}
