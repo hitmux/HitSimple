@@ -1183,6 +1183,22 @@ llvm::Value *LlvmEmitter::emitMemoryOperandPointer(
   return emitBorrowedViewPointer(expression, name);
 }
 
+llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression) {
+  const auto view = emitViewValue(expression);
+  if (view.data == nullptr || view.length == nullptr) {
+    return nullptr;
+  }
+  // A View parameter is observed as bytes, including floating ABI objects
+  // and computed rvalues. Do not numerically convert it or load past its end.
+  if (hasRuntimeSafetyChecks() && !view.staticLength) {
+    (void)emitCheckedRuntimeCall(
+        declareCheckLoad(), {view.data, builder_.getInt64(1)});
+  }
+  auto *byte = builder_.CreateLoad(builder_.getInt8Ty(), view.data, "view.low.byte");
+  byte->setAlignment(llvm::Align(1));
+  return builder_.CreateZExt(byte, builder_.getInt32Ty(), "view.low.byte.ext");
+}
+
 ViewValue LlvmEmitter::emitUserTemplateOpCall(
     std::string_view calleeName,
     const std::vector<std::unique_ptr<hir::Expr>> &callArguments,
@@ -1624,7 +1640,7 @@ llvm::Value *LlvmEmitter::emitCallValue(const hir::CallExpr &call) {
   if (builtin == stdlib::BuiltinId::Memset) {
     auto *address =
         emitMemoryOperandPointer(*call.arguments[0], "memset.dst");
-    auto *value = emitIntegerValue(*call.arguments[1], 4, true);
+    auto *value = emitViewLowByte(*call.arguments[1]);
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (address == nullptr || value == nullptr || length == nullptr) {
       return nullptr;

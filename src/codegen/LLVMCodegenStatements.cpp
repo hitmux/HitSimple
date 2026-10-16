@@ -746,7 +746,7 @@ void LlvmEmitter::emit(const hir::Call &call) {
   if (call.builtin == stdlib::BuiltinId::Memset) {
     auto *address =
         emitMemoryOperandPointer(*call.arguments[0], "memset.dst");
-    auto *value = emitIntegerValue(*call.arguments[1], 4, true);
+    auto *value = emitViewLowByte(*call.arguments[1]);
     auto *length = emitIntegerValue(*call.arguments[2], sizeof(void *), true);
     if (!address || !value || !length) {
       return;

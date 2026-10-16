@@ -350,3 +350,42 @@ HS_TEST(Hir_ReturnWidthPlanRequiresAnAppendedConversion) {
   HS_EXPECT_TRUE(diagnostics[0].message.find("matching IntegerCastExpr") !=
                  std::string::npos);
 }
+
+HS_TEST(Hir_DynamicIdentityPlansAreLimitedToBuiltinViewParameters) {
+  using namespace hitsimple::hir;
+  const auto dynamic = dynamicViewSemantics(ViewCategory::Bytes, "bytes");
+  const auto makeDynamic = [&]() {
+    return std::make_unique<DynamicByteViewExpr>(
+        DynamicByteViewOperation::ResizeBytes,
+        std::make_unique<IntegerLiteral>("1", viewSemanticsForTemplate("i8", 1)),
+        std::make_unique<IntegerLiteral>("12", viewSemanticsForTemplate("u64", 8)),
+        dynamic);
+  };
+  const auto returnUnit = unitWithReturn(
+      makeDynamic(), {ConversionPlan{ConversionKind::Identity, dynamic, dynamic}});
+  const auto returnDiagnostics = verifyHIR(*returnUnit);
+  HS_EXPECT_EQ(returnDiagnostics.size(), 1U);
+  HS_EXPECT_TRUE(returnDiagnostics[0].message.find(
+                     "conversion plan destination must be a fixed View") !=
+                 std::string::npos);
+
+  for (const auto builtin : {hitsimple::stdlib::BuiltinId::None,
+                             hitsimple::stdlib::BuiltinId::Put}) {
+    std::vector<std::unique_ptr<Expr>> arguments;
+    arguments.push_back(makeDynamic());
+    auto call = std::make_unique<CallExpr>(
+        builtin == hitsimple::stdlib::BuiltinId::Put ? "put" : "ordinary",
+        std::move(arguments), false, builtin, std::vector<FormatArgKind>{}, 0,
+        "i32", viewSemanticsForTemplate("i32", 4));
+    const auto callUnit = unitWithReturn(std::move(call));
+    const auto diagnostics = verifyHIR(*callUnit);
+    if (builtin == hitsimple::stdlib::BuiltinId::Put) {
+      HS_EXPECT_TRUE(diagnostics.empty());
+    } else {
+      HS_EXPECT_EQ(diagnostics.size(), 1U);
+      HS_EXPECT_TRUE(diagnostics[0].message.find(
+                         "conversion plan destination must be a fixed View") !=
+                     std::string::npos);
+    }
+  }
+}

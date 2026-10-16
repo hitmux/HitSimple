@@ -747,13 +747,7 @@ Analyzer::analyzeCallArguments(const ast::CallExpr &call,
         builtin != nullptr && index < builtin->parameters.size()
             ? builtin->parameters[index].mode
             : stdlib::BuiltinParameterMode::None;
-    const bool acceptsAnyView =
-        parameterMode == stdlib::BuiltinParameterMode::View ||
-        parameterMode == stdlib::BuiltinParameterMode::LView ||
-        parameterMode == stdlib::BuiltinParameterMode::MemView ||
-        parameterMode == stdlib::BuiltinParameterMode::MemLView ||
-        parameterMode == stdlib::BuiltinParameterMode::CStrView ||
-        parameterMode == stdlib::BuiltinParameterMode::BytesView;
+    const bool acceptsAnyView = stdlib::isViewParameter(parameterMode);
     const auto templateName =
         index < signature.parameterTemplateNames.size()
             ? std::string_view{signature.parameterTemplateNames[index]}

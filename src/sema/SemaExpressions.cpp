@@ -1164,7 +1164,17 @@ Analyzer::analyzeCallExpr(const ast::CallExpr &call) {
                   signature.returnByteLengths.front()));
   loweredCall->argumentPlans.clear();
   loweredCall->argumentPlans.reserve(loweredCall->arguments.size());
+  const auto *builtin = stdlib::findBuiltin(signature.builtin);
   for (std::size_t index = 0; index < loweredCall->arguments.size(); ++index) {
+    if (builtin != nullptr && index < builtin->parameters.size() &&
+        stdlib::isViewParameter(builtin->parameters[index].mode)) {
+      // Chapter 14 meta-parameters borrow/read the original View. The
+      // manifest's bootstrap ABI width is not a numeric conversion target.
+      const auto &source = loweredCall->arguments[index]->result;
+      loweredCall->argumentPlans.push_back(
+          hir::ConversionPlan{hir::ConversionKind::Identity, source, source});
+      continue;
+    }
     const auto *integerCast = dynamic_cast<const hir::IntegerCastExpr *>(
         loweredCall->arguments[index].get());
     const auto &source = integerCast != nullptr

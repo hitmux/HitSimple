@@ -1759,3 +1759,81 @@ HS_TEST(Sema_TernaryAsRetainsStaticValidation) {
   HS_EXPECT_TRUE(length.unit == nullptr);
   HS_EXPECT_TRUE(!length.diagnostics.empty());
 }
+
+HS_TEST(Sema_PreservesFloatingBuiltinViewArgumentPlans) {
+  using namespace hitsimple::hir;
+  for (const auto bytes : {2U, 4U, 8U, 16U}) {
+    const auto type = "f" + std::to_string(bytes * 8U);
+    auto result = analyzePreprocessedSource(
+        "$include <string.hsh>\n"
+        "func probe(left as " + type + ", right as " + type + ") -> i32 {\n"
+        "    return memcmp(left, right, " + std::to_string(bytes) + ")\n}\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+    const auto *ret = dynamic_cast<const Return *>(
+        result.unit->functions[0]->body->statements.back().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    const auto *call = dynamic_cast<const CallExpr *>(ret->values[0].get());
+    HS_EXPECT_TRUE(call != nullptr);
+    HS_EXPECT_EQ(call->argumentPlans.size(), 3U);
+    for (std::size_t index = 0; index < 2U; ++index) {
+      const auto &plan = call->argumentPlans[index];
+      HS_EXPECT_EQ(plan.kind, ConversionKind::Identity);
+      HS_EXPECT_EQ(plan.source.templateName, type);
+      HS_EXPECT_EQ(plan.destination.templateName, type);
+      HS_EXPECT_EQ(plan.destination.staticByteLength, bytes);
+    }
+  }
+}
+
+HS_TEST(Sema_PreservesDynamicBuiltinViewArgumentPlans) {
+  auto result = analyzePreprocessedSource(
+      "$include <stdlib.hsh>\n$include <string.hsh>\n"
+      "func probe(size as u64) -> i32 {\n"
+      "    return memcmp(resize_bytes(1, size), resize_bytes(1, size), size)\n}\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*result.unit).empty());
+}
+
+HS_TEST(Sema_RejectsFloatingMemoryRvalueDestination) {
+  for (const auto *expression : {"memset(1.0, 0, 8)",
+                                  "memcpy(1.0, 2.0, 8)",
+                                  "memmove(1.0, 2.0, 8)"}) {
+    auto result = analyzePreprocessedSource(
+        "$include <string.hsh>\nfunc main() -> i32 {\n"
+        "    new result as addr = " + std::string(expression) +
+        "\n    return 0\n}\n");
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_TRUE(!result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.diagnostics.front().message.find(
+                       "must be a writable memory View or addr") !=
+                   std::string::npos);
+  }
+}
+
+HS_TEST(Sema_BuiltinViewPlansObserveExplicitConversionResults) {
+  using namespace hitsimple::hir;
+  auto result = analyzePreprocessedSource(
+      "$include <stdlib.hsh>\n$include <string.hsh>\n"
+      "func probe(out as u8) -> addr {\n"
+      "    return memset(out, to_u8(0x123471), 1)\n}\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(result.unit != nullptr);
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+  const auto *ret = dynamic_cast<const Return *>(
+      result.unit->functions[0]->body->statements.back().get());
+  HS_EXPECT_TRUE(ret != nullptr);
+  const auto *call = dynamic_cast<const CallExpr *>(ret->values[0].get());
+  HS_EXPECT_TRUE(call != nullptr);
+  const auto &plan = call->argumentPlans[1];
+  HS_EXPECT_EQ(plan.kind, ConversionKind::Identity);
+  HS_EXPECT_EQ(plan.source.templateName, std::string("u8"));
+  HS_EXPECT_EQ(plan.destination.templateName, std::string("u8"));
+  HS_EXPECT_EQ(plan.source.staticByteLength, 1U);
+  HS_EXPECT_EQ(plan.destination.staticByteLength, 1U);
+}
