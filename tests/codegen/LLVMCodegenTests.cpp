@@ -3594,3 +3594,38 @@ HS_TEST(LLVMCodegen_MultiReturnDestinationContracts) {
   HS_EXPECT_TRUE(!llvm::verifyModule(*widths.module));
   HS_EXPECT_TRUE(llvmIr(widths).find("fptrunc double") != std::string::npos);
 }
+
+HS_TEST(LLVMCodegen_CharacterClassifiersObserveOneRawByte) {
+  for (const auto width : {16, 32, 64, 128}) {
+    const auto type = "f" + std::to_string(width);
+    auto result = emitSource(
+        "func probe(value as " + type + ") -> u8 {\n"
+        "    new result as u8 = is_digit(value) as u8\n"
+        "    result = is_alpha(value) as u8\n"
+        "    result = is_alnum(value) as u8\n"
+        "    result = is_space(value) as u8\n"
+        "    result = to_upper(value)\n"
+        "    return to_lower(value)\n"
+        "}\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    unsigned byteLoads = 0;
+    for (const auto &function : *result.module) {
+      for (const auto &block : function) {
+        for (const auto &instruction : block) {
+          const auto *load = llvm::dyn_cast<llvm::LoadInst>(&instruction);
+          if (load && load->getName().str().rfind("view.low.byte", 0) == 0) {
+            HS_EXPECT_TRUE(load->getType()->isIntegerTy(8));
+            HS_EXPECT_EQ(load->getAlign().value(), 1U);
+            ++byteLoads;
+          }
+          HS_EXPECT_TRUE(instruction.getOpcode() != llvm::Instruction::FPToSI);
+          HS_EXPECT_TRUE(instruction.getOpcode() != llvm::Instruction::FPToUI);
+        }
+      }
+    }
+    HS_EXPECT_EQ(byteLoads, 6U);
+  }
+}

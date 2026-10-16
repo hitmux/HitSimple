@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 19 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 manifest APIs; 20 inspected witnesses.
 
 ## Validate and run
 
@@ -211,7 +211,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2041) (`value, llvm::ConstantInt::get(i32Ty, 0xff), "ctype.byte");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2036) (`auto *byte = emitViewLowByte(*call.arguments[0]);`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L2) (`func __hs_stdlib_ctype_is_digit(ch as i32) -> bool {`)
 - [stdlib/ctype.hs](../stdlib/ctype.hs#L32) (`func __hs_stdlib_ctype_to_lower(ch as i32) -> u8 {`)
 
@@ -232,7 +232,7 @@ Standard: [§14.7](../Standard.md#147-character-classification-functions), [§11
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2058) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2056) (`return builder_.CreateZExt(predicate, builder_.getInt8Ty(), "ctype.bool");`)
 
 Evidence:
 - `IR`: [LLVMCodegen_MaterializesCtypePredicatesAsCanonicalBoolBytes](../tests/codegen/LLVMCodegenTests.cpp#L1209)
@@ -538,6 +538,27 @@ Context: [docs/multi-return-assignments.md](../docs/multi-return-assignments.md)
 
 Limit: Only the existing direct multiple-return call path and ordinary supported assignments. Does not fix multiple separate RHS ordering, single-source discard, rebinding, dynamic returns, or every ordinary destination/operator limitation.
 
+### ctype-raw-view-inputs
+
+All six character functions observe one raw byte for floating ABI/rvalue and raw byte Views in both providers; predicates retain canonical bool results.
+
+Standard: [§14.7](../Standard.md#147-character-classification-functions).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L2113) (`// Core-HS character providers use an internal i32 ABI, but the public`)
+
+Evidence:
+- `IR`: [LLVMCodegen_CharacterClassifiersObserveOneRawByte](../tests/codegen/LLVMCodegenTests.cpp#L3598)
+  Verified four-width modules contain six aligned i8 observations and no floating-to-integer conversions.
+- `runtime`: [hsc_ctype_view_inputs](../tests/support/harness/manifests/ctype-view-inputs.json); cases: `optimized`, `reference`
+  Exhaustive 256-byte oracle for f16/f32/f64/f128 and raw 1/3/32-byte Views, canonical predicates, ASCII conversion, once-only rvalues and positive dynamic inputs.
+  Both providers, three safety modes and O0/O2 configured; configuration is not execution evidence.
+
+Context: [docs/ctype-view-inputs.md](../docs/ctype-view-inputs.md).
+
+Limit: Does not establish opaque-handle acceptance, zero-length dynamic Views or the entire Chapter 14 domain. Floating patterns have zero high bytes; no arithmetic payload guarantee.
+
 ## Standard navigation inventory
 
 A mapped parent never implicitly maps its children or vice versa.
@@ -666,7 +687,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 14.4 | [Standard Input and Output](../Standard.md#144-standard-input-and-output) | unmapped |  |
 | 14.5 | [File I/O](../Standard.md#145-file-io) | inspected | [checked-file-handle-alias](#checked-file-handle-alias), [raw-memory-floating-views](#raw-memory-floating-views) |
 | 14.6 | [Mathematical Functions](../Standard.md#146-mathematical-functions) | unmapped |  |
-| 14.7 | [Character-Classification Functions](../Standard.md#147-character-classification-functions) | inspected | [ctype-low-byte](#ctype-low-byte), [ctype-canonical-bool](#ctype-canonical-bool) |
+| 14.7 | [Character-Classification Functions](../Standard.md#147-character-classification-functions) | inspected | [ctype-low-byte](#ctype-low-byte), [ctype-canonical-bool](#ctype-canonical-bool), [ctype-raw-view-inputs](#ctype-raw-view-inputs) |
 | 14.8 | [Random Numbers, Time, and Process Control](../Standard.md#148-random-numbers-time-and-process-control) | unmapped |  |
 | 14.9 | [Diagnostic Assistance](../Standard.md#149-diagnostic-assistance) | unmapped |  |
 | 15 | [Preprocessor](../Standard.md#15-preprocessor) | unmapped |  |
