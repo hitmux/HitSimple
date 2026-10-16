@@ -250,7 +250,7 @@ floatExpressionByteLength(const hir::Expr &expression) {
 }
 
 bool integerFits(const ast::IntegerLiteral &integer, std::size_t byteLength) {
-  if (byteLength == 0 || byteLength > 8) {
+  if (byteLength == 0) {
     return false;
   }
 
@@ -260,6 +260,11 @@ bool integerFits(const ast::IntegerLiteral &integer, std::size_t byteLength) {
   }
   const auto value = *parsed;
 
+  // Every standard literal magnitude fits a signed destination wider than
+  // eight bytes. Keep the literal's own inferred width and interpretation.
+  if (byteLength > 8) {
+    return true;
+  }
   if (byteLength == 8) {
     return value <=
            static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());

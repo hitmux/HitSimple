@@ -1325,6 +1325,18 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_assignment_result_views PROPERTIES
     LABELS "testing;harness;stdlib;float")
   add_test(
+    NAME hsc_wide_integer_literals
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite wide-integer-literals
+      --differential
+      --safety-mode
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_wide_integer_literals PROPERTIES
+    LABELS "testing;harness;integer;assignment")
+  add_test(
     NAME hsc_validated_view_lengths
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
