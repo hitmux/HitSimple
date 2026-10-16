@@ -11,6 +11,7 @@
 #include "hitsimple/support/Path.h"
 #include "hitsimple/support/Process.h"
 #include "hitsimple/support/ResourcePaths.h"
+#include "hitsimple/support/TemporaryDirectory.h"
 #include "hitsimple/support/Toolchain.h"
 
 #include <llvm/Support/raw_ostream.h>
@@ -237,22 +238,6 @@ std::filesystem::path pdbPathForExecutable(const std::string &executablePath) {
   return pdbPath;
 }
 
-class TemporaryDirectory final {
-public:
-  explicit TemporaryDirectory(std::filesystem::path path)
-      : path_(std::move(path)) {}
-
-  ~TemporaryDirectory() {
-    std::error_code error;
-    std::filesystem::remove_all(path_, error);
-  }
-
-  const std::filesystem::path &path() const { return path_; }
-
-private:
-  std::filesystem::path path_;
-};
-
 bool emitOptimizedObject(hitsimple::codegen::ModuleEmitResult &emission,
                          const std::filesystem::path &objectPath,
                          const NativeBackendOptions &backendOptions,
@@ -368,21 +353,16 @@ int compileStaticLibrary(
     return EXIT_FAILURE;
   }
 
-  const auto temporaryPath =
-      std::filesystem::temp_directory_path() /
-      ("hitsimple-staticlib-" +
-       std::to_string(hitsimple::support::currentProcessId()));
   std::error_code directoryError;
-  std::filesystem::remove_all(temporaryPath, directoryError);
-  directoryError.clear();
-  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
-    std::cerr << "hsc: cannot create static library temporary directory '"
-              << hitsimple::support::pathToUtf8(temporaryPath)
-              << "': " << directoryError.message() << '\n';
+  auto temporaryDirectory = hitsimple::support::TemporaryDirectory::create(
+      "hitsimple-staticlib", directoryError);
+  if (!temporaryDirectory) {
+    std::cerr << "hsc: cannot create static library temporary directory: "
+              << directoryError.message() << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
-  TemporaryDirectory temporaryDirectory(temporaryPath);
+  const auto &temporaryPath = temporaryDirectory->path();
 
   std::vector<std::filesystem::path> objectPaths;
   objectPaths.reserve(inputPaths.size());
@@ -614,21 +594,16 @@ int compileExecutable(
       return EXIT_FAILURE;
     }
   }
-  const auto temporaryPath =
-      std::filesystem::temp_directory_path() /
-      ("hitsimple-link-" +
-       std::to_string(hitsimple::support::currentProcessId()));
   std::error_code directoryError;
-  std::filesystem::remove_all(temporaryPath, directoryError);
-  directoryError.clear();
-  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
-    std::cerr << "hsc: cannot create link temporary directory '"
-              << hitsimple::support::pathToUtf8(temporaryPath)
-              << "': " << directoryError.message() << '\n';
+  auto temporaryDirectory = hitsimple::support::TemporaryDirectory::create(
+      "hitsimple-link", directoryError);
+  if (!temporaryDirectory) {
+    std::cerr << "hsc: cannot create link temporary directory: "
+              << directoryError.message() << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
-  TemporaryDirectory temporaryDirectory(temporaryPath);
+  const auto &temporaryPath = temporaryDirectory->path();
   std::vector<std::filesystem::path> objectPaths;
   objectPaths.reserve(units.size());
   for (std::size_t index = 0; index < units.size(); ++index) {
@@ -801,21 +776,16 @@ int compileMixedExecutable(
       externalInputs.linkerLanguage
           ? *externalInputs.linkerLanguage == LinkerLanguage::Cxx
           : !externalInputs.cxxSources.empty();
-  const auto temporaryPath =
-      std::filesystem::temp_directory_path() /
-      ("hitsimple-link-" +
-       std::to_string(hitsimple::support::currentProcessId()));
   std::error_code directoryError;
-  std::filesystem::remove_all(temporaryPath, directoryError);
-  directoryError.clear();
-  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
-    std::cerr << "hsc: cannot create link temporary directory '"
-              << hitsimple::support::pathToUtf8(temporaryPath)
-              << "': " << directoryError.message() << '\n';
+  auto temporaryDirectory = hitsimple::support::TemporaryDirectory::create(
+      "hitsimple-link", directoryError);
+  if (!temporaryDirectory) {
+    std::cerr << "hsc: cannot create link temporary directory: "
+              << directoryError.message() << '\n';
     metrics.fail("cli");
     return EXIT_FAILURE;
   }
-  TemporaryDirectory temporaryDirectory(temporaryPath);
+  const auto &temporaryPath = temporaryDirectory->path();
 
   std::vector<CompiledObjectTranslationUnit> units;
   units.reserve(inputPaths.size());

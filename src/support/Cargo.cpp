@@ -2,6 +2,7 @@
 
 #include "hitsimple/support/Path.h"
 #include "hitsimple/support/Process.h"
+#include "hitsimple/support/TemporaryDirectory.h"
 
 #include <llvm/Support/JSON.h>
 
@@ -19,21 +20,6 @@ namespace {
 std::string_view stringView(llvm::StringRef value) {
   return {value.data(), value.size()};
 }
-
-class TemporaryDirectory final {
-public:
-  explicit TemporaryDirectory(std::filesystem::path path) : path_(std::move(path)) {}
-
-  ~TemporaryDirectory() {
-    std::error_code error;
-    std::filesystem::remove_all(path_, error);
-  }
-
-  const std::filesystem::path& path() const { return path_; }
-
-private:
-  std::filesystem::path path_;
-};
 
 std::optional<std::string> readFile(const std::filesystem::path& path,
                                     std::string& error) {
@@ -344,18 +330,14 @@ std::optional<CargoStaticLibrary> buildCargoStaticLibrary(
     return std::nullopt;
   }
 
-  const auto temporaryPath = std::filesystem::temp_directory_path() /
-      ("hitsimple-cargo-" + std::to_string(currentProcessId()));
   std::error_code directoryError;
-  std::filesystem::remove_all(temporaryPath, directoryError);
-  directoryError.clear();
-  if (!std::filesystem::create_directories(temporaryPath, directoryError)) {
-    error = "cannot create Cargo temporary directory '" +
-        pathToUtf8(temporaryPath) + "': " + directoryError.message();
+  auto temporaryDirectory =
+      TemporaryDirectory::create("hitsimple-cargo", directoryError);
+  if (!temporaryDirectory) {
+    error = "cannot create Cargo temporary directory: " + directoryError.message();
     return std::nullopt;
   }
-  TemporaryDirectory temporaryDirectory(temporaryPath);
-  const auto outputPath = temporaryDirectory.path() / "build.json";
+  const auto outputPath = temporaryDirectory->path() / "build.json";
   if (!validateCargoManifest(cargo, options, outputPath, error)) {
     return std::nullopt;
   }
@@ -375,7 +357,7 @@ std::optional<CargoStaticLibrary> buildCargoStaticLibrary(
   if (options.noDefaultFeatures) {
     arguments.push_back("--no-default-features");
   }
-  const auto diagnosticsPath = temporaryDirectory.path() / "build.stderr";
+  const auto diagnosticsPath = temporaryDirectory->path() / "build.stderr";
   const auto process = runProcess(*cargo.path, arguments, outputPath, diagnosticsPath);
   std::string outputError;
   const auto output = readFile(outputPath, outputError);
