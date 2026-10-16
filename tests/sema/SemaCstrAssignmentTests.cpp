@@ -136,3 +136,41 @@ HS_TEST(Sema_CstrAnonymousReturnStorageKeepsCAbiBoundary) {
   HS_EXPECT_TRUE(invalidBare.unit == nullptr);
   HS_EXPECT_TRUE(!invalidBare.diagnostics.empty());
 }
+
+HS_TEST(Sema_CstrLiteralPaddingPreservesRawLiteralAndInferredLength) {
+  using namespace hitsimple::hir;
+  for (const std::string literal : {"\"\\0ab\"", "\"a\\0b\"", "\"ab\\0\"", "\"\""}) {
+    const std::size_t byteLength = literal == "\"\"" ? 1U : 4U;
+    auto result = analyzeSource(
+        "func main() {\n"
+        "  new inferred as cstr = " + literal + "\n"
+        "  new raw[" + std::to_string(byteLength) + "] as bytes = " + literal + "\n"
+        "}\n");
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+    std::vector<const Stmt *> statements;
+    for (const auto &statement : result.unit->functions.front()->body->statements)
+      flattenCStringStatements(*statement, statements);
+    unsigned stringStores = 0;
+    unsigned rawCopies = 0;
+    for (const auto *statement : statements) {
+      if (const auto *store = dynamic_cast<const StringStore *>(statement)) {
+        ++stringStores;
+        HS_EXPECT_EQ(store->targetByteLength, byteLength);
+        HS_EXPECT_EQ(store->value, literal);
+      }
+      if (const auto *copy = dynamic_cast<const ViewCopyStore *>(statement)) {
+        ++rawCopies;
+        HS_EXPECT_EQ(copy->targetByteLength, byteLength);
+        const auto *string = dynamic_cast<const StringLiteral *>(copy->value.get());
+        HS_EXPECT_TRUE(string != nullptr);
+        HS_EXPECT_EQ(string->value, literal);
+        HS_EXPECT_EQ(string->result.staticByteLength, byteLength);
+        HS_EXPECT_EQ(string->result.templateName, "cstr");
+      }
+    }
+    HS_EXPECT_EQ(stringStores, 1U);
+    HS_EXPECT_EQ(rawCopies, 1U);
+  }
+}

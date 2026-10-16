@@ -6,9 +6,10 @@
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
-    "docs/cstr-assignment-contracts.md": "808a062500f22cde0cb5ca456c538348618df0c43b58120e112bf46bbc97e836",
+    "docs/cstr-assignment-contracts.md": "bcd515e73935b78f731e3e9044596097e31a545f30ad23d88a8683e1848682a4",
+    "docs/cstr-literal-padding.md": "b13842c768d76a6f32362fa2afb2bb40c62460a606476ca284c3b0c211fc9450",
     "docs/ctype-view-inputs.md": "79a37dd3a7c0ebb528deeacf7c394b6dd0658dd6e9e2c7fa71f7acf9b1ee0eef",
-    "docs/evidence/standard-witnesses.json": "e358f94deb4a22c42f2c7c3dbb9eb1b8db13723b6af74a8aa3d25f49741c28b5",
+    "docs/evidence/standard-witnesses.json": "b5559ccbb84a65257210097405a093ed00513b4ee2e837b20d13698cfadb4f8b",
     "docs/multi-return-assignments.md": "1ea38b9dfb98cd18061a146e7f028f584206682822b652729ba35f520d01e675",
     "docs/multiple-rhs-assignments.md": "527078e7707565a1d5bf7614a8f0e1e34a97565e642fd8cedb983f9ac5617d2c",
     "docs/named-return-storage.md": "9478c32dbbd8dbb03c8bafe7856492443805e6e2b866c998001649bb4a74f6af",
@@ -19,7 +20,7 @@
     "src/codegen/LLVMCodegen.cpp": "10bbb44afb3b4e0dbb605b4562eddb57ec4044a483e9c36b9ef08cfe1507f8d3",
     "src/codegen/LLVMCodegenExpressions.cpp": "2ed7ec73b65c44bfcca7cd556ed4f830f2de6c07f6a183e955f3d62f9fa03c80",
     "src/codegen/LLVMCodegenFunctions.cpp": "8f83f61094e9c82f8c63a550fc90cf300fc120f8cbef64f5b19728e562c01d13",
-    "src/codegen/LLVMCodegenStatements.cpp": "933c9b0a5830c3be6980c30c9eaa3f60a40325052e6708a0ad34b537b3fd485c",
+    "src/codegen/LLVMCodegenStatements.cpp": "8643bd298b574a79d6584405f192c00e93e0c524bdbc5b268f4701461e749f5d",
     "src/hir/HIR.cpp": "16c8c81918d5733450fd0243df65bebba7446981a713406333ac00b3ab95c160",
     "src/safety/StaticSafetyFacts.cpp": "00d6111b2ebea647bede098b5fe4b878184fe9f3705e274c0e7f524b5729c47c",
     "src/safety/StaticSafetyValidation.cpp": "9da51c9b89d4fb12aca4f48fea7d0b22e58ea03aa575820fd27c61d6f87a1105",
@@ -37,6 +38,7 @@
     "tests/cases/run/checked_dynamic_divide_by_zero.hs": "e54d6547c270c092521d1d5040ad6b8c897728a008860f866c43666a0ca0b436",
     "tests/cases/run/checked_file_handle_lifecycle.hs": "33717bbd13381166938058d2e69ffce86c09e4fca1bb6bfec5e863cfd5a41c94",
     "tests/cases/run/cstr_assignment_contracts.hs": "2778dace3fff27cd8f8da570d492924d181faa69bb349b6a1f24187d4a93005f",
+    "tests/cases/run/cstr_literal_padding.hs": "d24329ec41dd39d562adbaeb1585a6049a0178d409d3498d39c2366c7bb0f22d",
     "tests/cases/run/ctype_bool_representation.hs": "42816027774e56b7ed142d334d634b516c3d1245e093dd4e42d77672bbcbe336",
     "tests/cases/run/ctype_reference.hs": "6d9c84f8cead2062d0b3229300044b4aaf5e59a1f06d7b2f4a103e55102efbc8",
     "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
@@ -69,7 +71,7 @@
     "tests/cases/sema/multiple_rhs_too_many_sources.hs": "89613650b7b4aed1a46ef061c5d6b36bf459fb377968eb5b9c35d641561997e9",
     "tests/cases/sema/multiple_rhs_user_template.hs": "22860158245486532bf7cd5c77b22021275eed50cb30423c0a92e39ffdb1380b",
     "tests/codegen/LLVMCodegenTests.cpp": "dc864a0a48a833e6559caa8f4d4ceae217d88db536776555df0c5e36439510de",
-    "tests/codegen/LLVMCstrAssignmentTests.cpp": "1f1e5a274100e429fa83ca473c76420258cb9a7e4168bc13e3f5d091d19af20f",
+    "tests/codegen/LLVMCstrAssignmentTests.cpp": "29499a0ca1f0e20abd0040662be27b8352ccc1927d08b0ed915ec013805d1189",
     "tests/codegen/NativeTargetTests.cpp": "e0aff3f282d0731d94d1cc5f91eeef2877ffb5515ef9bdb307832b4f7c673425",
     "tests/codegen/ObjectEmitterTests.cpp": "33690660c9e9fb150d6e40cce390f18e343c59fdd135dbec574619e16326c9a0",
     "tests/codegen/OptimizationPipelineTests.cpp": "717fbc5e1b9ae177e52c30bd1bfb97b0ba917055dcb708f200e172440590df7a",
@@ -84,7 +86,7 @@
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
-    "tests/sema/SemaCstrAssignmentTests.cpp": "3677bc62ec220ec78182aae3735a7b7373301d63ad821b82069862af140a1947",
+    "tests/sema/SemaCstrAssignmentTests.cpp": "1679a414aa511198fdc213c6f2ef3ffbb5af95b38dff47333312617470a671ac",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
     "tests/sema/SemaExpressionTests.cpp": "c4d5a23158a549e682bf537c8fe1a43754aea466d22a67754bd54335b3a79ffd",
     "tests/sema/SemaMultiReturnTests.cpp": "d809c9756a0c83c7555360455d66e63a7b33f70f9d7cafbeb74eb5e17660287c",
@@ -99,7 +101,7 @@
     "tests/support/TemporaryDirectoryTests.cpp": "32ed29ae133f8f3bec9e4a935936bd8ad1998cdf59e0251b2059259ffbfbe91e",
     "tests/support/harness/manifests/assignment-result-views.json": "a5b2d02945bd84c048c8c870f4c9911a0543f83ea47df7d70ae4a1a7093c1abc",
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
-    "tests/support/harness/manifests/cstr-assignment-contracts.json": "ff26db0a5da0ff4d44ff1d577c0535d7ffffbaa0772701c0c7cf552b4aa92c7e",
+    "tests/support/harness/manifests/cstr-assignment-contracts.json": "d2062ba424dd5c9d27e0c21195873acb8011328e790297f517fe2b4c6164ad89",
     "tests/support/harness/manifests/cstr-assignment-diagnostics.json": "feb8593f1b6c131c5614d8f2512964cbc210de5dc3377f42653dea7df604de6f",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
     "tests/support/harness/manifests/ctype-providers.json": "6f4266095eabbff00eea5fb808d964e7b36d00c07dd4d125d00156d322bc7eb0",
@@ -292,8 +294,10 @@
       "line": 196,
       "anchor": "353-character-and-string-literals",
       "parent": "3.5",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "cstr-literal-zero-padding"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "3.5.4",
@@ -683,7 +687,8 @@
       "anchor": "75-explicit-string-assignment-s",
       "parent": "7",
       "witnesses": [
-        "cstr-default-assignment-contracts"
+        "cstr-default-assignment-contracts",
+        "cstr-literal-zero-padding"
       ],
       "mapping_status": "inspected"
     },
@@ -1081,8 +1086,10 @@
       "line": 1144,
       "anchor": "117-cstr-and-bytes",
       "parent": "11",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "cstr-literal-zero-padding"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "11.8",
@@ -1111,7 +1118,8 @@
       "anchor": "1110-standard-template-default-assignment-matrix",
       "parent": "11",
       "witnesses": [
-        "cstr-default-assignment-contracts"
+        "cstr-default-assignment-contracts",
+        "cstr-literal-zero-padding"
       ],
       "mapping_status": "inspected"
     },
@@ -1144,7 +1152,8 @@
         "explicit-numeric-return-source",
         "none-return-canonical-view",
         "named-return-storage",
-        "cstr-default-assignment-contracts"
+        "cstr-default-assignment-contracts",
+        "cstr-literal-zero-padding"
       ],
       "mapping_status": "inspected"
     },
@@ -2966,6 +2975,11 @@
     },
     {
       "id": "cstr-default-assignment-contracts",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "cstr-literal-zero-padding",
       "mapping_status": "inspected",
       "execution_status": "not_recorded"
     }

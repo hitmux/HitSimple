@@ -437,10 +437,16 @@ void LlvmEmitter::emit(const hir::StringStore &store) {
   }
 
   const auto decoded = decodeStringLiteral(store.value);
+  // StringStore represents %s= (including default cstr assignment), not a
+  // raw literal copy. Bytes after the first NUL belong to the literal View's
+  // full extent but must become padding in this destination.
+  const auto terminator = decoded.find('\0');
+  const auto stringBytes =
+      terminator == std::string::npos ? decoded.size() : terminator;
   const std::size_t copiedBytes =
       store.targetByteLength == 0
           ? 0
-          : std::min(decoded.size(), store.targetByteLength - 1);
+          : std::min(stringBytes, store.targetByteLength - 1);
 
   for (std::size_t index = 0; index < store.targetByteLength; ++index) {
     unsigned char byte = 0;

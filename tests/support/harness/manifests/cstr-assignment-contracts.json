@@ -106,6 +106,96 @@
           }
         }
       }
+    },
+    {
+      "name": "literal_optimized",
+      "source": "../../../cases/run/cstr_literal_padding.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "cstr literal padding 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "cstr literal padding 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "cstr literal padding 0\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "literal_reference",
+      "source": "../../../cases/run/cstr_literal_padding.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "cstr literal padding 0\\r?\\n"
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "cstr literal padding 0\\r?\\n"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stderr": "",
+            "stdout_regex": "cstr literal padding 0\\r?\\n"
+          }
+        }
+      }
     }
   ]
 }
