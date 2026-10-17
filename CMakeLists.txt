@@ -645,6 +645,7 @@ if(BUILD_TESTING)
     tests/sema/SemaMultiReturnTests.cpp
     tests/sema/SemaNamedReturnTests.cpp
     tests/sema/SemaViewLengthTests.cpp
+    tests/sema/SemaUnsignedViewTests.cpp
     tests/sema/SemaTryCatchTests.cpp
     tests/safety/StaticSafetyAnalyzerTests.cpp
     tests/support/ProcessTests.cpp
@@ -1336,6 +1337,26 @@ target_link_libraries(hsc_unit_tests
   )
   set_tests_properties(hsc_wide_integer_literals PROPERTIES
     LABELS "testing;harness;integer;assignment")
+  add_test(
+    NAME hsc_unsigned_view_snapshots
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite unsigned-view-snapshots
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_unsigned_view_snapshots PROPERTIES
+    LABELS "testing;harness;stdlib;views")
+  add_test(
+    NAME hsc_unsigned_snapshot_integration
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite unsigned-snapshot-integration
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_unsigned_snapshot_integration PROPERTIES
+    LABELS "testing;harness;stdlib;views;integration")
   add_test(
     NAME hsc_validated_view_lengths
     COMMAND ${Python3_EXECUTABLE}

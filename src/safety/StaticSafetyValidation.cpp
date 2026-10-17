@@ -741,7 +741,13 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
   }
   if (const auto *unsignedExpr =
           dynamic_cast<const hir::UnsignedExpr *>(&expression)) {
-    validateSafety(*unsignedExpr->operand);
+    if (unsignedExpr->operand->result.isAddressable) {
+      validateStaticViewFormation(*unsignedExpr->operand);
+      validateStaticMemoryAccess(staticViewAddressFact(*unsignedExpr->operand),
+          unsignedExpr->result.staticByteLength, "unsigned snapshot");
+    } else {
+      validateSafety(*unsignedExpr->operand);
+    }
     return;
   }
   if (const auto *cast =

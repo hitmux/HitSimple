@@ -290,13 +290,21 @@ void hs_register_temporary(void *ptr, uint64_t size,
   if (hs_current_frame == 0) {
     hs_fail("temporary object registered outside a runtime frame");
   }
-  if (ptr == NULL || size == 0) {
-    hs_fail("invalid object registration");
-  }
-
   const uint64_t scope = hs_frame_scopes[hs_current_frame];
   HsAlloc *existing =
       hs_find_temporary(hs_current_frame, scope, registration_id);
+  // Empty rvalue Views are valid. They expose no readable bytes and therefore
+  // need no registered object. Clear a previous nonempty iteration of this
+  // same temporary so stale capacity cannot survive a zero-length result.
+  if (size == 0) {
+    if (existing != NULL) {
+      hs_clear(existing);
+    }
+    return;
+  }
+  if (ptr == NULL) {
+    hs_fail("invalid object registration");
+  }
   if (existing != NULL) {
     existing->ptr = ptr;
     existing->size = size;

@@ -30,6 +30,19 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn(f"-notmatch '{diagnostic} at .*checked_memcpy_bounds\\.hs:8:26'", workflow)
         self.assertNotIn("hitsimple runtime error: invalid memcpy destination range", workflow)
 
+    def test_view_snapshot_gates_run_in_selective_platform_suites(self) -> None:
+        workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        for start, end in (
+            ("      - name: Run aarch64 front-end and executable regression", "      - name: Verify native preprocessor macro"),
+            ("      - name: Run portable Windows CTest cases", "      - name: Assemble full and slim packages"),
+        ):
+            block = workflow.split(start, 1)[1].split(end, 1)[0]
+            patterns = re.findall(r"-DTEST_REGEX=([^']+)", block)
+            for case in ("hsc_literal_ternary_views", "hsc_literal_ternary_rejections",
+                         "hsc_wide_integer_literals", "hsc_unsigned_view_snapshots",
+                         "hsc_unsigned_snapshot_integration"):
+                self.assertTrue(any(re.fullmatch(pattern, case) for pattern in patterns), case)
+
     def windows_npm_commands(self) -> list[str]:
         workflow = (SOURCE_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         block = workflow.split("      - name: Test extension with Windows release compiler", 1)[1]

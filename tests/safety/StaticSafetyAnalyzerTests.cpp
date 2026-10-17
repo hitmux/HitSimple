@@ -912,3 +912,32 @@ HS_TEST(StaticSafetyAnalyzer_RebindingAsciiExtensionsReadOnlyLowByte) {
     HS_EXPECT_TRUE(hasDiagnostic(analyzeSafety(nullSource), "null address"));
   }
 }
+
+HS_TEST(StaticSafetyAnalyzer_UnsignedSnapshotReadsCompleteReboundExtent) {
+  for (const auto *type : {"bytes", "cstr"}) {
+    const auto prefix = "func main() -> i32 { new backing[1] as bytes = '\\0'; new view[8] as " +
+                        std::string(type) + "; view &= &backing; ";
+    const auto formation = analyzeSafety(prefix + "new ignored = length(view); return 0; }");
+    const auto snapshot = analyzeSafety(prefix + "new ignored = length(view?); return 0; }");
+    HS_EXPECT_TRUE(formation.diagnostics.empty());
+    HS_EXPECT_TRUE(hasDiagnostic(snapshot, "unsigned snapshot out of bounds"));
+  }
+}
+
+HS_TEST(StaticSafetyAnalyzer_UnsignedSnapshotChecksLifetimeAndIgnoresCStringTermination) {
+  const auto expired = analyzeSafety(
+      "func main() -> i32 { new pointer as addr = 0; if (true) { new value as u8 = 1; "
+      "pointer = &value; }; new ignored = length(([1]*pointer)?); return 0; }");
+  HS_EXPECT_TRUE(hasDiagnostic(expired, "use after scope exit unsigned snapshot"));
+  const auto raw = analyzeSafety(
+      "func main() -> i32 { new text[3] as bytes = 'ABC'; set text as cstr; "
+      "new ignored = length(text?); return 0; }");
+  HS_EXPECT_TRUE(raw.diagnostics.empty());
+}
+
+HS_TEST(StaticSafetyAnalyzer_UnsignedPointerSnapshotHasViewCapacity) {
+  const auto source = "func main() -> i32 { new backing[16] as bytes; "
+      "new pointer as addr = &backing; return memcmp(pointer?, backing, 16); }";
+  const auto result = analyzeSafety(source);
+  HS_EXPECT_TRUE(hasDiagnostic(result, "memory load out of bounds"));
+}

@@ -471,3 +471,37 @@ HS_TEST(Hir_ViewOffsetBoundsDescribeOnlyIndexingAndSlicing) {
   HS_EXPECT_TRUE(diagnostics.front().message.find("ViewOffsetBounds") !=
                  std::string::npos);
 }
+
+HS_TEST(Hir_UnsignedViewRejectsChangedExtentOrLvalueResult) {
+  using namespace hitsimple::hir;
+  for (const auto invalid : {0, 1, 2, 3}) {
+    auto source = viewSemanticsForTemplate("f64", 8, true, true);
+    auto result = viewSemanticsForTemplate("", 8, false, false,
+                                          IntegerInterpretation::Unsigned);
+    if (invalid == 0) result.staticByteLength = 4;
+    if (invalid == 1) result.isAddressable = true;
+    if (invalid == 2) result.integerInterpretation = IntegerInterpretation::Signed;
+    if (invalid == 3) result.templateName = "u64";
+    const auto unit = unitWithReturn(std::make_unique<UnsignedExpr>(
+        std::make_unique<VariableRef>("source", source), result));
+    const auto diagnostics = verifyHIR(*unit);
+    HS_EXPECT_TRUE(!diagnostics.empty());
+    bool found = false;
+    for (const auto &diagnostic : diagnostics) {
+      found = found || diagnostic.message.find("UnsignedExpr must preserve operand length") !=
+                         std::string::npos;
+    }
+    HS_EXPECT_TRUE(found);
+  }
+}
+
+HS_TEST(Hir_UnsignedViewRejectsMissingOperand) {
+  using namespace hitsimple::hir;
+  const auto unit = unitWithReturn(std::make_unique<UnsignedExpr>(
+      nullptr, viewSemanticsForTemplate("", 8, false, false,
+                                        IntegerInterpretation::Unsigned)));
+  const auto diagnostics = verifyHIR(*unit);
+  HS_EXPECT_EQ(diagnostics.size(), 1U);
+  HS_EXPECT_TRUE(diagnostics.front().message.find("UnsignedExpr requires an operand View") !=
+                 std::string::npos);
+}

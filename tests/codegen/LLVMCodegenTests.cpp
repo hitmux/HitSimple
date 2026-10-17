@@ -4040,3 +4040,87 @@ HS_TEST(LLVMCodegen_WideIntegerLiteralMagnitudesAndNegativeExtension) {
     }
   }
 }
+
+HS_TEST(LLVMCodegen_UnsignedSnapshotsCopyBytesWithoutNumericConversion) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    hitsimple::codegen::CodegenOptions options;
+    options.safetyMode = mode;
+    auto result = emitSource(
+        "func source() -> f64 { return 0x8000000000000000 as f64; }\n"
+        "func probe(count as u64, data[17] as bytes) -> u64 { "
+        "new fixed[8] as bytes = source()?; return length(resize_bytes(data, count)?); }\n"
+        "func main() -> i32 { return 0; }\n",
+        options);
+    HS_EXPECT_TRUE(result.ok());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    unsigned sourceCalls = 0;
+    unsigned snapshots = 0;
+    unsigned copies = 0;
+    for (const auto &block : *result.module->getFunction("probe")) {
+      for (const auto &instruction : block) {
+        HS_EXPECT_TRUE(!llvm::isa<llvm::FPToSIInst>(instruction));
+        HS_EXPECT_TRUE(!llvm::isa<llvm::FPToUIInst>(instruction));
+        if (const auto *alloca = llvm::dyn_cast<llvm::AllocaInst>(&instruction);
+            alloca != nullptr && alloca->getName().starts_with("view.unsigned")) {
+          ++snapshots;
+          HS_EXPECT_EQ(alloca->getAlign().value(), 1U);
+        }
+        if (const auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(&instruction);
+            copy != nullptr && copy->getRawDest()->getName().starts_with("view.unsigned")) {
+          ++copies;
+        }
+        if (const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+            call != nullptr && call->getCalledFunction() != nullptr &&
+            call->getCalledFunction()->getName() == "source") ++sourceCalls;
+      }
+    }
+    HS_EXPECT_EQ(sourceCalls, 1U);
+    HS_EXPECT_EQ(snapshots, 2U);
+    HS_EXPECT_EQ(copies, 2U);
+  }
+}
+
+HS_TEST(LLVMCodegen_UnsignedTernarySnapshotsRemainBranchLocalAndFullWidth) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    auto result = emitSource(
+        "func source() -> bool { return true; }\n"
+        "func probe(data[4] as cstr) -> u64 { "
+        "return length((source() ? data : \"a\\0b\")?); }\n"
+        "func main() -> i32 { return 0; }\n", optionsFor(mode));
+    HS_EXPECT_TRUE(result.ok());
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module));
+    unsigned sourceCalls = 0;
+    unsigned branchCopies = 0;
+    unsigned suffixCopies = 0;
+    for (const auto &block : *result.module->getFunction("probe")) {
+      for (const auto &instruction : block) {
+        if (const auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(&instruction)) {
+          const auto *length = llvm::dyn_cast<llvm::ConstantInt>(copy->getLength());
+          HS_EXPECT_TRUE(length != nullptr);
+          HS_EXPECT_EQ(length->getZExtValue(), 4U);
+          if (copy->getRawDest()->getName() == "view.unsigned") {
+            HS_EXPECT_EQ(block.getName().str(), std::string("view.ternary.end"));
+            ++suffixCopies;
+          } else if (copy->getRawDest()->getName() == "view.ternary") {
+            HS_EXPECT_TRUE(block.getName() == "view.ternary.then" ||
+                           block.getName() == "view.ternary.else");
+            ++branchCopies;
+          }
+        }
+        if (const auto *call = llvm::dyn_cast<llvm::CallInst>(&instruction);
+            call != nullptr && call->getCalledFunction() != nullptr &&
+            call->getCalledFunction()->getName() == "source") {
+          HS_EXPECT_TRUE(block.getName().str().rfind("view.ternary.", 0) != 0);
+          ++sourceCalls;
+        }
+      }
+    }
+    HS_EXPECT_EQ(sourceCalls, 1U);
+    HS_EXPECT_EQ(branchCopies, 2U);
+    HS_EXPECT_EQ(suffixCopies, 1U);
+  }
+}

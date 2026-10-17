@@ -2000,7 +2000,23 @@ verifyHIR(const TranslationUnit &unit) {
       return;
     }
     if (const auto *value = dynamic_cast<const UnsignedExpr *>(&expression)) {
-      checkByteLength(*value, value->byteLength, "byteLength");
+      if (!value->operand) {
+        addDiagnostic(*value, "UnsignedExpr requires an operand View");
+        return;
+      }
+      if (value->result.lengthKind == ViewLengthKind::Static) {
+        checkByteLength(*value, value->byteLength, "byteLength");
+      } else if (value->byteLength != 0) {
+        addDiagnostic(*value, "dynamic UnsignedExpr must not carry a static byte length");
+      }
+      if (value->result.category != ViewCategory::UntemplatedInteger ||
+          value->result.integerInterpretation != IntegerInterpretation::Unsigned ||
+          !value->result.templateName.empty() || value->result.isAddressable ||
+          value->result.isMutableLValue ||
+          value->result.lengthKind != value->operand->result.lengthKind ||
+          value->result.staticByteLength != value->operand->result.staticByteLength) {
+        addDiagnostic(*value, "UnsignedExpr must preserve operand length as an unsigned none rvalue");
+      }
       verifyExpr(*value->operand);
       return;
     }
