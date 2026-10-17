@@ -310,7 +310,17 @@ llvm::Value *LlvmEmitter::emitIntegerValue(const hir::Expr &expression,
       addDiagnostic("invalid integer literal '" + integer->value + "'");
       return nullptr;
     }
-    return llvm::ConstantInt::get(integerType, *value, true);
+    // HIR literals also represent folded integer bit patterns. Form the
+    // source-width bits first, then extend using the source interpretation;
+    // a nonnegative upper-half u64 token must not sign-extend bit 63, while
+    // a folded signed result must extend its actual source sign bit.
+    const auto sourceBits = static_cast<unsigned>(integer->byteLength * 8U);
+    const llvm::APInt source(sourceBits, *value, false);
+    const auto destinationBits = integerType->getBitWidth();
+    return llvm::ConstantInt::get(
+        context_, unsignedInterpretation
+                      ? source.zextOrTrunc(destinationBits)
+                      : source.sextOrTrunc(destinationBits));
   }
 
   if (const auto *character =

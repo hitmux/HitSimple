@@ -1926,10 +1926,67 @@
           "anchor": "## Materialization boundary"
         }
       ]
+    },
+    {
+      "id": "wide-integer-literal-destinations",
+      "sections": [
+        "3.5.1",
+        "7.2",
+        "7.3"
+      ],
+      "claim": "Standard integer token magnitudes initialize fixed raw-integer destinations wider than eight bytes; nonnegative upper-half u64 magnitudes zero-extend while unary negative constants sign-extend.",
+      "limitation": "Fixed 9/16/32-byte assignment and named-return contexts only; does not expand the token range or establish dynamic widths, every arithmetic/conversion path, or narrow-literal truncation behavior.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaOperators.cpp",
+          "anchor": "bool integerFits(const ast::IntegerLiteral &integer, std::size_t byteLength)"
+        },
+        {
+          "path": "src/codegen/LLVMCodegenExpressions.cpp",
+          "anchor": "const llvm::APInt source(sourceBits, *value, false);"
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_AcceptsStandardIntegerLiteralsInWideDestinations",
+          "assertions": "Accepts ten standard literal spellings in three destination widths across global/static/local initialization, assignments and named returns."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaExpressionTests.cpp",
+          "test": "Sema_WideDestinationsDoNotExpandStandardLiteralTokenRange",
+          "assertions": "Rejects decimal and hexadecimal magnitudes beyond u64 and retains the narrow signed-destination rejection."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_WideIntegerLiteralMagnitudesAndNegativeExtension",
+          "assertions": "Checks exact APInt stores and LLVM validity for seven positive/negative/folded values, three destination widths and three safety modes."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/wide-integer-literals.json",
+          "ctest": "hsc_wide_integer_literals",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Compares literal declaration/store/return bytes with independently widened signed/unsigned variable sources at 9/16/32 bytes.",
+          "limitation": "Host provider/safety/O0-O2 matrix configured; configuration is not execution evidence."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/wide-integer-literal-destinations.md",
+          "anchor": "# Wide integer literal destinations"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "3c3defb9833e4f95920c6c11308321cea6a01926c28268049b24276a7f309ab2",
+    "CMakeLists.txt": "f75dac6925a59a71a5a6bc774ec8ae95e244dc50c5a75c574f1919bf3194b6f1",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -1937,7 +1994,7 @@
     "include/hitsimple/hir/HIR.h": "61c03b3382535f0fa6684e1da688ae9109aef95a8d0ad551072c4b42cdd3bd92",
     "runtime/hitsimple_runtime.c": "b0417623724daeee4866d54cd6ca61e968cd7027854f042de15813d02e330b97",
     "src/codegen/LLVMCodegen.cpp": "3c3662c310c6785fef941a74489eeea75cc8f60dc132fc6a1c092cfd85c9364c",
-    "src/codegen/LLVMCodegenExpressions.cpp": "e707083f4b3b512a99b95564011b72120f3c0e3613fa758b542ec4a71f42c100",
+    "src/codegen/LLVMCodegenExpressions.cpp": "3128a8d9cb920264d8c0d27ff132d33ff66b2a7e8d1d0d4a48f3ffc5ecb28bc0",
     "src/codegen/LLVMCodegenFunctions.cpp": "3cfa3bbe563acb8b80296ef350d6920c6145d41375c5569da7d9983bce96f1e9",
     "src/hir/HIR.cpp": "32ca40572b855d79626ca9956d6ce2144a5f723d36d626a656993bdd69ba7c70",
     "src/safety/StaticSafetyValidation.cpp": "e9b3baf4f565aaf9c2dd39624181d9e3ae7fa5d93d3206f17b9d8d624909f2b4",
@@ -1961,14 +2018,14 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "662eb5cdbe991641d521bae55ca376c660b9a76b73d9fc9a64d332bb8f2bbb1b",
+    "tests/codegen/LLVMCodegenTests.cpp": "ef29b497b0cb2efe5a8ad3d094bffc7a07fa178662df32a841c90e95ac9c022e",
     "tests/hir/HIRTests.cpp": "3be9dbe8158f9a698777df4babf871f3d40c401a2d919ff0d2d2077f35c54323",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "8d1ac168c72a695a92ad188a845deb3b6f37ce5d925c9ef68e0c117d0b9f35f7",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "3d301543c46328c235c72851ad09f5eb410ca388b4cb67bdd9de8af990821802",
+    "tests/sema/SemaExpressionTests.cpp": "c3cd32d38195dc8b5f10a6731855f22cb80806ff3b1c90b96fab6e0e6d43c11a",
     "tests/support/harness/manifests/assignment-result-views.json": "a5b2d02945bd84c048c8c870f4c9911a0543f83ea47df7d70ae4a1a7093c1abc",
     "tests/support/harness/manifests/bool-value-reads.json": "a429e4e739ff879bdb6ef537d752022a78d7561a764e9093de981d141f0306b1",
     "tests/support/harness/manifests/ctype-bool-representation.json": "767b44d9078bb3c60a4ab53adfb1197d870616bac88ca11058a5c058bce6912c",
@@ -2080,6 +2137,10 @@
     "tests/cases/run/checked_rebinding_cstr_result_short_snapshot.hs": "10b7139e258074b88794939d45b35f912669bfd7a7d7f1505ae1a5180f3a2d98",
     "tests/cases/run/literal_ternary_views.hs": "66bd6a92cbc8e161ad0b91c0d2c98fb0448f7d4f66f8ad01cdc07377c845f5ec",
     "tests/support/harness/manifests/literal-ternary-views.json": "004096d0e304adb357a4eeb404e2545ad4b418ca8e5cf056d41b1364ccc0283f",
-    "docs/literal-ternary-views.md": "67dc64062e37265d41456508f0f7cdaa7f7ee715dc00e768d308ecc4b142a96c"
+    "docs/literal-ternary-views.md": "67dc64062e37265d41456508f0f7cdaa7f7ee715dc00e768d308ecc4b142a96c",
+    "src/sema/SemaOperators.cpp": "a78ca3a2d221f5e8d7c90ba583150ad6690eb694160fc04fd967f3863cc2948b",
+    "tests/support/harness/manifests/wide-integer-literals.json": "1feda409080aa2623a6d8aa6dc76323d646f2c5eec95d966d0594e8fe46b7891",
+    "tests/cases/run/wide_integer_literal_destinations.hs": "c55558e230961cb90e6c20d79c2013f252c55cba64ee6a597329c6dc492583c1",
+    "docs/wide-integer-literal-destinations.md": "e0fbb6774bace23bfe5871e2f77dd79a17afe30539af010f435c707caba617b9"
   }
 }

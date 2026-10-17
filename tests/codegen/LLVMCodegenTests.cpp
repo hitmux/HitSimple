@@ -4002,3 +4002,41 @@ HS_TEST(LLVMCodegen_LiteralTernariesPreserveBranchLocalEffectsAndConsumers) {
     }
   }
 }
+
+HS_TEST(LLVMCodegen_WideIntegerLiteralMagnitudesAndNegativeExtension) {
+  struct LiteralCase { const char *text; std::uint64_t magnitude; bool negative; };
+  for (const unsigned length : {9U, 16U, 32U}) {
+    for (const auto &literal : {
+             LiteralCase{"16", 16U, false},
+             LiteralCase{"9223372036854775808", 0x8000000000000000ULL, false},
+             LiteralCase{"18446744073709551615", 0xffffffffffffffffULL, false},
+             LiteralCase{"-1", 1U, true},
+             LiteralCase{"1 - 2", 1U, true},
+             LiteralCase{"9223372036854775807 %8d+ 1", 0x8000000000000000ULL, true},
+             LiteralCase{"-9223372036854775808", 0x8000000000000000ULL, true}}) {
+      for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                              hitsimple::codegen::SafetyMode::StaticChecked,
+                              hitsimple::codegen::SafetyMode::Checked}) {
+        auto emitted = emitSource(
+            "func main() -> i32 { new value[" + std::to_string(length) +
+                "] = " + literal.text + "; return 0; }\n", optionsFor(mode));
+        HS_EXPECT_TRUE(emitted.ok());
+        HS_EXPECT_TRUE(!llvm::verifyModule(*emitted.module));
+        llvm::APInt expected(length * 8U, literal.magnitude, false);
+        if (literal.negative) expected = -expected;
+        unsigned observed = 0;
+        for (const auto &block : *emitted.module->getFunction("main")) {
+          for (const auto &instruction : block) {
+            const auto *store = llvm::dyn_cast<llvm::StoreInst>(&instruction);
+            if (!store) continue;
+            const auto *value = llvm::dyn_cast<llvm::ConstantInt>(store->getValueOperand());
+            if (!value || value->getBitWidth() != length * 8U) continue;
+            HS_EXPECT_TRUE(value->getValue() == expected);
+            ++observed;
+          }
+        }
+        HS_EXPECT_EQ(observed, 1U);
+      }
+    }
+  }
+}

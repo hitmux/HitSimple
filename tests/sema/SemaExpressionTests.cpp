@@ -1970,3 +1970,33 @@ HS_TEST(Sema_LiteralTernariesRetainStaticRejections) {
         [&](const auto &item) { return item.message.find(diagnostic) != std::string::npos; }));
   }
 }
+
+HS_TEST(Sema_AcceptsStandardIntegerLiteralsInWideDestinations) {
+  for (const unsigned length : {9U, 16U, 32U}) {
+    for (const auto *literal : {"0", "16", "127", "128", "9223372036854775807",
+                                "9223372036854775808", "18446744073709551615",
+                                "0xffff_ffff_ffff_ffff", "-1", "-9223372036854775808"}) {
+      const auto width = "[" + std::to_string(length) + "]";
+      auto result = analyzeSource(
+          "new global" + width + " = " + literal + ";\n"
+          "func make() -> out" + width + " { return " + literal + "; }\n"
+          "func main() -> i32 { static saved" + width + " = " + literal + "; "
+          "new value" + width + " = " + literal + "; value = " + literal + "; "
+          "value %d= " + literal + "; return 0; }\n");
+      HS_EXPECT_TRUE(result.unit != nullptr);
+      HS_EXPECT_TRUE(result.diagnostics.empty());
+    }
+  }
+}
+
+HS_TEST(Sema_WideDestinationsDoNotExpandStandardLiteralTokenRange) {
+  for (const auto *literal : {"18446744073709551616", "0x10000000000000000"}) {
+    auto result = analyzeSource("func main() -> i32 { new value[32] = " +
+                                std::string(literal) + "; return 0; }\n");
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    HS_EXPECT_TRUE(!result.diagnostics.empty());
+  }
+  auto narrow = analyzeSource("func main() -> i32 { new value[1] = 128; return 0; }\n");
+  HS_EXPECT_TRUE(narrow.unit == nullptr);
+  HS_EXPECT_TRUE(!narrow.diagnostics.empty());
+}
