@@ -2,7 +2,7 @@
   "version": 1,
   "purpose": "navigation and bounded evidence, not independent requirements or conformance",
   "inputs_sha256": {
-    "CMakeLists.txt": "8eadc13929e83597359b23b2040f70a167f44b992ed1bb94b5c109d4423c84c6",
+    "CMakeLists.txt": "87da1e23f178cfcf22494ac541437dffcd25bb15ae331335353ab50259e7741d",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/ascii-character-extensions.md": "bf679f5d644fc58f4835d214c00ca52a4c14164237f2c51dc479567222e6f182",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
@@ -10,31 +10,32 @@
     "docs/cstr-assignment-contracts.md": "bcd515e73935b78f731e3e9044596097e31a545f30ad23d88a8683e1848682a4",
     "docs/cstr-literal-padding.md": "b13842c768d76a6f32362fa2afb2bb40c62460a606476ca284c3b0c211fc9450",
     "docs/ctype-view-inputs.md": "b732d3b50af5ee1ebcc7d5f0c677bf2dab975fd8b61b92802b84f624af5029ec",
-    "docs/evidence/standard-witnesses.json": "b026608d2cad82a1af4ed1bf93c64a4df5b533c414fe0814d5e042692ad4f97d",
+    "docs/evidence/standard-witnesses.json": "123a13ad9761619a9c87eded78a57b7e57afb9cfe86601083ea712f130658ec2",
+    "docs/fixed-resize-byte-views.md": "c85defe0d9c18d485f7a979862019a4dd2617fe7abd85dbf142a6bb2a24be027",
     "docs/literal-ternary-views.md": "67dc64062e37265d41456508f0f7cdaa7f7ee715dc00e768d308ecc4b142a96c",
     "docs/multi-return-assignments.md": "24c692719dd125a940025d43ae3bfbcd097f791034c513ee88b9c84305f812a3",
     "docs/multiple-rhs-assignments.md": "501786168ab378e088b09165828d9f84038a9aac86a84bd7988ed76738b3db4d",
     "docs/named-return-storage.md": "9478c32dbbd8dbb03c8bafe7856492443805e6e2b866c998001649bb4a74f6af",
     "docs/raw-memory-floating-views.md": "2c5fe57846af4dffbfd2a5a545ea5914ff17c2226ec7e6922a8ce2a1f88e965c",
     "docs/true-name-rebinding.md": "f50dfdd345e5d6d7bf0fb00d07e5c59a515b169e02edd795407a9a74371db5c1",
-    "docs/unsigned-view-snapshots.md": "1cdd3bb3018d420b4c764ccae49a591bec5030b7caac108b13ac93d7e5d1bb41",
+    "docs/unsigned-view-snapshots.md": "76847f4abf0bd747716eedab106366444d8aba900dec9de61617abb99322335e",
     "docs/validated-view-lengths.md": "a368f724fb54fce04661683925b3bce27d1c88ea5b3d7c4200b24a4fe0d58683",
     "docs/wide-integer-literal-destinations.md": "e0fbb6774bace23bfe5871e2f77dd79a17afe30539af010f435c707caba617b9",
     "include/hitsimple/hir/HIR.h": "e8ab4d91176a1e5d77eff3d9e33b19fa0922618e55b54a83d48ea43ab0ca7795",
     "runtime/hitsimple_runtime.c": "629b086f57d1f2a4f2a09fbb9837169f927f82567501f46b9b2cc2060c5e1322",
     "src/codegen/LLVMCodegen.cpp": "3c3662c310c6785fef941a74489eeea75cc8f60dc132fc6a1c092cfd85c9364c",
-    "src/codegen/LLVMCodegenExpressions.cpp": "b03f9f4f8681acefe968db04a0b3ca67f002e338f3c8045ac19d5d3ace3ab86a",
+    "src/codegen/LLVMCodegenExpressions.cpp": "8569c00e15f37fc8f3df72025ded1f9eaf0b59c1837b38d8ebdd637b7bd36f8f",
     "src/codegen/LLVMCodegenFunctions.cpp": "3cfa3bbe563acb8b80296ef350d6920c6145d41375c5569da7d9983bce96f1e9",
     "src/codegen/LLVMCodegenRuntime.cpp": "b8eff50e39928103fcac44d629848a61f6104e7db14f745dd2c63af09c3e01c0",
     "src/codegen/LLVMCodegenStatements.cpp": "5e1cb33409e51cceee62ca9bbac632bc763b0e18a4e6c5d8cad2f3b3f501707c",
     "src/hir/HIR.cpp": "74d848f5ce6d879331a8a440f315826f37de4e563f69316b76051061f578b603",
     "src/safety/StaticSafetyFacts.cpp": "75a034f2dbf558c11a7cda9d513c10db81c065e77514251c87e2078b0b1f8552",
     "src/safety/StaticSafetyStateFlow.cpp": "7fa1ebf6fc5497f83c3e8fc8fed1530c4ab51aa6609c1ee3e4472b17faba51bf",
-    "src/safety/StaticSafetyValidation.cpp": "15611c3afc5869c3f1e7d2542f33124bd2102a7b98156e1f8c8c9d78b421da9d",
+    "src/safety/StaticSafetyValidation.cpp": "3d39419d9ab6a330413281f6bf7116691602b26a3cdd10f0eaffb4975924b247",
     "src/sema/SemaAnalysis.cpp": "1786741dba8082c9e4e8031a8c293672d0b5a3c62610ec4b38004e2924c296f6",
     "src/sema/SemaAnalysisContext.cpp": "2fff3d4fe802b42224fe83b40d73b494a4cb981dc9f2a033ac2c07665f223c8e",
     "src/sema/SemaAssignments.cpp": "050375b7de8cbfdc7f9779b2effb93fb2e046742cf4132a12512a445920cefa8",
-    "src/sema/SemaExpressions.cpp": "9ae8d838b16ae914de8c3200f77c04f46220c6c1e95fb46eeeea6748aedc7090",
+    "src/sema/SemaExpressions.cpp": "55c8dc90a7f9e8eea26a11d7ee35a39b3ed6eb6540ce3a6cb419854f83030ef0",
     "src/sema/SemaMultiReturnAssignments.cpp": "2ec61bc82702a00d0b55c040ad5e0e6c9dd9e9bca7c5dafd758fbcb0aa06ec96",
     "src/sema/SemaOperators.cpp": "a78ca3a2d221f5e8d7c90ba583150ad6690eb694160fc04fd967f3863cc2948b",
     "src/sema/SemaStatements.cpp": "e1a3ee9ce31ebae3aee28617f6288247af5b3c74716188f7e491ea831dde307f",
@@ -83,6 +84,7 @@
     "tests/cases/run/ctype_reference.hs": "6d9c84f8cead2062d0b3229300044b4aaf5e59a1f06d7b2f4a103e55102efbc8",
     "tests/cases/run/ctype_view_inputs.hs": "241e3ee50cc10041a9175294d624d6bc600e5359a671d4f84d234f7c4d9e82f2",
     "tests/cases/run/explicit_numeric_returns.hs": "46d68f8bac525c30533a14be046348d31e90c235b945c182f82122e5fbfa71a0",
+    "tests/cases/run/fixed_resize_byte_views.hs": "fc35eedef88b8435cad3d51b5cbf0fc8f26a1c0f1e3c7126abcb4be2e9563584",
     "tests/cases/run/floating_ternary_views.hs": "845db9c3a79f1ba1f507b7a067454c15e638c67d56592fbc340c7f6e252ad16a",
     "tests/cases/run/impl_method_value_copy.hs": "a400f4cdd2ea1efd0a9d40a9873551b585b9344c80f6869d5657704aa2978c76",
     "tests/cases/run/length_dynamic_mismatch.hs": "294a0265a0379d93747f15faacecfe98825ba09b17e4b256670dabc01e274e00",
@@ -98,6 +100,7 @@
     "tests/cases/run/p3_packed_offsets.hs": "01e1ed232075e12f5d8563107b240297466718372dd9a34abb54cf7391365a51",
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/rebinding_integrated_contracts.hs": "eb4309c6f13e10de78de83bbb637ba120230df723517a41f60ab26c22192c925",
+    "tests/cases/run/resize_unsigned_integration.hs": "253fba6d997c3aa89d90db327a5491f58d74769e97233229c67a540f211aca35",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/true_name_rebinding.hs": "c31cfd2828d2cc1a8f3c6aba069562464a3d76917bd9ccb3aeca665e2ce9f67a",
     "tests/cases/run/true_name_rebinding_captures.hs": "e654ceed4d011f93ee549dde4c61c73e608cddd2f5fc82b568ad1feb0681dd4a",
@@ -131,7 +134,7 @@
     "tests/cases/sema/rebind_non_identifier_member.hs": "0bbc3e843f1cd8c20c0e5c72279665077a13efd53ee3586c3614b9eb8be8d5a0",
     "tests/cases/sema/rebind_non_identifier_slice.hs": "4109535d701fe3d6e059192139df1ba8785f818c257ddb2d001ab43ead378b1b",
     "tests/cases/sema/rebind_non_identifier_view.hs": "07d7fa603b5c634e2613687874878cca80a5b6de1d5c3fb756e165eac9c7bfad",
-    "tests/codegen/LLVMCodegenTests.cpp": "88e44900dd1ef11a0db1e12fddfba72acc7b027173b901e68b6d398aa2da8fbc",
+    "tests/codegen/LLVMCodegenTests.cpp": "00b24fba68c1e86593426eaef0a121dac637ea73675f47ad84e6492f4931df77",
     "tests/codegen/LLVMCstrAssignmentTests.cpp": "29499a0ca1f0e20abd0040662be27b8352ccc1927d08b0ed915ec013805d1189",
     "tests/codegen/NativeTargetTests.cpp": "e0aff3f282d0731d94d1cc5f91eeef2877ffb5515ef9bdb307832b4f7c673425",
     "tests/codegen/ObjectEmitterTests.cpp": "33690660c9e9fb150d6e40cce390f18e343c59fdd135dbec574619e16326c9a0",
@@ -143,19 +146,19 @@
     "tests/lexer/LexerTests.cpp": "ae72d8f7fb853514d3b82f1ff5ffee75393b16d6e4226ac207220fb15249d55b",
     "tests/parser/ParserTests.cpp": "aa08f32794f99fa86742b15397c4b1739a21b48b9feb2adccdafa01127362bb1",
     "tests/preprocessor/PreprocessorTests.cpp": "5e7d28f7d82acf61dd965b41d0ab7ec995002dd841bc75cae3033303548abe53",
-    "tests/safety/StaticSafetyAnalyzerTests.cpp": "dfc34a5ca77c3f43962580a40e05c952b3e4dc18fb510f056da9e7ac86ab3d9d",
+    "tests/safety/StaticSafetyAnalyzerTests.cpp": "1244ed19095b4764d146d3daa2fb14a52798ce00cab02ded9063096082860d04",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
     "tests/sema/SemaBoolTests.cpp": "ca00a3c8f1bbe067e47b6b6fe1e0c86d343967c9633afdd18f9a1ee64cab7d7c",
     "tests/sema/SemaCoreTests.cpp": "19fffbb58ec7e5ccb9d86bdb9297a9e66a003dab453ab798c92545702c3c624b",
     "tests/sema/SemaCstrAssignmentTests.cpp": "99593ee6980dea5cdd4bfc580a5504ed504487f72ac685219b97b5686d260264",
     "tests/sema/SemaDiagnosticTests.cpp": "e2033f875d9a4b8cea1594763822b6cc3e867fdf68317a316c37a6c986c9787c",
-    "tests/sema/SemaExpressionTests.cpp": "c3cd32d38195dc8b5f10a6731855f22cb80806ff3b1c90b96fab6e0e6d43c11a",
+    "tests/sema/SemaExpressionTests.cpp": "f40e41c40ffaf722f69f152be088a5360e11f60a795537a24b7ca015c3ca6d88",
     "tests/sema/SemaMultiReturnTests.cpp": "b375fe7d0052c78bcef944e978714c6d55673c4011c9cbc54abd36dcd4cc5d0c",
     "tests/sema/SemaMultipleAssignmentTests.cpp": "5a42ae6721736768b0cf7728de1e3824133a669f0ec0b0f30cb854809c3bcd2b",
     "tests/sema/SemaNamedReturnTests.cpp": "9894c1a4545267a638ad902413128d9e81b3ba839ebe20ea988616e5ef1b1c8a",
     "tests/sema/SemaTryCatchTests.cpp": "9986e67c53dbf25f3ed2b205a4f0deca9ae1a26071d6550adccd1157f1ca0e20",
     "tests/sema/SemaUnsignedViewTests.cpp": "fab61a7a12c271bf4e448b5919ae61a57cc52ae218a135824da0bedbdeabc870",
-    "tests/sema/SemaViewLengthTests.cpp": "66191f391d21be38b941802013a98a526ba873e3b6e04950e0437b296b18d72a",
+    "tests/sema/SemaViewLengthTests.cpp": "e3de64da2e72f6e10b6663bbfb3c31e457b2d1db2279d4d08acbc5efc48d5aeb",
     "tests/stdlib/StandardLibraryTests.cpp": "f4c9ada2005b9ccf3f1ae36975d811044dde16b62e8f2690d11afd536084cacf",
     "tests/support/CompilationMetricsTests.cpp": "f058cc2f1f935c179272646d82a913de1770ba034a28b12a6f890c2fcb40b1a0",
     "tests/support/ProcessTests.cpp": "d2b53ad5558c8913f0decc1fbfb97f307b48a73aba04b192455eda494310c8a0",
@@ -171,6 +174,7 @@
     "tests/support/harness/manifests/differential.json": "e3fc653c6fbcde7fff396af4b8feda1ab465145b546b32d6d150b348b2a3f9c9",
     "tests/support/harness/manifests/explicit-numeric-returns.json": "15f70fa4fa2c93434a9337cca03e147a34907ee169a691d7ff769ef531e747bc",
     "tests/support/harness/manifests/file-handles.json": "284a969e3c1ee28b67416f15f8b17de29cf44d5ec402ecfd975e5e9a49faec2f",
+    "tests/support/harness/manifests/fixed-resize-byte-views.json": "ecadb7533233ed3fb6e67cd3023c5e18d7293132c447a29519e31255a9cded71",
     "tests/support/harness/manifests/floating-ternary-views.json": "6f5a89d0fb2d2d79d9de7556ae82a4c33da430c7d7503fd50a03dd4448b3d665",
     "tests/support/harness/manifests/literal-ternary-views.json": "004096d0e304adb357a4eeb404e2545ad4b418ca8e5cf056d41b1364ccc0283f",
     "tests/support/harness/manifests/multi-return-assignment-diagnostics.json": "b02487a1bbfca71bd132063f7794f9b16315b64d114be01d881842f8a8cdc2fd",
@@ -181,6 +185,7 @@
     "tests/support/harness/manifests/none-return-views.json": "b1dc6a24150a49794cf045c127a21b21d9d5f246a2c216bcc9b7cc454bdf23a6",
     "tests/support/harness/manifests/p3-host-semantics.json": "c5bf829291ac52712260877ccfcb2a46dee32f97d4f40518a8b8f3dff203ccb2",
     "tests/support/harness/manifests/raw-memory-floating-views.json": "33a4d26808dbb3e0ec527d372e04517787a3c9581ccb8472c944dc9dc1e1fcd9",
+    "tests/support/harness/manifests/resize-unsigned-integration.json": "45c85a6974c1ce419a517d4d866b1b83a656d3330ed7b67eb91e08d7ece2307d",
     "tests/support/harness/manifests/safety-mode.json": "8e9f153ff57c323f8bb37063b8e058f8c404c5182037422b50158e2fbd6961ef",
     "tests/support/harness/manifests/true-name-rebinding-diagnostics.json": "dada6f5a36983dd4d4a856bb0f9a8c23b72e4f233df01931c683b9d9e7e15cfe",
     "tests/support/harness/manifests/true-name-rebinding-runtime-errors.json": "8e0af522428417b6e1b559ececc2d8f084240f3dd754e8bedb9d1eaf41664ad2",
@@ -798,7 +803,8 @@
       "anchor": "77-address-rebinding-",
       "parent": "7",
       "witnesses": [
-        "true-name-rebinding"
+        "true-name-rebinding",
+        "resize-unsigned-stage-integration"
       ],
       "mapping_status": "inspected"
     },
@@ -808,8 +814,11 @@
       "line": 651,
       "anchor": "78-resize_bytesexpr-length",
       "parent": "7",
-      "witnesses": [],
-      "mapping_status": "unmapped"
+      "witnesses": [
+        "fixed-resize-byte-views",
+        "resize-unsigned-stage-integration"
+      ],
+      "mapping_status": "inspected"
     },
     {
       "section": "7.9",
@@ -928,7 +937,8 @@
       "parent": "8",
       "witnesses": [
         "unsigned-view-snapshot",
-        "unsigned-snapshot-stage-integration"
+        "unsigned-snapshot-stage-integration",
+        "resize-unsigned-stage-integration"
       ],
       "mapping_status": "inspected"
     },
@@ -1370,7 +1380,9 @@
       "witnesses": [
         "bool-value-read-boundaries",
         "explicit-numeric-return-source",
-        "validated-declaration-and-length-views"
+        "validated-declaration-and-length-views",
+        "fixed-resize-byte-views",
+        "resize-unsigned-stage-integration"
       ],
       "mapping_status": "inspected"
     },
@@ -3258,6 +3270,16 @@
     },
     {
       "id": "unsigned-snapshot-stage-integration",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "fixed-resize-byte-views",
+      "mapping_status": "inspected",
+      "execution_status": "not_recorded"
+    },
+    {
+      "id": "resize-unsigned-stage-integration",
       "mapping_status": "inspected",
       "execution_status": "not_recorded"
     }

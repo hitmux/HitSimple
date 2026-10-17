@@ -687,25 +687,15 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         return nullptr;
       }
       const auto resultLength = staticByteCount(*length);
-      if (resultLength &&
-          dynamic_cast<const hir::IntegerLiteral *>(length.get()) != nullptr &&
-          (*resultLength == 1 || *resultLength == 2 ||
-           *resultLength == 4 || *resultLength == 8)) {
-        std::vector<std::unique_ptr<hir::Expr>> arguments;
-        arguments.push_back(std::move(operand));
-        arguments.push_back(std::move(length));
-        return std::make_unique<hir::CallExpr>(
-            call->callee, std::move(arguments), false,
-            stdlib::BuiltinId::ResizeBytes, std::vector<hir::FormatArgKind>{},
-            0, "bytes",
-            fixedResult("bytes", *resultLength));
+      // Resizing is a byte-buffer operation even at native integer widths.
+      // Its result has no template or numeric interpretation (Standard 7.8).
+      auto result = rawBytesResult(resultLength.value_or(0));
+      if (!resultLength || *resultLength == 0) {
+        result.lengthKind = hir::ViewLengthKind::Dynamic;
       }
       return std::make_unique<hir::DynamicByteViewExpr>(
           hir::DynamicByteViewOperation::ResizeBytes, std::move(operand),
-          std::move(length),
-          resultLength && *resultLength != 0
-              ? fixedResult("bytes", *resultLength)
-              : dynamicBytesResult());
+          std::move(length), std::move(result));
     }
     if (builtin == stdlib::BuiltinId::ByteSwap) {
       if (call->arguments.size() != 1U) {

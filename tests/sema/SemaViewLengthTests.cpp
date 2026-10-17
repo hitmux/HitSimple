@@ -321,3 +321,59 @@ HS_TEST(Sema_OwnBindingPrecedesAddressAndHandleTemplateInference) {
   HS_EXPECT_TRUE(dump.find("LocalMemory name=opaque binding=opaque bytes=8 storage=local template=handle") !=
                  std::string::npos);
 }
+
+HS_TEST(Sema_ResizeBytesProducesRawRvalueViewsAtEveryLength) {
+  using namespace hitsimple::hir;
+  for (const auto &[spelling, width] :
+       std::vector<std::pair<std::string, std::size_t>>{
+           {"1", 1}, {"2", 2}, {"4", 4}, {"8", 8}, {"3", 3},
+           {"16", 16}, {"1 + 3", 4}, {"length(value)", 8},
+           {"count", 0}, {"0", 0}}) {
+    const auto result = analyzeSource(
+        "func probe(value as f64, count as u64) -> u64 {\n"
+        "    return length(resize_bytes(value, " + spelling + "));\n}\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+    const auto *ret = dynamic_cast<const Return *>(
+        result.unit->functions.front()->body->statements.front().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    const auto *length = dynamic_cast<const CallExpr *>(ret->values.front().get());
+    HS_EXPECT_TRUE(length != nullptr);
+    const auto *resize = dynamic_cast<const DynamicByteViewExpr *>(
+        length->arguments.front().get());
+    HS_EXPECT_TRUE(resize != nullptr);
+    HS_EXPECT_EQ(resize->operation, DynamicByteViewOperation::ResizeBytes);
+    HS_EXPECT_EQ(resize->result.category, ViewCategory::RawBytes);
+    HS_EXPECT_EQ(resize->result.integerInterpretation, IntegerInterpretation::RawOnly);
+    HS_EXPECT_TRUE(resize->result.templateName.empty());
+    HS_EXPECT_TRUE(!resize->result.isAddressable);
+    HS_EXPECT_TRUE(!resize->result.isMutableLValue);
+    HS_EXPECT_EQ(resize->result.lengthKind,
+                 width == 0 ? ViewLengthKind::Dynamic : ViewLengthKind::Static);
+    HS_EXPECT_EQ(resize->result.staticByteLength, width);
+    HS_EXPECT_EQ(resize->source->result.category, ViewCategory::Floating);
+    HS_EXPECT_TRUE(resize->runtimeLength != nullptr);
+  }
+}
+
+HS_TEST(Sema_ResizeBytesRequiresExplicitNumericInterpretation) {
+  for (const auto width : {1U, 2U, 4U, 8U}) {
+    const auto rejected = analyzeSource(
+        "func probe(value as f64) -> u8 { return to_u8(resize_bytes(value, " +
+        std::to_string(width) + ")); }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(!rejected.diagnostics.empty());
+    HS_EXPECT_TRUE(rejected.diagnostics.front().message.find(
+                       "requires an integer, floating, or address input") !=
+                   std::string::npos);
+    const auto accepted = analyzeSource(
+        "func probe(value as f64) -> u8 { return to_u8(resize_bytes(value, " +
+        std::to_string(width) + ") as u" + std::to_string(width * 8) + "); }\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(accepted.unit != nullptr);
+    HS_EXPECT_TRUE(accepted.diagnostics.empty());
+    HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*accepted.unit).empty());
+  }
+}
