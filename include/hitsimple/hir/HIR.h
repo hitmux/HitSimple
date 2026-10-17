@@ -293,6 +293,9 @@ struct CharacterLiteral final : Expr {
 struct StringLiteral final : Expr {
   StringLiteral(std::string value, ViewSemantics result);
 
+  // Only C compatibility literals have static storage. Core literals are rvalues.
+  bool hasStaticStorage = false;
+
   std::string value;
   std::size_t byteLength = 0;
 };
@@ -582,6 +585,9 @@ struct Stmt {
   virtual ~Stmt() = default;
 
   std::optional<diagnostic::SourceRange> range;
+  // Source full-expression boundary, never an internal capture or lowered store.
+  // If/While/For conditions have their own boundary after Boolean consumption.
+  bool completesFullExpression = false;
   // A function-local static declaration marks its initializer with the
   // storage binding that owns the one-time initialization guard.  Keeping the
   // marker on the lowered statement preserves every assignment form without

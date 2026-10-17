@@ -60,6 +60,7 @@ private:
   void validateSafety(const hir::TranslationUnit& unit);
   bool validateSafety(const hir::Block& block);
   bool validateSafety(const hir::Stmt& statement);
+  bool validateStatementBody(const hir::Stmt& statement);
   void validateSafety(const hir::Expr& expression);
   void resetStaticSafetyState();
   StaticSafetyState staticSafetyState() const;
@@ -68,6 +69,7 @@ private:
       const StaticSafetyState& left, const StaticSafetyState& right) const;
   void mergeStaticSafetyStates(const StaticSafetyState& left,
                                const StaticSafetyState& right);
+  void expireStaticTemporaries();
   void expireStaticLocalBindings(const std::vector<std::string>& bindingNames);
   bool enqueueStaticGoto(std::string_view label,
                          const StaticSafetyState& incoming);
@@ -162,6 +164,10 @@ private:
       staticAddressFacts_;
   std::unordered_map<std::string, std::optional<StaticAddressFact>>
       staticBindingAddressFacts_;
+  // Results are snapshots at the call's evaluation point, not a re-read of
+  // argument bindings after subsequent argument side effects or stores.
+  std::unordered_map<const hir::Expr*, std::optional<StaticAddressFact>>
+      staticCallAddressFacts_;
   std::unordered_map<std::string, std::size_t> staticDefinitionByteLengths_;
   std::unordered_set<std::string> staticPotentiallyReboundBindings_;
   std::unordered_map<std::string, std::vector<bool>> staticViewParameterCopies_;
@@ -174,6 +180,7 @@ private:
   std::size_t nextStaticCallCaptureId_ = 0;
   StaticGotoContext* staticGotoContext_ = nullptr;
   StaticLoopContext* staticLoopContext_ = nullptr;
+  StaticCatchContext* staticCatchContext_ = nullptr;
   std::optional<diagnostic::SourceRange> currentDiagnosticRange_;
   std::vector<diagnostic::Diagnostic> diagnostics_;
 };

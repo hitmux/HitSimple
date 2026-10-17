@@ -1002,3 +1002,260 @@ HS_TEST(StaticSafetyAnalyzer_ResizePrefixDoesNotShortenUnsignedSourceSnapshot) {
     }
   }
 }
+
+HS_TEST(StaticSafetyAnalyzer_TemporaryFullExpressionExpiry) {
+  const std::vector<std::string> sources = {
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          pointer = strchr("abc", 'a')
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          new alias as addr = (pointer = strchr("abc", 'a'))
+          return [1]*alias
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr(resize_bytes("abc", 4) as cstr, 'a')
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr(("abc"?) as cstr, 'a')
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr(true ? "abc" : "xyz", 'a')
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new name[1] as u8 = 0
+          name &= strchr("abc", 'a')
+          return name
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          if ((pointer = strchr("abc", 'a')) != 0) {
+            return [1]*pointer
+          }
+          return 0
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          while ((pointer = strchr("abc", 'a')) != 0) {
+            return [1]*pointer
+          }
+          return 0
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          for (; (pointer = strchr("abc", 'a')) != 0;) {
+            return [1]*pointer
+          }
+          return 0
+        })",
+  };
+  for (const auto &source : sources) {
+    HS_EXPECT_TRUE(analyzeSafety(source, {false, false}).diagnostics.empty());
+    for (const auto options : {hitsimple::safety::StaticSafetyOptions{true, false},
+                               hitsimple::safety::StaticSafetyOptions{true, true}}) {
+      const auto result = analyzeSafety(source, options);
+      if (!hasDiagnostic(result, "use after full-expression end")) {
+        hitsimple::testing::fail(__FILE__, __LINE__,
+            "missing temporary-expiry diagnostic:\n" + source);
+      }
+      HS_EXPECT_TRUE(result.diagnostics.front().range.has_value());
+    }
+  }
+}
+
+HS_TEST(StaticSafetyAnalyzer_TemporarySameExpressionAndStorageCopies) {
+  const std::vector<std::string> sources = {
+      R"(func main() -> i32 { return [1]*strchr("abc", 'a') - 97; })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          return [1]*(pointer = strchr("abc", 'a')) - 97
+        })",
+      R"(func main() -> i32 {
+          new text[4] as cstr = "abc"
+          new pointer as addr = strchr(text, 'a')
+          new ignored as u64 = strlen("other temporary")
+          return [1]*pointer - 97
+        })",
+      R"(new text[4] as cstr = "abc"
+        func main() -> i32 {
+          new pointer as addr = strchr(text, 'a')
+          new ignored as u64 = strlen("other temporary")
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          static text[4] as cstr = "abc"
+          new pointer as addr = strchr(text, 'a')
+          new ignored as u64 = strlen("other temporary")
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = alloc(4)
+          new ignored as u64 = strlen("other temporary")
+          memset(pointer, 0, 4)
+          free(pointer)
+          return 0
+        })",
+      R"(func main() -> i32 {
+          new text[4] as cstr = "abc"
+          new other[4] as cstr = "abc"
+          new pointer as addr = strchr(text, (text &= &other))
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new text[4] as cstr = "abc"
+          new pointer as addr = strchr(text, (text &= strchr("abc", 'a')))
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          new text[4] as cstr = "abc"
+          new first as addr = 0
+          new second as addr = 0
+          first, second = strchr("abc", 'a'), strchr(text, 'a')
+          return [1]*second - 97
+        })",
+  };
+  for (const auto &source : sources) {
+    const auto result = analyzeSafety(source);
+    if (!result.diagnostics.empty()) {
+      hitsimple::testing::fail(__FILE__, __LINE__,
+          "unexpected safety diagnostic: " + result.diagnostics.front().message +
+          "\n" + source);
+    }
+  }
+
+  // The first argument's locating capability is evaluated before the second
+  // argument rebinds the source name. The result must retain that snapshot.
+  const auto capturedExpired = analyzeSafety(R"(
+    func main() -> i32 {
+      new text[4] as cstr = "abc"
+      text &= strchr("abc", 'a')
+      new live[4] as cstr = "abc"
+      new pointer as addr = strchr(text, (text &= &live))
+      return [1]*pointer
+    }
+  )");
+  HS_EXPECT_TRUE(hasDiagnostic(capturedExpired, "use after full-expression end"));
+}
+
+HS_TEST(StaticSafetyAnalyzer_TemporaryFactsFollowLoopAndThrowExits) {
+  const std::vector<std::string> safeSources = {
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          for (;;) { pointer = strchr(text, 'a'); break; }
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          new more as i32 = 1
+          while (more) { pointer = strchr(text, 'a'); more = 0; }
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          try { pointer = strchr(text, 'a'); throw 0; }
+          catch (error as i32) { return [1]*pointer - 97; }
+          return 0
+        })",
+      R"(func probe(flag as i32) -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          try { if (flag) { pointer = strchr(text, 'a'); throw 0; } }
+          catch (error as i32) { return [1]*pointer - 97; }
+          return 0
+        }
+        func main() -> i32 { return probe(1); })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          while (true) {
+            for (;;) { break; }
+            pointer = strchr(text, 'a')
+            break
+          }
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          new more as i32 = 1
+          for (; more; more = 0) { pointer = strchr(text, 'a'); continue; }
+          return [1]*pointer - 97
+        })",
+      R"(func main() -> i32 {
+          new pointer as addr = strchr("abc", 'a')
+          new text[4] as cstr = "abc"
+          try {
+            try { throw 0; }
+            catch (inner as i32) { pointer = strchr(text, 'a'); throw 0; }
+          } catch (outer as i32) { return [1]*pointer - 97; }
+          return 0
+        })",
+  };
+  for (const auto &source : safeSources) {
+    const auto result = analyzeSafety(source);
+    if (!result.diagnostics.empty()) {
+      hitsimple::testing::fail(__FILE__, __LINE__,
+          "unexpected safety diagnostic: " + result.diagnostics.front().message +
+          "\n" + source);
+    }
+  }
+
+  const std::vector<std::string> expiredSources = {
+      R"(func main() -> i32 {
+          new text[4] as cstr = "abc"
+          new pointer as addr = strchr(text, 'a')
+          for (;;) { pointer = strchr("abc", 'a'); break; }
+          return [1]*pointer
+        })",
+      R"(func main() -> i32 {
+          new text[4] as cstr = "abc"
+          new pointer as addr = strchr(text, 'a')
+          try { pointer = strchr("abc", 'a'); throw 0; }
+          catch (error as i32) { return [1]*pointer; }
+          return 0
+        })",
+      R"(func probe(flag as i32) -> i32 {
+          new text[4] as cstr = "abc"
+          new pointer as addr = strchr(text, 'a')
+          try { if (flag) { pointer = strchr("abc", 'a'); throw 0; } }
+          catch (error as i32) { return [1]*pointer; }
+          return 0
+        }
+        func main() -> i32 { return probe(1); })",
+      R"(func main() -> i32 {
+          new pointer as addr = 0
+          try { throw (pointer = strchr("abc", 'a')); }
+          catch (error as addr) { return [1]*pointer; }
+          return 0
+        })",
+  };
+  for (const auto &source : expiredSources) {
+    const auto result = analyzeSafety(source);
+    if (!hasDiagnostic(result, "use after full-expression end")) {
+      hitsimple::testing::fail(__FILE__, __LINE__,
+          "missing temporary-expiry diagnostic:\n" + source);
+    }
+  }
+
+  const auto expiredLocal = analyzeSafety(R"(
+    func main() -> i32 {
+      new pointer as addr = 0
+      try { new text[4] as cstr = "abc"; pointer = strchr(text, 'a'); throw 0; }
+      catch (error as i32) { return [1]*pointer; }
+      return 0
+    }
+  )");
+  HS_EXPECT_TRUE(hasDiagnostic(expiredLocal, "use after scope exit"));
+}

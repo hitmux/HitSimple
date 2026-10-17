@@ -1065,15 +1065,8 @@ llvm::Value *LlvmEmitter::emitPointerValue(const hir::Expr &expression,
       view->operand->result.category == hir::ViewCategory::Address) {
     return emitPointerValue(*view->operand, name);
   }
-  if (const auto *string = dynamic_cast<const hir::StringLiteral *>(&expression)) {
-    const auto bytes = decodeStringLiteral(string->value);
-    auto *pointer = builder_.CreateGlobalStringPtr(bytes, std::string(name));
-    if (hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(
-          declareRegisterStaticObject(),
-          {pointer, builder_.getInt64(bytes.size() + 1U)});
-    }
-    return pointer;
+  if (dynamic_cast<const hir::StringLiteral *>(&expression) != nullptr) {
+    return emitViewValue(expression).data;
   }
   if (const auto *address =
           dynamic_cast<const hir::AddressOfExpr *>(&expression)) {
@@ -1264,7 +1257,7 @@ ViewValue LlvmEmitter::emitUserTemplateOpCall(
     storageType = llvm::ArrayType::get(builder_.getInt8Ty(), resultByteLength);
     result = createFunctionEntryAlloca(storageType, "implop.result");
     result->setAlignment(llvm::Align(1));
-    registerLocalObject(result, resultByteLength);
+    registerTemporaryObject(result, builder_.getInt64(resultByteLength));
     arguments.push_back(firstBytePointer(storageType, result));
   }
   std::size_t argumentIndex = 0;
@@ -1577,14 +1570,24 @@ ViewValue LlvmEmitter::emitViewValue(const hir::Expr &expression) {
 
   if (const auto *string = dynamic_cast<const hir::StringLiteral *>(&expression)) {
     const auto bytes = decodeStringLiteral(string->value);
-    auto *pointer = builder_.CreateGlobalStringPtr(bytes, "view.string");
-    if (hasRuntimeSafetyChecks()) {
-      (void)emitCheckedRuntimeCall(
-          declareRegisterStaticObject(),
-          {pointer, builder_.getInt64(bytes.size() + 1U)});
+    const auto byteLength = bytes.size() + 1U;
+    auto *constant = builder_.CreateGlobalStringPtr(bytes, "view.string.bytes");
+    llvm::Value *pointer = constant;
+    if (string->hasStaticStorage) {
+      registerStaticObject(pointer, byteLength);
+    } else {
+      // Pooled immutable bytes do not confer static lifetime on a core rvalue.
+      // Allocate once per invocation and initialize at each source evaluation.
+      auto *storage = createFunctionEntryAlloca(
+          llvm::ArrayType::get(builder_.getInt8Ty(), byteLength), "view.string");
+      storage->setAlignment(llvm::Align(1));
+      builder_.CreateMemCpy(storage, llvm::Align(1), constant, llvm::Align(1),
+                            byteLength);
+      registerTemporaryObject(storage, builder_.getInt64(byteLength));
+      pointer = storage;
     }
-    return ViewValue{pointer, builder_.getInt64(bytes.size() + 1U),
-                     bytes.size() + 1U, std::size_t{1}};
+    return ViewValue{pointer, builder_.getInt64(byteLength), byteLength,
+                     std::size_t{1}};
   }
 
   if (const auto *character =

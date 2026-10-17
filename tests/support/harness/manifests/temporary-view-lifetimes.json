@@ -1,0 +1,1998 @@
+{
+  "version": 2,
+  "suite": "temporary-view-lifetimes",
+  "defaults": {
+    "targets": [
+      "host"
+    ],
+    "safety": [
+      "unchecked",
+      "static-checked",
+      "checked"
+    ],
+    "optimization": [
+      "O0",
+      "O2"
+    ],
+    "timeout_seconds": 30
+  },
+  "tests": [
+    {
+      "name": "valid_optimized",
+      "source": "../../../cases/run/temporary_lifetime_valid.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "temporary lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "temporary lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "temporary lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "assignment_optimized",
+      "source": "../../../cases/run/temporary_expired_assignment.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_assignment\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "conditional_optimized",
+      "source": "../../../cases/run/temporary_expired_conditional.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_conditional\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "declarator_optimized",
+      "source": "../../../cases/run/temporary_expired_declarator.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_declarator\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_optimized",
+      "source": "../../../cases/run/temporary_expired_dynamic.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_dynamic\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_optimized",
+      "source": "../../../cases/run/temporary_expired_fixed.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_fixed\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "for_condition_optimized",
+      "source": "../../../cases/run/temporary_expired_for_condition.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_for_condition\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "for_init_optimized",
+      "source": "../../../cases/run/temporary_expired_for_init.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_for_init\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "for_post_optimized",
+      "source": "../../../cases/run/temporary_expired_for_post.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_for_post\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "global_optimized",
+      "source": "../../../cases/run/temporary_expired_global.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_global\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "if_optimized",
+      "source": "../../../cases/run/temporary_expired_if.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_if\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "literal_optimized",
+      "source": "../../../cases/run/temporary_expired_literal.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_literal\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "method_optimized",
+      "source": "../../../cases/run/temporary_expired_method.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_method\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "multiple_optimized",
+      "source": "../../../cases/run/temporary_expired_multiple.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_multiple\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "rebound_optimized",
+      "source": "../../../cases/run/temporary_expired_rebound.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_rebound\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "return_optimized",
+      "source": "../../../cases/run/temporary_expired_return.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_return\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "static_optimized",
+      "source": "../../../cases/run/temporary_expired_static.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_static\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "swap_optimized",
+      "source": "../../../cases/run/temporary_expired_swap.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_swap\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "throw_optimized",
+      "source": "../../../cases/run/temporary_expired_throw.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_throw\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "unsigned_optimized",
+      "source": "../../../cases/run/temporary_expired_unsigned.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_unsigned\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "user_op_optimized",
+      "source": "../../../cases/run/temporary_expired_user_op.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_user_op\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "while_optimized",
+      "source": "../../../cases/run/temporary_expired_while.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_while\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_reference",
+      "source": "../../../cases/run/temporary_lifetime_valid.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "temporary lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "temporary lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout_regex": "temporary lifetimes 0\\r?\\n",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "assignment_reference",
+      "source": "../../../cases/run/temporary_expired_assignment.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_assignment\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "conditional_reference",
+      "source": "../../../cases/run/temporary_expired_conditional.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_conditional\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "declarator_reference",
+      "source": "../../../cases/run/temporary_expired_declarator.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_declarator\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic_reference",
+      "source": "../../../cases/run/temporary_expired_dynamic.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_dynamic\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "fixed_reference",
+      "source": "../../../cases/run/temporary_expired_fixed.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_fixed\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "for_condition_reference",
+      "source": "../../../cases/run/temporary_expired_for_condition.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_for_condition\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "for_init_reference",
+      "source": "../../../cases/run/temporary_expired_for_init.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_for_init\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "for_post_reference",
+      "source": "../../../cases/run/temporary_expired_for_post.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_for_post\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "global_reference",
+      "source": "../../../cases/run/temporary_expired_global.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_global\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "if_reference",
+      "source": "../../../cases/run/temporary_expired_if.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_if\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "literal_reference",
+      "source": "../../../cases/run/temporary_expired_literal.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_literal\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "method_reference",
+      "source": "../../../cases/run/temporary_expired_method.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_method\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "multiple_reference",
+      "source": "../../../cases/run/temporary_expired_multiple.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_multiple\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "rebound_reference",
+      "source": "../../../cases/run/temporary_expired_rebound.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_rebound\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "return_reference",
+      "source": "../../../cases/run/temporary_expired_return.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_return\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "static_reference",
+      "source": "../../../cases/run/temporary_expired_static.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_static\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "swap_reference",
+      "source": "../../../cases/run/temporary_expired_swap.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_swap\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "throw_reference",
+      "source": "../../../cases/run/temporary_expired_throw.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_throw\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "unsigned_reference",
+      "source": "../../../cases/run/temporary_expired_unsigned.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_unsigned\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "user_op_reference",
+      "source": "../../../cases/run/temporary_expired_user_op.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_user_op\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "while_reference",
+      "source": "../../../cases/run/temporary_expired_while.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired storage access is undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_while\\.hs:[0-9]+:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "proven",
+      "source": "../../../cases/run/temporary_expired_proven.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Statically proven expired access; never execute."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_expired_proven\\.hs:4:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_expired_proven\\.hs:4:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "c_literal_static",
+      "source": "../../../cases/compat/c_string_literal_lifetime.c",
+      "compile_args": [
+        "--c-compat"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "resize_zero_optimized",
+      "source": "../../../cases/run/temporary_expired_resize_zero.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_resize_zero\\.hs:6:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "resize_short_optimized",
+      "source": "../../../cases/run/temporary_expired_resize_short.hs",
+      "compile_args": [
+        "--stdlib-provider=optimized"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_resize_short\\.hs:6:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "resize_zero_reference",
+      "source": "../../../cases/run/temporary_expired_resize_zero.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_resize_zero\\.hs:6:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "resize_short_reference",
+      "source": "../../../cases/run/temporary_expired_resize_short.hs",
+      "compile_args": [
+        "--stdlib-provider=reference"
+      ],
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Expired source reads are undefined outside checked mode; compile only."
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run": {
+            "exit_code": 120,
+            "stdout": "",
+            "stderr_regex": "hitsimple runtime error: invalid checked load at [^\\r\\n]*temporary_expired_resize_short\\.hs:6:[0-9]+\\r?\\n"
+          }
+        }
+      }
+    },
+    {
+      "name": "temporary_proven_dynamic",
+      "source": "../../../cases/run/temporary_proven_dynamic.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Proven invalid read; never execute."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_dynamic\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_dynamic\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "temporary_proven_fixed",
+      "source": "../../../cases/run/temporary_proven_fixed.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Proven invalid read; never execute."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_fixed\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_fixed\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "temporary_proven_swap_short",
+      "source": "../../../cases/run/temporary_proven_swap_short.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Proven invalid read; never execute."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_swap_short\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_swap_short\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        }
+      }
+    },
+    {
+      "name": "temporary_proven_unsigned_zero",
+      "source": "../../../cases/run/temporary_proven_unsigned_zero.hs",
+      "expect_by_mode": {
+        "unchecked": {
+          "compile": {
+            "exit_code": 0,
+            "stdout": "",
+            "stderr": ""
+          },
+          "run_not_applicable": "Proven invalid read; never execute."
+        },
+        "static-checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_unsigned_zero\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        },
+        "checked": {
+          "compile": {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr_regex": "(?s).*temporary_proven_unsigned_zero\\.hs:5:[0-9]+:.*static safety check failed: use after full-expression end.*"
+          }
+        }
+      }
+    }
+  ]
+}

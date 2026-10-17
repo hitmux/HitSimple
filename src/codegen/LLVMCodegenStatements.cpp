@@ -85,6 +85,14 @@ void LlvmEmitter::emit(const hir::Block &block) {
 
 void LlvmEmitter::emit(const hir::Stmt &statement) {
   DebugLocationScope debugLocation(*this, statement.range);
+  emitStatementBody(statement);
+  if (statement.completesFullExpression &&
+      !builder_.GetInsertBlock()->getTerminator()) {
+    emitFullExpressionEnd();
+  }
+}
+
+void LlvmEmitter::emitStatementBody(const hir::Stmt &statement) {
   if (!statement.staticInitializationBinding.empty() &&
       !staticInitializationEmissionActive_) {
     const auto guard =
@@ -106,7 +114,7 @@ void LlvmEmitter::emit(const hir::Stmt &statement) {
 
     builder_.SetInsertPoint(initializeBlock);
     staticInitializationEmissionActive_ = true;
-    emit(statement);
+    emitStatementBody(statement);
     staticInitializationEmissionActive_ = false;
     if (!builder_.GetInsertBlock()->getTerminator()) {
       auto *written = builder_.CreateStore(builder_.getTrue(), guard->second);

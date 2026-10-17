@@ -169,6 +169,14 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Block &block) {
 
 bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
   SourceRangeScope sourceRange(*this, statement.range);
+  const bool fallsThrough = validateStatementBody(statement);
+  if (statement.completesFullExpression) {
+    expireStaticTemporaries();
+  }
+  return fallsThrough;
+}
+
+bool StaticSafetyAnalyzer::validateStatementBody(const hir::Stmt &statement) {
   if (const auto *local = dynamic_cast<const hir::LocalMemory *>(&statement)) {
     staticDefinitionByteLengths_[local->bindingName] = local->byteLength;
     if (local->storage == hir::MemoryStorage::StaticLocal) {
@@ -440,6 +448,7 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
   if (const auto *ifStmt = dynamic_cast<const hir::If *>(&statement)) {
     validateSafety(*ifStmt->condition);
     const auto condition = staticBooleanValue(*ifStmt->condition);
+    expireStaticTemporaries();
     if (condition) {
       if (*condition) {
         return validateSafety(*ifStmt->thenBlock);
@@ -475,6 +484,7 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
   if (const auto *whileStmt = dynamic_cast<const hir::While *>(&statement)) {
     validateSafety(*whileStmt->condition);
     const auto condition = staticBooleanValue(*whileStmt->condition);
+    expireStaticTemporaries();
     if (condition && !*condition) {
       return true;
     }
@@ -488,53 +498,55 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     const bool bodyFallsThrough = validateSafety(*whileStmt->body);
     const auto bodyState = staticSafetyState();
     staticLoopContext_ = previousLoop;
-    restoreStaticSafetyState(entry);
-    std::optional<StaticSafetyState> exitState;
-    if (!condition || !*condition) {
-      exitState = entry;
-    }
-    if (breakState) {
-      exitState = exitState ? mergedStaticSafetyStates(*exitState, *breakState)
-                            : *breakState;
+    std::optional<StaticSafetyState> exitState = breakState;
+    if (!condition) {
+      exitState = exitState ? mergedStaticSafetyStates(*exitState, entry) : entry;
     }
     if (bodyFallsThrough || continueState) {
       const auto nextIteration = bodyFallsThrough
-                                     ? (continueState
-                                            ? mergedStaticSafetyStates(
-                                                  bodyState, *continueState)
-                                            : bodyState)
-                                     : *continueState;
-      if (!condition || !*condition) {
-        exitState = exitState
-                        ? mergedStaticSafetyStates(*exitState,
-                                                   mergedStaticSafetyStates(
-                                                       entry, nextIteration))
-                        : mergedStaticSafetyStates(entry, nextIteration);
-      }
+          ? (continueState ? mergedStaticSafetyStates(bodyState, *continueState)
+                           : bodyState)
+          : *continueState;
+      // A known first condition need not stay true after the loop body.
+      // Include the carried mutations rather than restoring stale entry facts.
+      const auto loopState = mergedStaticSafetyStates(entry, nextIteration);
+      exitState = exitState ? mergedStaticSafetyStates(*exitState, loopState)
+                            : loopState;
     }
-    if (exitState) {
-      restoreStaticSafetyState(*exitState);
+    if (!exitState) {
+      return false;
     }
+    restoreStaticSafetyState(*exitState);
     return true;
   }
   if (const auto *forStmt = dynamic_cast<const hir::For *>(&statement)) {
-    if (forStmt->init) {
-      if (!validateSafety(*forStmt->init)) {
-        return false;
-      }
+    if (forStmt->init && !validateSafety(*forStmt->init)) {
+      return false;
     }
+    std::optional<bool> condition;
     if (forStmt->condition) {
       validateSafety(*forStmt->condition);
-    }
-    if (forStmt->condition) {
-      if (const auto condition = staticBooleanValue(*forStmt->condition);
-          condition && !*condition) {
+      condition = staticBooleanValue(*forStmt->condition);
+      expireStaticTemporaries();
+      if (condition && !*condition) {
         return true;
       }
     }
     const auto entry = staticSafetyState();
+    std::optional<StaticSafetyState> breakState;
+    std::optional<StaticSafetyState> continueState;
+    StaticLoopContext loop{staticLoopContext_, staticGotoContext_, &breakState,
+                           &continueState};
+    auto *previousLoop = staticLoopContext_;
+    staticLoopContext_ = &loop;
     bool bodyFallsThrough = validateSafety(*forStmt->body);
-    if (bodyFallsThrough) {
+    const auto bodyState = staticSafetyState();
+    if (bodyFallsThrough || continueState) {
+      restoreStaticSafetyState(bodyFallsThrough
+          ? (continueState ? mergedStaticSafetyStates(bodyState, *continueState)
+                           : bodyState)
+          : *continueState);
+      bodyFallsThrough = true;
       for (const auto &post : forStmt->post) {
         if (!validateSafety(*post)) {
           bodyFallsThrough = false;
@@ -542,11 +554,22 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
         }
       }
     }
-    const auto bodyState = staticSafetyState();
-    restoreStaticSafetyState(entry);
-    if (bodyFallsThrough) {
-      mergeStaticSafetyStates(entry, bodyState);
+    const auto nextIteration = staticSafetyState();
+    staticLoopContext_ = previousLoop;
+    std::optional<StaticSafetyState> exitState = breakState;
+    // A missing condition has no false-condition edge: only a break exits it.
+    if (forStmt->condition && !condition) {
+      exitState = exitState ? mergedStaticSafetyStates(*exitState, entry) : entry;
     }
+    if (forStmt->condition && bodyFallsThrough) {
+      const auto loopState = mergedStaticSafetyStates(entry, nextIteration);
+      exitState = exitState ? mergedStaticSafetyStates(*exitState, loopState)
+                            : loopState;
+    }
+    if (!exitState) {
+      return false;
+    }
+    restoreStaticSafetyState(*exitState);
     return true;
   }
   if (const auto *gotoStmt = dynamic_cast<const hir::Goto *>(&statement)) {
@@ -560,13 +583,31 @@ bool StaticSafetyAnalyzer::validateSafety(const hir::Stmt &statement) {
     if (throwStmt->delivery) {
       validateSafety(*throwStmt->delivery);
     }
+    // Delivery consumes its source before the throw's full expression ends.
+    expireStaticTemporaries();
+    if (staticCatchContext_ && staticCatchContext_->throwState) {
+      const auto outgoing =
+          exitStaticScopes(staticCatchContext_->exitScope, staticSafetyState());
+      auto &target = *staticCatchContext_->throwState;
+      target = target ? mergedStaticSafetyStates(*target, outgoing) : outgoing;
+    }
     return false;
   }
   if (const auto *tryCatch = dynamic_cast<const hir::TryCatch *>(&statement)) {
-    const auto entry = staticSafetyState();
+    std::optional<StaticSafetyState> throwState;
+    StaticCatchContext context{staticCatchContext_, staticGotoContext_, &throwState};
+    auto *previousCatch = staticCatchContext_;
+    staticCatchContext_ = &context;
+    staticDefinitionByteLengths_[tryCatch->errorBindingName] =
+        tryCatch->errorByteLength;
     const bool tryFallsThrough = validateSafety(*tryCatch->tryBlock);
     const auto tryState = staticSafetyState();
-    restoreStaticSafetyState(entry);
+    // A throw in the catch belongs to an enclosing handler, not this one.
+    staticCatchContext_ = previousCatch;
+    if (!throwState) {
+      return tryFallsThrough;
+    }
+    restoreStaticSafetyState(*throwState);
     const bool catchFallsThrough = validateSafety(*tryCatch->catchBlock);
     const auto catchState = staticSafetyState();
     if (tryFallsThrough && catchFallsThrough) {
@@ -946,6 +987,19 @@ void StaticSafetyAnalyzer::validateSafety(const hir::Expr &expression) {
          call->builtin == stdlib::BuiltinId::Strcat) && !arguments.empty()) {
       invalidateStaticFactsOverlapping(staticViewRange(*arguments[0]), std::nullopt);
     }
+    if (call->builtin == stdlib::BuiltinId::Strchr && !arguments.empty()) {
+      auto result = staticViewAddressFact(*arguments.front());
+      if (result) {
+        // The matching byte is not generally known, but its storage lifetime
+        // is. Preserve that identity without inventing a precise byte offset.
+        if (result->range) {
+          result->lifetimeBindingName = result->range->bindingName;
+          result->range.reset();
+        }
+        result->isBaseAddress = false;
+      }
+      staticCallAddressFacts_[call] = std::move(result);
+    }
     releaseStaticCallArguments(arguments);
     return;
   }
@@ -1005,8 +1059,11 @@ void StaticSafetyAnalyzer::recordStaticViewCapture(
       : std::nullopt;
   // The location is frozen, while aliased content facts are consulted only
   // when bytes are consumed. Unknown writes preserve location identities.
-  staticAddressFacts_[name + ".location"] = retainLocation
-      ? staticViewAddressFact(source) : std::nullopt;
+  staticAddressFacts_[name + ".location"] =
+      retainLocation || !source.result.isAddressable
+          ? staticViewAddressFact(source)
+          : std::optional<StaticAddressFact>{StaticAddressFact{
+                StaticAddressOrigin::TemporaryObject, 0, true, std::nullopt}};
   staticIntegerValues_[name] = retainLocation
       ? std::nullopt : staticSignedInteger(source);
   staticUnsignedIntegerValues_[name] = retainLocation

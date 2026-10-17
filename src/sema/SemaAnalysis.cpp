@@ -274,6 +274,7 @@ Analyzer::lowerGlobalInitializers(const ast::TranslationUnit &unit) {
     if (!store || !result_.diagnostics.empty()) {
       return nullptr;
     }
+    store->completesFullExpression = true;
     statements.push_back(std::move(store));
   }
   return std::make_unique<hir::Block>(std::move(statements));

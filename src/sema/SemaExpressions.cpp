@@ -468,8 +468,10 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
                     "': " + *decoded.error);
       return nullptr;
     }
-    return std::make_unique<hir::StringLiteral>(
+    auto literal = std::make_unique<hir::StringLiteral>(
         string->value, fixedResult("cstr", decoded.bytes.size() + 1));
+    literal->hasStaticStorage = cCompatibilityMode_;
+    return literal;
   }
 
   if (const auto *floating =

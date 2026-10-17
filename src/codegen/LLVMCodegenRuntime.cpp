@@ -188,6 +188,14 @@ void LlvmEmitter::emitRuntimeFrameExit() {
   }
 }
 
+void LlvmEmitter::emitFullExpressionEnd() {
+  if (hasRuntimeSafetyChecks() && runtimeFrameActive_) {
+    auto callee = declareCFunction("hs_full_expression_end",
+                                   builder_.getVoidTy(), {});
+    (void)emitCheckedRuntimeCall(callee, {});
+  }
+}
+
 void LlvmEmitter::emitRuntimeScopeEnter() {
   if (hasRuntimeSafetyChecks() && runtimeFrameActive_) {
     (void)emitCheckedRuntimeCall(declareRuntimeScopeEnter(), {});

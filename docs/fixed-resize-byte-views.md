@@ -93,14 +93,13 @@ ctest --test-dir build -R '^hsc_resize_unsigned_integration$' --output-on-failur
 
 ## Separate limits
 
-This change does not establish all temporary-lifetime enforcement. Checked mode
-currently permits a pointer returned by `strchr` into a resized temporary to be
-read in the following full expression. The pre-change runtime-length path also
-reproduces this: it registers the temporary but does not invalidate it between
-those statements. Snapshot and return-copy tests here do not claim to fix that
-independent full-expression lifetime gap. Unbounded dynamic resize allocation
-also remains separate work. Checked zero-length registration is repaired by
-the integrated unsigned stage as described above.
+The resize stage alone did not enforce full-expression lifetime expiry. The
+separate [temporary lifetime stage](temporary-view-lifetimes.md) now adds source
+boundaries, static proofs and checked runtime expiry, including the original
+fixed-width `strchr` escape and runtime-sized cases. Its source and tests require
+their own review and exact-head CI. Unbounded dynamic resize allocation remains
+separate work. Checked zero-length registration is repaired by the integrated
+unsigned stage as described above.
 
 Source inspection also finds `byte_swap` still tagging its result as `bytes`
 rather than the Standard's `none`, and ordinary floating unary minus is rejected

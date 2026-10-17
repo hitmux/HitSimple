@@ -151,6 +151,7 @@ private:
   void emit(const hir::Function &function);
   void emit(const hir::Block &block);
   void emit(const hir::Stmt &statement);
+  void emitStatementBody(const hir::Stmt &statement);
   void emit(const hir::LocalMemory &local);
   void emit(const hir::BindingRebind &rebind);
   void emit(const hir::IntegerStore &store);
@@ -305,6 +306,7 @@ private:
   void registerStaticObject(llvm::Value *storage, std::size_t byteLength);
   void emitRuntimeFrameEnter();
   void emitRuntimeFrameExit();
+  void emitFullExpressionEnd();
   void emitRuntimeScopeEnter();
   void emitRuntimeScopeExit();
   void emitRuntimeScopeExitTo(std::size_t targetDepth);

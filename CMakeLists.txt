@@ -1014,6 +1014,22 @@ target_link_libraries(hsc_unit_tests
     )
     add_test(NAME software_f128_runtime COMMAND hitsimple_f128_runtime_tests)
   endif()
+  add_executable(hitsimple_temporary_lifetime_tests
+    tests/runtime/TemporaryLifetimeTests.c)
+  set_target_properties(hitsimple_temporary_lifetime_tests PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED ON)
+  add_test(NAME hsc_runtime_temporary_lifetimes
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/runtime/run_temporary_lifetimes.py
+      $<TARGET_FILE:hitsimple_temporary_lifetime_tests>)
+  add_test(NAME hsc_temporary_view_lifetimes
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite temporary-view-lifetimes
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness)
+  set_tests_properties(hsc_runtime_temporary_lifetimes hsc_temporary_view_lifetimes
+    PROPERTIES LABELS "testing;views;temporary-lifetimes;safety-mode")
   add_executable(hitsimple_checked_file_handle_tests
     tests/runtime/CheckedFileHandleTests.c
   )

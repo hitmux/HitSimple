@@ -23,6 +23,8 @@ enum class StaticAddressOrigin {
   Null,
   DynamicObject,
   NonDynamicObject,
+  TemporaryObject,
+  ExpiredTemporaryObject,
   ExpiredLocalObject,
 };
 
@@ -37,6 +39,8 @@ struct StaticAddressFact {
   std::size_t dynamicObjectId = 0;
   bool isBaseAddress = false;
   std::optional<StaticAddressRange> range;
+  // A search result can retain its source lifetime without a known byte offset.
+  std::optional<std::string> lifetimeBindingName = std::nullopt;
 
   bool operator==(const StaticAddressFact&) const = default;
 };
@@ -72,6 +76,12 @@ struct StaticLoopContext {
   StaticGotoContext* exitScope = nullptr;
   std::optional<StaticSafetyState>* breakState = nullptr;
   std::optional<StaticSafetyState>* continueState = nullptr;
+};
+
+struct StaticCatchContext {
+  StaticCatchContext* parent = nullptr;
+  StaticGotoContext* exitScope = nullptr;
+  std::optional<StaticSafetyState>* throwState = nullptr;
 };
 
 } // namespace hitsimple::safety::detail
