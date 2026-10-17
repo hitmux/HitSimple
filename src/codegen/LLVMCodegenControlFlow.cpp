@@ -17,6 +17,7 @@ void LlvmEmitter::emit(const hir::If &ifStmt) {
   if (!condition) {
     return;
   }
+  emitFullExpressionEnd();
   builder_.CreateCondBr(condition, thenBlock, elseBlock);
 
   builder_.SetInsertPoint(thenBlock);
@@ -50,6 +51,7 @@ void LlvmEmitter::emit(const hir::While &whileStmt) {
   if (!condition) {
     return;
   }
+  emitFullExpressionEnd();
   builder_.CreateCondBr(condition, bodyBlock, afterBlock);
 
   loopTargets_.push_back(
@@ -92,6 +94,7 @@ void LlvmEmitter::emit(const hir::For &forStmt) {
     if (!condition) {
       return;
     }
+    emitFullExpressionEnd();
     builder_.CreateCondBr(condition, bodyBlock, afterBlock);
   } else {
     builder_.CreateBr(bodyBlock);
@@ -187,6 +190,8 @@ void LlvmEmitter::emit(const hir::Throw &throwStmt) {
   if (builder_.GetInsertBlock()->getTerminator()) {
     return;
   }
+  // Delivery must copy the thrown bytes before their temporary storage expires.
+  emitFullExpressionEnd();
   emitRuntimeScopeExitTo(target.scopeDepth);
   builder_.CreateBr(target.catchBlock);
 }

@@ -267,6 +267,15 @@ std::optional<StaticAddressFact> StaticSafetyAnalyzer::staticViewAddressFact(
     const auto found = staticAddressFacts_.find(capture->captureName + ".location");
     return found == staticAddressFacts_.end() ? std::nullopt : found->second;
   }
+  if (const auto *literal = dynamic_cast<const hir::StringLiteral *>(&expression);
+      literal && literal->hasStaticStorage) {
+    return StaticAddressFact{StaticAddressOrigin::NonDynamicObject, 0, true,
+                             std::nullopt};
+  }
+  if (!expression.result.isAddressable) {
+    return StaticAddressFact{StaticAddressOrigin::TemporaryObject, 0, true,
+                             std::nullopt};
+  }
   return std::nullopt;
 }
 
@@ -527,6 +536,15 @@ StaticSafetyAnalyzer::staticBooleanValue(const hir::Expr &expression) const {
 
 std::optional<StaticAddressFact>
 StaticSafetyAnalyzer::staticAddressFact(const hir::Expr &expression) const {
+  if (const auto *assignment = dynamic_cast<const hir::AssignmentExpr *>(&expression)) {
+    return assignment->result ? staticAddressFact(*assignment->result)
+                              : std::nullopt;
+  }
+  if (dynamic_cast<const hir::CallExpr *>(&expression)) {
+    const auto found = staticCallAddressFacts_.find(&expression);
+    return found == staticCallAddressFacts_.end() ? std::nullopt : found->second;
+  }
+
   if (const auto *capture = dynamic_cast<const hir::CapturedViewRef *>(&expression)) {
     const auto alias = capturedAliases_.find(capture->captureName);
     if (alias != capturedAliases_.end() && alias->second) {
@@ -750,6 +768,11 @@ void StaticSafetyAnalyzer::validateStaticAddressAccess(const hir::Expr &expressi
 void StaticSafetyAnalyzer::validateStaticAddressAccess(
     const std::optional<StaticAddressFact> &fact, std::string_view operation) {
   if (!fact) {
+    return;
+  }
+  if (fact->origin == StaticAddressOrigin::ExpiredTemporaryObject) {
+    addDiagnostic("static safety check failed: use after full-expression end " +
+                  std::string(operation));
     return;
   }
   if (fact->origin == StaticAddressOrigin::ExpiredLocalObject) {

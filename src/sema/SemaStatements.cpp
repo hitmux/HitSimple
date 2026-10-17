@@ -44,10 +44,18 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::Stmt &statement) {
     return analyze(*decl);
   }
   if (const auto *assign = dynamic_cast<const ast::AssignStmt *>(&statement)) {
-    return analyze(*assign);
+    auto lowered = analyze(*assign);
+    if (lowered) {
+      lowered->completesFullExpression = true;
+    }
+    return lowered;
   }
   if (const auto *expr = dynamic_cast<const ast::ExprStmt *>(&statement)) {
-    return analyze(*expr);
+    auto lowered = analyze(*expr);
+    if (lowered) {
+      lowered->completesFullExpression = true;
+    }
+    return lowered;
   }
   if (const auto *ret = dynamic_cast<const ast::ReturnStmt *>(&statement)) {
     return analyze(*ret);
@@ -335,6 +343,7 @@ std::unique_ptr<hir::Stmt> Analyzer::analyzeDeclItem(const ast::DeclItem &item,
     if (!store) {
       return std::make_unique<hir::StatementList>(std::move(statements));
     }
+    store->completesFullExpression = true;
     if (memoryStorage == hir::MemoryStorage::StaticLocal) {
       store->staticInitializationBinding = symbol.bindingName;
     }
@@ -811,6 +820,7 @@ std::unique_ptr<hir::Stmt> Analyzer::analyze(const ast::ForStmt &statement) {
   for (const auto &expr : statement.post) {
     auto lowered = analyzeExpressionStatementExpr(*expr);
     if (lowered) {
+      lowered->completesFullExpression = true;
       post.push_back(std::move(lowered));
     }
   }

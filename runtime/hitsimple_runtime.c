@@ -241,6 +241,21 @@ void hs_frame_exit(void) {
   --hs_current_frame;
 }
 
+// Full expressions belong to a source invocation. A nested callee must not
+// expire temporary arguments that are still owned by its caller frame.
+void hs_full_expression_end(void) {
+  if (hs_current_frame == 0) {
+    hs_fail("full expression ended outside a runtime frame");
+  }
+  for (int i = 0; i < HS_MAX_OBJECTS; ++i) {
+    if (hs_allocs[i].ptr != NULL &&
+        hs_allocs[i].kind == HS_OBJECT_TEMPORARY &&
+        hs_allocs[i].frame == hs_current_frame) {
+      hs_clear(&hs_allocs[i]);
+    }
+  }
+}
+
 void hs_scope_enter(void) {
   if (hs_current_frame == 0) {
     hs_fail("scope entered outside a runtime frame");

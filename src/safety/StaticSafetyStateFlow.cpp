@@ -8,6 +8,7 @@ namespace hitsimple::safety::detail {
 void StaticSafetyAnalyzer::resetStaticSafetyState() {
   capturedAliases_.clear();
   capturedRanges_.clear();
+  staticCallAddressFacts_.clear();
   staticIntegerValues_.clear();
   staticUnsignedIntegerValues_.clear();
   staticAddressFacts_.clear();
@@ -149,19 +150,36 @@ void StaticSafetyAnalyzer::invalidateStaticBinding(std::string_view bindingName)
   staticCStringTerminations_[key] = std::nullopt;
 }
 
+void StaticSafetyAnalyzer::expireStaticTemporaries() {
+  const auto expire = [](auto &facts) {
+    for (auto &[name, fact] : facts) {
+      (void)name;
+      if (fact && fact->origin == StaticAddressOrigin::TemporaryObject) {
+        fact->origin = StaticAddressOrigin::ExpiredTemporaryObject;
+        fact->isBaseAddress = false;
+      }
+    }
+  };
+  expire(staticAddressFacts_);
+  expire(staticBindingAddressFacts_);
+  staticCallAddressFacts_.clear();
+}
+
 void StaticSafetyAnalyzer::expireStaticLocalBindings(
     const std::vector<std::string> &bindingNames) {
   for (const auto &bindingName : bindingNames) {
     for (auto &[candidate, fact] : staticAddressFacts_) {
       (void)candidate;
-      if (fact && fact->range && fact->range->bindingName == bindingName) {
+      if (fact && ((fact->range && fact->range->bindingName == bindingName) ||
+                   fact->lifetimeBindingName == bindingName)) {
         fact->origin = StaticAddressOrigin::ExpiredLocalObject;
         fact->isBaseAddress = false;
       }
     }
     for (auto &[candidate, fact] : staticBindingAddressFacts_) {
       (void)candidate;
-      if (fact && fact->range && fact->range->bindingName == bindingName) {
+      if (fact && ((fact->range && fact->range->bindingName == bindingName) ||
+                   fact->lifetimeBindingName == bindingName)) {
         fact->origin = StaticAddressOrigin::ExpiredLocalObject;
         fact->isBaseAddress = false;
       }

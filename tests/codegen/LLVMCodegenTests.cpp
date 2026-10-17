@@ -3934,7 +3934,8 @@ HS_TEST(LLVMCodegen_LiteralTernariesCopyCompleteSelectedViews) {
       unsigned copies = 0;
       for (const auto &block : *function) {
         for (const auto &instruction : block) {
-          if (const auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(&instruction)) {
+          if (const auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(&instruction);
+              copy != nullptr && copy->getRawDest()->getName().starts_with("view.ternary")) {
             const auto *length = llvm::dyn_cast<llvm::ConstantInt>(copy->getLength());
             HS_EXPECT_TRUE(length != nullptr);
             HS_EXPECT_EQ(length->getZExtValue(), width);
@@ -4169,4 +4170,84 @@ HS_TEST(LLVMCodegen_ResizeBytesCopiesRepresentationsAtFixedWidths) {
       HS_EXPECT_EQ(resizeAllocations, 1U);
     }
   }
+}
+
+namespace {
+bool callsLifetimeRuntime(const llvm::CallBase &call, llvm::StringRef name) {
+  const auto *callee = call.getCalledFunction();
+  if (callee == nullptr) { return false; }
+  if (callee->getName() == name) { return true; }
+  if (!callee->getName().starts_with("hs.runtime.location.")) { return false; }
+  for (const auto &block : *callee) {
+    for (const auto &instruction : block) {
+      const auto *nested = llvm::dyn_cast<llvm::CallBase>(&instruction);
+      if (nested != nullptr && nested->getCalledFunction() != nullptr &&
+          nested->getCalledFunction()->getName() == name) { return true; }
+    }
+  }
+  return false;
+}
+}
+
+HS_TEST(LLVMCodegen_FullExpressionBoundariesPreserveInternalCaptures) {
+  const std::string source =
+      "func main() -> i32 {\n"
+      "  new left[4] as cstr = \"abc\"\n"
+      "  new right[4] as cstr = \"xyz\"\n"
+      "  left, right = right?, left?\n"
+      "  return 0\n"
+      "}\n";
+  auto sema = analyzeSource(source);
+  HS_EXPECT_TRUE(sema.diagnostics.empty());
+  const auto &statements = sema.unit->functions.front()->body->statements;
+  HS_EXPECT_EQ(statements.size(), 4U);
+  for (unsigned index = 0; index < 2; ++index) {
+    const auto *declaration = dynamic_cast<const hitsimple::hir::StatementList *>(statements[index].get());
+    HS_EXPECT_TRUE(declaration != nullptr);
+    HS_EXPECT_TRUE(!declaration->completesFullExpression);
+    HS_EXPECT_TRUE(!declaration->statements.front()->completesFullExpression);
+    HS_EXPECT_TRUE(declaration->statements.back()->completesFullExpression);
+  }
+  const auto *assignment = dynamic_cast<const hitsimple::hir::StatementList *>(statements[2].get());
+  HS_EXPECT_TRUE(assignment != nullptr && assignment->completesFullExpression);
+  for (const auto &internal : assignment->statements) {
+    HS_EXPECT_TRUE(!internal->completesFullExpression);
+  }
+  auto result = hitsimple::codegen::emitLlvmModule(*sema.unit, "test.hs",
+      optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.module != nullptr);
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+  unsigned boundaries = 0;
+  for (const auto &block : *result.module->getFunction("main")) {
+    for (const auto &instruction : block) {
+      const auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction);
+      if (call != nullptr && callsLifetimeRuntime(*call, "hs_full_expression_end")) { ++boundaries; }
+    }
+  }
+  HS_EXPECT_EQ(boundaries, 3U);
+}
+
+HS_TEST(LLVMCodegen_TemporaryCleanupAfterConditionConsumption) {
+  auto result = emitSource(
+      "func main() -> i32 {\n"
+      " if (strlen(\"abc\") == 3 && strlen(\"xyz\") == 3) {}\n"
+      " while (strlen(\"\") != 0) {}\n"
+      " for (; strlen(\"\") != 0;) {}\n"
+      " return 0\n"
+      "}\n", optionsFor(hitsimple::codegen::SafetyMode::Checked));
+  HS_EXPECT_TRUE(result.diagnostics.empty());
+  HS_EXPECT_TRUE(result.module != nullptr);
+  HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+  unsigned boundaries = 0;
+  for (const auto &block : *result.module->getFunction("main")) {
+    for (const auto &instruction : block) {
+      const auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction);
+      if (call == nullptr || !callsLifetimeRuntime(*call, "hs_full_expression_end")) { continue; }
+      ++boundaries;
+      const auto *branch = llvm::dyn_cast<llvm::BranchInst>(instruction.getNextNode());
+      HS_EXPECT_TRUE(branch != nullptr && branch->isConditional());
+    }
+  }
+  HS_EXPECT_EQ(boundaries, 3U);
 }
