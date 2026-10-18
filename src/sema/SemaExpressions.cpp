@@ -521,11 +521,11 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
     };
     if (const auto found = functions_.find(call->callee);
         found != functions_.end() && builtin != stdlib::BuiltinId::Length &&
+        builtin != stdlib::BuiltinId::ByteSwap &&
         !validateHandleCallArguments(*call, found->second)) {
       return nullptr;
     }
     if (builtin == stdlib::BuiltinId::ResizeBytes ||
-        builtin == stdlib::BuiltinId::ByteSwap ||
         (builtin && isStandardConversion(*builtin))) {
       for (const auto &argument : call->arguments) {
         if (isHandleExpression(*argument)) {
@@ -709,10 +709,14 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
       const auto length = operand->result.lengthKind == hir::ViewLengthKind::Static
                               ? std::optional<std::size_t>{operand->result.staticByteLength}
                               : std::nullopt;
+      // Standard 14.2: reverse the representation of any View. The result
+      // is an untemplated, nonwritable raw rvalue, even at integer widths.
+      auto result = rawBytesResult(length.value_or(0));
       if (!length) {
+        result.lengthKind = hir::ViewLengthKind::Dynamic;
         return std::make_unique<hir::DynamicByteViewExpr>(
             hir::DynamicByteViewOperation::ByteSwap, std::move(operand),
-            nullptr, dynamicBytesResult());
+            nullptr, std::move(result));
       }
       if (isIntegerExpression(*operand) &&
           (*length == 1 || *length == 2 || *length == 4 || *length == 8)) {
@@ -721,11 +725,10 @@ std::unique_ptr<hir::Expr> Analyzer::analyze(const ast::Expr &expression) {
         return std::make_unique<hir::CallExpr>(
             "byte_swap", std::move(arguments), false,
             stdlib::BuiltinId::ByteSwap, std::vector<hir::FormatArgKind>{}, 0,
-            "bytes",
-            fixedResult("bytes", *length));
+            "", std::move(result));
       }
       return std::make_unique<hir::ByteSwapExpr>(
-          std::move(operand), fixedResult("bytes", *length));
+          std::move(operand), std::move(result));
     }
     if (builtin == stdlib::BuiltinId::Abs) {
       if (call->arguments.size() != 1U) {

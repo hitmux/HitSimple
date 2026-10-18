@@ -13,7 +13,7 @@ metadata, not behavioral coverage. There is no conformance percentage.
 - Execution is separate: every committed row is `not_recorded`. Source inspection and
   a freshness check do not establish a test pass. Use exact-head CI logs or a local run report.
 
-Inventory: 151 numbered headings; 21 chapters; 75 Standard APIs; 8 optional extension APIs; 30 inspected witnesses.
+Inventory: 151 numbered headings; 21 chapters; 75 Standard APIs; 8 optional extension APIs; 31 inspected witnesses.
 
 ## Validate and run
 
@@ -251,8 +251,8 @@ Standard: [§6.7](../Standard.md#67-expression-level-as), [§12.2](../Standard.m
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1478) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L906) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1481) (`// Standard 21 compares read_bool values, not the bytes of bool Views.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L909) (`// Conversion functions read bool as 0/1 (Standard 14.2), while ordinary`)
 - [src/sema/SemaStatements.cpp](../src/sema/SemaStatements.cpp#L628) (`hir::ConversionKind::BooleanNormalize, lowered->result,`)
 
 Evidence:
@@ -364,7 +364,7 @@ Standard: [§14.0](../Standard.md#140-signature-notation), [§14.1](../Standard.
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1157) (`// Chapter 14 meta-parameters borrow/read the original View.`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1160) (`// Chapter 14 meta-parameters borrow/read the original View.`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1230) (`llvm::Value *LlvmEmitter::emitViewLowByte(const hir::Expr &expression)`)
 
 Evidence:
@@ -394,7 +394,7 @@ Standard: [§7.2](../Standard.md#72-default-assignment-), [§8.2](../Standard.md
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1096) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1099) (`// Standard 7.2 observes the assigned bytes as an rvalue copy, never as a`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1384) (`// Copy now: a later argument or nested operation may overwrite the target.`)
 
 Evidence:
@@ -854,7 +854,7 @@ Standard: [§6.9](../Standard.md#69-template-propagation-rules), [§6.10](../Sta
 Mapping: `inspected`. Execution: `not_recorded`.
 
 Implementation:
-- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1718) (`Analyzer::analyze(const ast::UnsignedExpr &expression)`)
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L1721) (`Analyzer::analyze(const ast::UnsignedExpr &expression)`)
 - [src/codegen/LLVMCodegenExpressions.cpp](../src/codegen/LLVMCodegenExpressions.cpp#L1327) (`// Snapshot bytes before any later operand can mutate or rebind the source.`)
 - [src/hir/HIR.cpp](../src/hir/HIR.cpp#L2018) (`UnsignedExpr must preserve operand length as an unsigned none rvalue`)
 - [src/safety/StaticSafetyValidation.cpp](../src/safety/StaticSafetyValidation.cpp#L747) (`unsignedExpr->result.staticByteLength, "unsigned snapshot"`)
@@ -961,7 +961,36 @@ Evidence:
 
 Context: [docs/fixed-resize-byte-views.md](../docs/fixed-resize-byte-views.md).
 
-Limit: Selected host examples at O0/O2, not exhaustive values, View forms, targets, dynamic allocation limits or full-expression lifetime enforcement. Empty Views do not establish legal zero-byte storage objects. Byte reversal result-template compliance remains a separate gap; this witness checks its observed bytes and extent only.
+Limit: Selected host examples at O0/O2, not exhaustive values, View forms, targets, dynamic allocation limits or full-expression lifetime enforcement. Empty Views do not establish legal zero-byte storage objects. This witness checks byte reversal bytes and extent only; its result-template contract has a separate byte-swap-raw-views witness.
+
+### byte-swap-raw-views
+
+Fixed integer-intrinsic, fixed generic and runtime-sized byte_swap results are same-extent untemplated raw-only nonwritable rvalues. Selected source categories include opaque handle representations without relaxing unrelated handle restrictions.
+
+Standard: [§7.9](../Standard.md#79-numeric-conversion-and-byte-reinterpretation), [§8.2](../Standard.md#82-ordinary-operator-resolution), [§11.6](../Standard.md#116-addr-and-handle), [§14.2](../Standard.md#142-conversion-functions).
+Mapping: `inspected`. Execution: `not_recorded`.
+
+Implementation:
+- [src/sema/SemaExpressions.cpp](../src/sema/SemaExpressions.cpp#L712) (`// Standard 14.2: reverse the representation of any View.`)
+
+Evidence:
+- `structural`: [Sema_ByteSwapProducesUntemplatedRawRvalues](../tests/sema/SemaViewLengthTests.cpp#L381)
+  Fixed and dynamic source examples expose RawBytes, RawOnly, empty templates, exact extents and neither addressability nor mutability across all three lowering paths.
+- `diagnostic`: [Sema_ByteSwapRequiresExplicitNumericInterpretation](../tests/sema/SemaViewLengthTests.cpp#L427)
+  Numeric conversion rejects untemplated raw output and accepts an explicit u16 interpretation.
+- `diagnostic`: [Sema_ByteSwapHandleAcceptancePreservesOtherHandleRestrictions](../tests/sema/SemaViewLengthTests.cpp#L445)
+  Numeric conversion, resize, standalone free and ordinary arithmetic reject handle arguments with handle-specific diagnostics.
+- `diagnostic`: [Sema_ByteSwapDoesNotIntroduceBytesComparisonCandidates](../tests/sema/SemaViewLengthTests.cpp#L461)
+  Two untemplated raw byte_swap results cannot introduce a bytes comparison candidate; explicitly interpreting both results as bytes enables comparison.
+- `IR`: [LLVMCodegen_ByteSwapReversesRawRepresentations](../tests/codegen/LLVMCodegenTests.cpp#L4174)
+  All three safety modes verify LLVM modules with i32/i64 bswap intrinsics, a generic odd-width reverse helper, one floating source call and no floating conversions.
+- `runtime`: [hsc_byte_swap_raw_views](../tests/support/harness/manifests/byte-swap-raw-views.json); cases: `optimized`, `reference`
+  Independent indexed byte copies check widths 1/2/3/4/5/8/16/33, all selected source categories, real file-handle bytes, literals, nesting, slices, dereferences, assignments, named returns, source-call counts and repeated dynamic positive/zero/positive extents.
+  Twelve configured provider/safety/O0/O2 host variants. Configuration and source inspection do not establish execution.
+
+Context: [docs/byte-swap-raw-views.md](../docs/byte-swap-raw-views.md).
+
+Limit: Selected host representations and View forms only; no complete lifetime, initialization, allocation-limit, mixed-template operator-matching or whole-language conformance claim. Constructed floating bit patterns assume supported little-endian targets.
 
 ## Standard navigation inventory
 
@@ -1031,11 +1060,11 @@ A mapped parent never implicitly maps its children or vice versa.
 | 7.6 | [Explicit Boolean Assignment `%b=`](../Standard.md#76-explicit-boolean-assignment-b) | unmapped |  |
 | 7.7 | [Address Rebinding `&=`](../Standard.md#77-address-rebinding-) | inspected | [true-name-rebinding](#true-name-rebinding), [resize-unsigned-stage-integration](#resize-unsigned-stage-integration) |
 | 7.8 | [`resize_bytes(expr, length)`](../Standard.md#78-resize_bytesexpr-length) | inspected | [fixed-resize-byte-views](#fixed-resize-byte-views), [resize-unsigned-stage-integration](#resize-unsigned-stage-integration) |
-| 7.9 | [Numeric Conversion and Byte Reinterpretation](../Standard.md#79-numeric-conversion-and-byte-reinterpretation) | inspected | [as-reinterpret](#as-reinterpret), [explicit-numeric-return-source](#explicit-numeric-return-source) |
+| 7.9 | [Numeric Conversion and Byte Reinterpretation](../Standard.md#79-numeric-conversion-and-byte-reinterpretation) | inspected | [as-reinterpret](#as-reinterpret), [explicit-numeric-return-source](#explicit-numeric-return-source), [byte-swap-raw-views](#byte-swap-raw-views) |
 | 7.10 | [Multiple Assignment](../Standard.md#710-multiple-assignment) | inspected | [multi-return-destination-contracts](#multi-return-destination-contracts), [multiple-rhs-source-views](#multiple-rhs-source-views) |
 | 8 | [Operators, Comparisons, and Evaluation Order](../Standard.md#8-operators-comparisons-and-evaluation-order) | unmapped |  |
 | 8.1 | [Operator Input Model](../Standard.md#81-operator-input-model) | unmapped |  |
-| 8.2 | [Ordinary Operator Resolution](../Standard.md#82-ordinary-operator-resolution) | inspected | [assignment-result-view-copy](#assignment-result-view-copy) |
+| 8.2 | [Ordinary Operator Resolution](../Standard.md#82-ordinary-operator-resolution) | inspected | [assignment-result-view-copy](#assignment-result-view-copy), [byte-swap-raw-views](#byte-swap-raw-views) |
 | 8.3 | [Explicit Typed Operators](../Standard.md#83-explicit-typed-operators) | unmapped |  |
 | 8.4 | [Untemplated Integer Rules](../Standard.md#84-untemplated-integer-rules) | unmapped |  |
 | 8.5 | [Standard-Template Default Operations](../Standard.md#85-standard-template-default-operations) | unmapped |  |
@@ -1067,7 +1096,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 11.3 | [Integer Templates](../Standard.md#113-integer-templates) | unmapped |  |
 | 11.4 | [Floating-Point Templates](../Standard.md#114-floating-point-templates) | unmapped |  |
 | 11.5 | [`bool`](../Standard.md#115-bool) | inspected | [ctype-canonical-bool](#ctype-canonical-bool) |
-| 11.6 | [`addr` and `handle`](../Standard.md#116-addr-and-handle) | inspected | [checked-file-handle-alias](#checked-file-handle-alias) |
+| 11.6 | [`addr` and `handle`](../Standard.md#116-addr-and-handle) | inspected | [checked-file-handle-alias](#checked-file-handle-alias), [byte-swap-raw-views](#byte-swap-raw-views) |
 | 11.7 | [`cstr` and `bytes`](../Standard.md#117-cstr-and-bytes) | inspected | [cstr-literal-zero-padding](#cstr-literal-zero-padding), [literal-ternary-view-copy](#literal-ternary-view-copy), [unsigned-snapshot-stage-integration](#unsigned-snapshot-stage-integration) |
 | 11.8 | [Compiler Built-In Optimization](../Standard.md#118-compiler-built-in-optimization) | unmapped |  |
 | 11.9 | [Observable-Behavior Equivalence Requirement](../Standard.md#119-observable-behavior-equivalence-requirement) | inspected | [ctype-low-byte](#ctype-low-byte) |
@@ -1086,7 +1115,7 @@ A mapped parent never implicitly maps its children or vice versa.
 | 14 | [Standard-Library Functions](../Standard.md#14-standard-library-functions) | unmapped |  |
 | 14.0 | [Signature Notation](../Standard.md#140-signature-notation) | inspected | [raw-memory-floating-views](#raw-memory-floating-views) |
 | 14.1 | [Memory Management and Byte Operations](../Standard.md#141-memory-management-and-byte-operations) | inspected | [raw-memory-floating-views](#raw-memory-floating-views), [validated-declaration-and-length-views](#validated-declaration-and-length-views) |
-| 14.2 | [Conversion Functions](../Standard.md#142-conversion-functions) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [validated-declaration-and-length-views](#validated-declaration-and-length-views), [fixed-resize-byte-views](#fixed-resize-byte-views), [resize-unsigned-stage-integration](#resize-unsigned-stage-integration) |
+| 14.2 | [Conversion Functions](../Standard.md#142-conversion-functions) | inspected | [bool-value-read-boundaries](#bool-value-read-boundaries), [explicit-numeric-return-source](#explicit-numeric-return-source), [validated-declaration-and-length-views](#validated-declaration-and-length-views), [fixed-resize-byte-views](#fixed-resize-byte-views), [resize-unsigned-stage-integration](#resize-unsigned-stage-integration), [byte-swap-raw-views](#byte-swap-raw-views) |
 | 14.3 | [String and Buffer Functions](../Standard.md#143-string-and-buffer-functions) | unmapped |  |
 | 14.4 | [Standard Input and Output](../Standard.md#144-standard-input-and-output) | unmapped |  |
 | 14.5 | [File I/O](../Standard.md#145-file-io) | inspected | [checked-file-handle-alias](#checked-file-handle-alias), [raw-memory-floating-views](#raw-memory-floating-views) |

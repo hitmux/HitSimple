@@ -2222,7 +2222,7 @@
         "14.2"
       ],
       "claim": "Fixed and dynamic resize byte copies compose with unsigned snapshots, byte reversal, fixed ternaries, wide integer representations, named returns and rebound readable prefixes; known/dynamic empty results preserve evaluation and repeated positive-to-empty-to-positive sites remain usable.",
-      "limitation": "Selected host examples at O0/O2, not exhaustive values, View forms, targets, dynamic allocation limits or full-expression lifetime enforcement. Empty Views do not establish legal zero-byte storage objects. Byte reversal result-template compliance remains a separate gap; this witness checks its observed bytes and extent only.",
+      "limitation": "Selected host examples at O0/O2, not exhaustive values, View forms, targets, dynamic allocation limits or full-expression lifetime enforcement. Empty Views do not establish legal zero-byte storage objects. This witness checks byte reversal bytes and extent only; its result-template contract has a separate byte-swap-raw-views witness.",
       "implementation": [
         {
           "path": "src/codegen/LLVMCodegenExpressions.cpp",
@@ -2266,10 +2266,76 @@
           "anchor": "## Integration with unsigned snapshots"
         }
       ]
+    },
+    {
+      "id": "byte-swap-raw-views",
+      "sections": [
+        "7.9",
+        "8.2",
+        "11.6",
+        "14.2"
+      ],
+      "claim": "Fixed integer-intrinsic, fixed generic and runtime-sized byte_swap results are same-extent untemplated raw-only nonwritable rvalues. Selected source categories include opaque handle representations without relaxing unrelated handle restrictions.",
+      "limitation": "Selected host representations and View forms only; no complete lifetime, initialization, allocation-limit, mixed-template operator-matching or whole-language conformance claim. Constructed floating bit patterns assume supported little-endian targets.",
+      "implementation": [
+        {
+          "path": "src/sema/SemaExpressions.cpp",
+          "anchor": "// Standard 14.2: reverse the representation of any View."
+        }
+      ],
+      "evidence": [
+        {
+          "kind": "structural",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_ByteSwapProducesUntemplatedRawRvalues",
+          "assertions": "Fixed and dynamic source examples expose RawBytes, RawOnly, empty templates, exact extents and neither addressability nor mutability across all three lowering paths."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_ByteSwapRequiresExplicitNumericInterpretation",
+          "assertions": "Numeric conversion rejects untemplated raw output and accepts an explicit u16 interpretation."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_ByteSwapHandleAcceptancePreservesOtherHandleRestrictions",
+          "assertions": "Numeric conversion, resize, standalone free and ordinary arithmetic reject handle arguments with handle-specific diagnostics."
+        },
+        {
+          "kind": "diagnostic",
+          "path": "tests/sema/SemaViewLengthTests.cpp",
+          "test": "Sema_ByteSwapDoesNotIntroduceBytesComparisonCandidates",
+          "assertions": "Two untemplated raw byte_swap results cannot introduce a bytes comparison candidate; explicitly interpreting both results as bytes enables comparison."
+        },
+        {
+          "kind": "IR",
+          "path": "tests/codegen/LLVMCodegenTests.cpp",
+          "test": "LLVMCodegen_ByteSwapReversesRawRepresentations",
+          "assertions": "All three safety modes verify LLVM modules with i32/i64 bswap intrinsics, a generic odd-width reverse helper, one floating source call and no floating conversions."
+        },
+        {
+          "kind": "runtime",
+          "path": "tests/support/harness/manifests/byte-swap-raw-views.json",
+          "ctest": "hsc_byte_swap_raw_views",
+          "cases": [
+            "optimized",
+            "reference"
+          ],
+          "assertions": "Independent indexed byte copies check widths 1/2/3/4/5/8/16/33, all selected source categories, real file-handle bytes, literals, nesting, slices, dereferences, assignments, named returns, source-call counts and repeated dynamic positive/zero/positive extents.",
+          "limitation": "Twelve configured provider/safety/O0/O2 host variants. Configuration and source inspection do not establish execution."
+        }
+      ],
+      "docs": [
+        {
+          "path": "docs/byte-swap-raw-views.md",
+          "anchor": "## Bounded evidence"
+        }
+      ]
     }
   ],
   "reviewed_sha256": {
-    "CMakeLists.txt": "87da1e23f178cfcf22494ac541437dffcd25bb15ae331335353ab50259e7741d",
+    "CMakeLists.txt": "cb08ec5962e36d814b85bd393cb9963e4d416c226d0ebdc71e573040892c74d1",
     "Standard.md": "9c6a9d598b1d0a5f9e75c162dd5e5dec6fa3d2d988730a129f429e7bbb82aa45",
     "docs/assignment-result-views.md": "931dee764e08a71244eb62e7198177150d526c475111c887a7d6aa858446f924",
     "docs/checked-file-handles.md": "0c18eaef8ae64156741dc260e754e49135dea00b8a57af34f9b71db772eb3b29",
@@ -2283,7 +2349,7 @@
     "src/safety/StaticSafetyValidation.cpp": "3d39419d9ab6a330413281f6bf7116691602b26a3cdd10f0eaffb4975924b247",
     "src/sema/SemaAnalysis.cpp": "1786741dba8082c9e4e8031a8c293672d0b5a3c62610ec4b38004e2924c296f6",
     "src/sema/SemaAnalysisContext.cpp": "2fff3d4fe802b42224fe83b40d73b494a4cb981dc9f2a033ac2c07665f223c8e",
-    "src/sema/SemaExpressions.cpp": "55c8dc90a7f9e8eea26a11d7ee35a39b3ed6eb6540ce3a6cb419854f83030ef0",
+    "src/sema/SemaExpressions.cpp": "7d965b9c93bcc52900cf57c86401cabd95451e39ff5f815095ea9be540083fe2",
     "src/sema/SemaStatements.cpp": "e1a3ee9ce31ebae3aee28617f6288247af5b3c74716188f7e491ea831dde307f",
     "stdlib/ctype.hs": "a659b27716c4d717bb12bd437ef012ed79cf4583cf5655d52f7c1849b31b97e5",
     "tests/cases/run/assignment_result_views.hs": "5def66249cb9c085717a94ea9bfd1e2178ebe515000b065c3e7be45788b5a47f",
@@ -2301,7 +2367,7 @@
     "tests/cases/run/raw_memory_floating_views.hs": "597333a7e42443f954ab2cd6f3c002c706ec471913cc3b1e049e7a1592012d14",
     "tests/cases/run/template_view.hs": "18cc1d6c41713636440ad4b696b29b5d3a40b10fbdb1458d97eccb89f8156a15",
     "tests/cases/run/user_template_ops.hs": "35359fc94327f860ae963dfe4ea783154d1164d13ef3148b71f316525b99a2e1",
-    "tests/codegen/LLVMCodegenTests.cpp": "00b24fba68c1e86593426eaef0a121dac637ea73675f47ad84e6492f4931df77",
+    "tests/codegen/LLVMCodegenTests.cpp": "ba0cd248d1dd14fa8e936274bc1dc30f480fc210448d13f2404325de4469146f",
     "tests/hir/HIRTests.cpp": "13b46dcd002c38320881e10fee83904c42b8adc6ba1555f5904d981af4248b9f",
     "tests/safety/StaticSafetyAnalyzerTests.cpp": "1244ed19095b4764d146d3daa2fb14a52798ce00cab02ded9063096082860d04",
     "tests/sema/SemaAggregateTests.cpp": "862ee4cac9c269e1b2b3af28f014d518680112be1056ff85fda1945b19e335ca",
@@ -2334,7 +2400,7 @@
     "tests/cases/run/length_invalid_operand.hs": "8e2c518b32277088bc2ee75342285442c8ad775b3df883622c3877976d4da2d9",
     "tests/cases/run/length_nonempty_guard.hs": "062b3c28f7df6c26ce329f7cb02590c7e5a33d843355034ea7fba91950130470",
     "tests/cases/run/validated_view_lengths.hs": "f67dd94bdf2e7338e80a9226022ef803d3a94f72ea21973770077233b626230e",
-    "tests/sema/SemaViewLengthTests.cpp": "e3de64da2e72f6e10b6663bbfb3c31e457b2d1db2279d4d08acbc5efc48d5aeb",
+    "tests/sema/SemaViewLengthTests.cpp": "f546a8b0ca39ef61495839c2bd58311318047cd1104e67aa2fe12cd4513d55cc",
     "tests/support/harness/manifests/validated-view-lengths.json": "d1b4bbfd0fe38b5af2746fdac0d47e940b87052f3af27858b059e359cc603967",
     "docs/multi-return-assignments.md": "24c692719dd125a940025d43ae3bfbcd097f791034c513ee88b9c84305f812a3",
     "tests/cases/run/multi_return_assignments.hs": "299978aef88c83bd2300d4e74e4f6bd20f64f7ed247a6e7d66da4d13673925c3",
@@ -2440,8 +2506,11 @@
     "tests/cases/run/unsigned_snapshot_ternary_lifetime.hs": "c5fa641a73a7bac002dd2ad6e8e2d635542b5daa30ee710ac0084e28b186f5c5",
     "tests/support/harness/manifests/fixed-resize-byte-views.json": "ecadb7533233ed3fb6e67cd3023c5e18d7293132c447a29519e31255a9cded71",
     "tests/cases/run/fixed_resize_byte_views.hs": "fc35eedef88b8435cad3d51b5cbf0fc8f26a1c0f1e3c7126abcb4be2e9563584",
-    "docs/fixed-resize-byte-views.md": "c85defe0d9c18d485f7a979862019a4dd2617fe7abd85dbf142a6bb2a24be027",
+    "docs/fixed-resize-byte-views.md": "2f46405a8b41a1140b6093b450d14a199f30a0abfec4ee6855cc97d52cd9416d",
     "tests/cases/run/resize_unsigned_integration.hs": "253fba6d997c3aa89d90db327a5491f58d74769e97233229c67a540f211aca35",
-    "tests/support/harness/manifests/resize-unsigned-integration.json": "45c85a6974c1ce419a517d4d866b1b83a656d3330ed7b67eb91e08d7ece2307d"
+    "tests/support/harness/manifests/resize-unsigned-integration.json": "45c85a6974c1ce419a517d4d866b1b83a656d3330ed7b67eb91e08d7ece2307d",
+    "docs/byte-swap-raw-views.md": "9d225b8fc73b5e64b8f65efaba9b5f47c9788da30e861e50450ebd934cc4e84a",
+    "tests/cases/run/byte_swap_raw_views.hs": "99dd8f76d8e0aa2f726ac0f68e313a53a2850601007c5cf4b0040e070e7262b5",
+    "tests/support/harness/manifests/byte-swap-raw-views.json": "4e8749a79b89e264f6d57046cab534473e410b1d1f20c27532abfbb596808144"
   }
 }
