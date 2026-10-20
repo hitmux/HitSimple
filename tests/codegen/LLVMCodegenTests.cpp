@@ -4170,3 +4170,40 @@ HS_TEST(LLVMCodegen_ResizeBytesCopiesRepresentationsAtFixedWidths) {
     }
   }
 }
+
+HS_TEST(LLVMCodegen_ByteSwapReversesRawRepresentations) {
+  for (const auto mode : {hitsimple::codegen::SafetyMode::Unchecked,
+                          hitsimple::codegen::SafetyMode::StaticChecked,
+                          hitsimple::codegen::SafetyMode::Checked}) {
+    const auto result = emitSource(
+        "func source(value as f64) -> f64 { return value; }\n"
+        "func real(value as f64) -> [8] as bytes { return byte_swap(source(value)) as bytes; }\n"
+        "func word(value as u32) -> [4] as bytes { return byte_swap(value) as bytes; }\n"
+        "func wide(value as u64) -> [8] as bytes { return byte_swap(value) as bytes; }\n"
+        "func odd(value[3] as bytes) -> [3] as bytes { return byte_swap(value) as bytes; }\n"
+        "func main() -> i32 { return 0; }\n", optionsFor(mode));
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(result.module != nullptr);
+    HS_EXPECT_TRUE(!llvm::verifyModule(*result.module, &llvm::errs()));
+    const auto ir = llvmIr(result);
+    HS_EXPECT_TRUE(ir.find("@llvm.bswap.i32") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("@llvm.bswap.i64") != std::string::npos);
+    HS_EXPECT_TRUE(ir.find("@hs_reverse_bytes") != std::string::npos);
+    for (const auto &conversion : {"fptoui", "fptosi", "fpext", "fptrunc"}) {
+      HS_EXPECT_TRUE(ir.find(conversion) == std::string::npos);
+    }
+    std::size_t sourceCalls = 0;
+    for (const auto &function : *result.module) {
+      for (const auto &block : function) {
+        for (const auto &instruction : block) {
+          if (const auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction);
+              call != nullptr && call->getCalledFunction() != nullptr &&
+              call->getCalledFunction()->getName() == "source") {
+            ++sourceCalls;
+          }
+        }
+      }
+    }
+    HS_EXPECT_EQ(sourceCalls, 1U);
+  }
+}

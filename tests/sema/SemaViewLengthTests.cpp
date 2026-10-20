@@ -377,3 +377,101 @@ HS_TEST(Sema_ResizeBytesRequiresExplicitNumericInterpretation) {
     HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*accepted.unit).empty());
   }
 }
+
+HS_TEST(Sema_ByteSwapProducesUntemplatedRawRvalues) {
+  using namespace hitsimple::hir;
+  for (const auto &[source, width] :
+       std::vector<std::pair<std::string, std::size_t>>{
+           {"flag", 1}, {"integer", 2}, {"half", 2}, {"single", 4},
+           {"real", 8}, {"wide", 16}, {"raw", 3}, {"text", 5},
+           {"record", 3}, {"file", 8}, {"address", 8},
+           {"\"A\\0Z\"", 4}, {"'é中'", 5}, {"0x1234", 2},
+           {"raw[0:2]", 2}, {"[3]*address", 3}, {"byte_swap(raw)", 3},
+           {"resize_bytes(raw, count)", 0}, {"resize_bytes(raw, 0)", 0}}) {
+    const auto result = analyzeSource(
+        "template Record { data[3] as bytes; }\n"
+        "func probe(flag as bool, integer as u16, half as f16, single as f32, "
+        "real as f64, wide as f128, raw[3] as bytes, text[5] as cstr, "
+        "record as Record, file as handle, address as addr, count as u64) -> u64 {\n"
+        "    return length(byte_swap(" + source + "));\n}\n"
+        "func main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit != nullptr);
+    HS_EXPECT_TRUE(result.diagnostics.empty());
+    HS_EXPECT_TRUE(verifyHIR(*result.unit).empty());
+    const auto *ret = dynamic_cast<const Return *>(
+        result.unit->functions.front()->body->statements.front().get());
+    HS_EXPECT_TRUE(ret != nullptr);
+    const auto *length = dynamic_cast<const CallExpr *>(ret->values.front().get());
+    HS_EXPECT_TRUE(length != nullptr);
+    const auto &swap = *length->arguments.front();
+    HS_EXPECT_EQ(swap.result.category, ViewCategory::RawBytes);
+    HS_EXPECT_EQ(swap.result.integerInterpretation, IntegerInterpretation::RawOnly);
+    HS_EXPECT_TRUE(swap.result.templateName.empty());
+    HS_EXPECT_TRUE(!swap.result.isAddressable);
+    HS_EXPECT_TRUE(!swap.result.isMutableLValue);
+    HS_EXPECT_EQ(swap.result.lengthKind,
+                 width == 0 ? ViewLengthKind::Dynamic : ViewLengthKind::Static);
+    HS_EXPECT_EQ(swap.result.staticByteLength, width);
+    if (const auto *call = dynamic_cast<const CallExpr *>(&swap)) {
+      HS_EXPECT_EQ(call->builtin, hitsimple::stdlib::BuiltinId::ByteSwap);
+      HS_EXPECT_TRUE(call->templateName.empty());
+    } else if (const auto *dynamic = dynamic_cast<const DynamicByteViewExpr *>(&swap)) {
+      HS_EXPECT_EQ(dynamic->operation, DynamicByteViewOperation::ByteSwap);
+      HS_EXPECT_TRUE(dynamic->runtimeLength == nullptr);
+    } else {
+      HS_EXPECT_TRUE(dynamic_cast<const ByteSwapExpr *>(&swap) != nullptr);
+    }
+  }
+}
+
+HS_TEST(Sema_ByteSwapRequiresExplicitNumericInterpretation) {
+  const auto rejected = analyzeSource(
+      "func probe(value as u16) -> u64 { return to_u64(byte_swap(value)); }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(rejected.unit == nullptr);
+  HS_EXPECT_TRUE(std::any_of(rejected.diagnostics.begin(), rejected.diagnostics.end(),
+      [](const auto &diagnostic) {
+        return diagnostic.message.find("requires an integer, floating, or address input") !=
+               std::string::npos;
+      }));
+  const auto accepted = analyzeSource(
+      "func probe(value as u16) -> u64 { return to_u64(byte_swap(value) as u16); }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(accepted.unit != nullptr);
+  HS_EXPECT_TRUE(accepted.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*accepted.unit).empty());
+}
+
+HS_TEST(Sema_ByteSwapHandleAcceptancePreservesOtherHandleRestrictions) {
+  for (const auto &statement : {"_ = to_u64(file);", "_ = resize_bytes(file, 8);",
+                                "free(file);", "_ = file + file;"}) {
+    const auto result = analyzeSource(
+        "func probe(file as handle) -> i32 { " + std::string(statement) +
+        " return 0; }\nfunc main() -> i32 { return 0; }\n");
+    HS_EXPECT_TRUE(result.unit == nullptr);
+    // A standalone free statement prevents a void-return mismatch from being
+    // mistaken for the intended handle restriction.
+    HS_EXPECT_TRUE(std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+        [](const auto &diagnostic) {
+          return diagnostic.message.find("handle") != std::string::npos;
+        }));
+  }
+}
+
+HS_TEST(Sema_ByteSwapDoesNotIntroduceBytesComparisonCandidates) {
+  const auto rejected = analyzeSource(
+      "func probe(raw[3] as bytes) -> bool { return byte_swap(raw) == byte_swap(raw); }\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(rejected.unit == nullptr);
+  HS_EXPECT_TRUE(std::any_of(rejected.diagnostics.begin(), rejected.diagnostics.end(),
+      [](const auto &diagnostic) {
+        return diagnostic.message.find("ordinary operation") != std::string::npos;
+      }));
+  const auto accepted = analyzeSource(
+      "func probe(raw[3] as bytes) -> bool {\n"
+      "    return (byte_swap(raw) as bytes) == (byte_swap(raw) as bytes);\n}\n"
+      "func main() -> i32 { return 0; }\n");
+  HS_EXPECT_TRUE(accepted.unit != nullptr);
+  HS_EXPECT_TRUE(accepted.diagnostics.empty());
+  HS_EXPECT_TRUE(hitsimple::hir::verifyHIR(*accepted.unit).empty());
+}

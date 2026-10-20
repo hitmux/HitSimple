@@ -1348,6 +1348,16 @@ target_link_libraries(hsc_unit_tests
   set_tests_properties(hsc_resize_unsigned_integration PROPERTIES
     LABELS "testing;harness;stdlib;views;integration")
   add_test(
+    NAME hsc_byte_swap_raw_views
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py
+      --hsc $<TARGET_FILE:hsc>
+      --suite byte-swap-raw-views
+      --artifacts ${HSC_CTEST_OUTPUT_ROOT}/harness
+  )
+  set_tests_properties(hsc_byte_swap_raw_views PROPERTIES
+    LABELS "testing;harness;stdlib;views;integration")
+  add_test(
     NAME hsc_wide_integer_literals
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tests/support/harness/run_tests.py

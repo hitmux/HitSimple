@@ -102,7 +102,6 @@ independent full-expression lifetime gap. Unbounded dynamic resize allocation
 also remains separate work. Checked zero-length registration is repaired by
 the integrated unsigned stage as described above.
 
-Source inspection also finds `byte_swap` still tagging its result as `bytes`
-rather than the Standard's `none`, and ordinary floating unary minus is rejected
-by sema. Neither is changed here; signed-zero resize inputs are constructed from
-representation bytes so that this test does not depend on floating negation.
+The separate [byte-swap correction](byte-swap-raw-views.md) addresses its result
+template. Ordinary floating unary minus remains rejected by sema; signed-zero
+resize inputs use representation bytes and do not depend on floating negation.
